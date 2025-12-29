@@ -4,6 +4,8 @@ import { GoogleAuth } from "google-auth-library";
 // Types
 interface LeadPayload {
   email: string;
+  first_name: string;
+  last_name: string;
   moving_in_30_days: "yes" | "no";
   apartment_size: "studio" | "1br" | "2br" | "3br+";
   preferred_marketplaces: string[];
@@ -19,7 +21,7 @@ interface ApiResponse {
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const VALID_MOVING = ["yes", "no"];
 const VALID_SIZES = ["studio", "1br", "2br", "3br+"];
-const VALID_MARKETPLACES = ["Facebook", "eBay", "Mercari", "Don't care"];
+const VALID_MARKETPLACES = ["Facebook Marketplace", "Craigslist", "OfferUp", "eBay", "Poshmark", "Let us decide"];
 
 function validatePayload(body: unknown): { valid: true; data: LeadPayload } | { valid: false; error: string } {
   if (!body || typeof body !== "object") {
@@ -31,6 +33,16 @@ function validatePayload(body: unknown): { valid: true; data: LeadPayload } | { 
   // Email
   if (typeof payload.email !== "string" || !EMAIL_REGEX.test(payload.email)) {
     return { valid: false, error: "Invalid email address" };
+  }
+
+  // First name
+  if (typeof payload.first_name !== "string" || !payload.first_name.trim()) {
+    return { valid: false, error: "First name is required" };
+  }
+
+  // Last name
+  if (typeof payload.last_name !== "string" || !payload.last_name.trim()) {
+    return { valid: false, error: "Last name is required" };
   }
 
   // Moving in 30 days
@@ -47,11 +59,6 @@ function validatePayload(body: unknown): { valid: true; data: LeadPayload } | { 
   if (!Array.isArray(payload.preferred_marketplaces) || payload.preferred_marketplaces.length === 0) {
     return { valid: false, error: "Select at least one marketplace" };
   }
-  for (const mp of payload.preferred_marketplaces) {
-    if (!VALID_MARKETPLACES.includes(mp)) {
-      return { valid: false, error: `Invalid marketplace: ${mp}` };
-    }
-  }
 
   // Notes (optional, trim and limit)
   let notes = "";
@@ -66,6 +73,8 @@ function validatePayload(body: unknown): { valid: true; data: LeadPayload } | { 
     valid: true,
     data: {
       email: payload.email.trim().toLowerCase(),
+      first_name: (payload.first_name as string).trim(),
+      last_name: (payload.last_name as string).trim(),
       moving_in_30_days: payload.moving_in_30_days as "yes" | "no",
       apartment_size: payload.apartment_size as LeadPayload["apartment_size"],
       preferred_marketplaces: payload.preferred_marketplaces,
@@ -97,10 +106,12 @@ async function appendToSheet(data: LeadPayload, timestamp: string): Promise<void
     throw new Error("Failed to get access token");
   }
 
-  const range = `${tabName}!A:G`;
+  const range = `${tabName}!A:I`;
   const values = [
     [
       timestamp,
+      data.first_name,
+      data.last_name,
       data.email,
       data.moving_in_30_days,
       data.apartment_size,
@@ -142,7 +153,7 @@ async function notifySlack(data: LeadPayload, timestamp: string): Promise<void> 
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `🆕 *New lead:* ${data.email}`,
+          text: `🆕 *New lead:* ${data.first_name} ${data.last_name} (${data.email})`,
         },
       },
       {
@@ -177,7 +188,6 @@ async function notifySlack(data: LeadPayload, timestamp: string): Promise<void> 
     }
   } catch (error) {
     console.error("Slack notification error:", error);
-    // Don't throw - Slack is best-effort
   }
 }
 
