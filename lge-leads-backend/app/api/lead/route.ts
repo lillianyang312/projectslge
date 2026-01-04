@@ -1,175 +1,98 @@
-import { NextRequest, NextResponse } from "next/server"
-import { GoogleAuth } from "google-auth-library"
+// pages/api/lead.ts
+import type { NextApiRequest, NextApiResponse } from "next"
+import { google } from "googleapis"
 
-/* =========================
-   Types
-========================= */
+const REQUIRED = [
+  "email",
+  "first_name",
+  "last_name",
+  "age",
+  "city",
+  "state",
+  "neighborhood",
+  "example_item",
+  "sold_secondhand_before",
+  "sell_priority",
+  "offer_trigger",
+] as const
 
-interface LeadPayload {
-  email: string
-  first_name: string
-  last_name: string
-  neighborhood: string
-  notes?: string
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+function getClientIp(req: NextApiRequest) {
+  const xf = req.headers["x-forwarded-for"]
+  if (typeof xf === "string") return xf.split(",")[0].trim()
+  return (req.socket as any)?.remoteAddress || ""
 }
 
-interface ApiResponse {
-  ok: boolean
-  error?: string
-}
-
-/* =========================
-   Validation
-========================= */
-
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
-function validatePayload(
-  body: unknown
-): { valid: true; data: LeadPayload } | { valid: false; error: string } {
-  if (!body || typeof body !== "object") {
-    return { valid: false, error: "Invalid request body" }
-  }
-
-  const payload = body as Record<string, unknown>
-
-  if (typeof payload.email !== "string" || !EMAIL_REGEX.test(payload.email)) {
-    return { valid: false, error: "Invalid email address" }
-  }
-
-  if (typeof payload.first_name !== "string" || !payload.first_name.trim()) {
-    return { valid: false, error: "First name is required" }
-  }
-
-  if (typeof payload.last_name !== "string" || !payload.last_name.trim()) {
-    return { valid: false, error: "Last name is required" }
-  }
-
-  if (typeof payload.neighborhood !== "string" || !payload.neighborhood.trim()) {
-    return { valid: false, error: "Neighborhood is required" }
-  }
-
-  let notes = ""
-  if (payload.notes !== undefined) {
-    if (typeof payload.notes !== "string") {
-      return { valid: false, error: "Notes must be a string" }
-    }
-    notes = payload.notes.trim().slice(0, 1000)
-  }
-
-  return {
-    valid: true,
-    data: {
-      email: payload.email.trim().toLowerCase(),
-      first_name: payload.first_name.trim(),
-      last_name: payload.last_name.trim(),
-      neighborhood: payload.neighborhood.trim(),
-      notes,
-    },
-  }
-}
-
-/* =========================
-   Google Sheets
-========================= */
-
-async function appendToSheet(data: LeadPayload, timestamp: string): Promise<void> {
-  const serviceAccountJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
-  const sheetId = process.env.GOOGLE_SHEET_ID
-  const tabName = process.env.GOOGLE_SHEET_TAB || "Leads"
-
-  if (!serviceAccountJson || !sheetId) {
-    throw new Error("Missing Google Sheets configuration")
-  }
-
-  const credentials = JSON.parse(serviceAccountJson)
-  const auth = new GoogleAuth({
-    credentials,
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-  })
-
-  const client = await auth.getClient()
-  const token = await client.getAccessToken()
-
-  if (!token.token) {
-    throw new Error("Failed to get access token")
-  }
-
-  const range = `${tabName}!A:F`
-  const values = [
-    [
-      timestamp,
-      data.first_name,
-      data.last_name,
-      data.email,
-      data.neighborhood,
-      data.notes || "",
-    ],
-  ]
-
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(
-    range
-  )}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token.token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ values }),
-  })
-
-  if (!response.ok) {
-    const errorText = await response.text()
-    throw new Error(`Sheets API error: ${response.status} ${errorText}`)
-  }
-}
-
-/* =========================
-   CORS
-========================= */
-
-function corsHeaders() {
-  return {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-  }
-}
-
-export async function OPTIONS() {
-  return NextResponse.json({}, { headers: corsHeaders() })
-}
-
-/* =========================
-   POST
-========================= */
-
-export async function POST(request: NextRequest): Promise<NextResponse<ApiResponse>> {
-  const headers = corsHeaders()
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Method not allowed" })
 
   try {
-    const body = await request.json()
-    const validation = validatePayload(body)
+    const b = req.body ?? {}
 
-    if (!validation.valid) {
-      return NextResponse.json(
-        { ok: false, error: validation.error },
-        { status: 400, headers }
-      )
+    const email = String(b.email ?? "").trim().toLowerCase()
+    if (!EMAIL_RE.test(email)) return res.status(400).json({ ok: false, error: "Invalid email" })
+
+    // Required checks (lightweight)
+    for (const k of REQUIRED) {
+      if (b[k] === undefined || b[k] === null || String(b[k]).trim() === "") {
+        return res.status(400).json({ ok: false, error: `Missing: ${k}` })
+      }
     }
 
-    const timestamp = new Date().toISOString()
+    const ageNum = Number(b.age)
+    if (!Number.isFinite(ageNum) || ageNum < 13 || ageNum > 120) {
+      return res.status(400).json({ ok: false, error: "Invalid age" })
+    }
 
-    await appendToSheet(validation.data, timestamp)
+    const sellableStatesArr: string[] = Array.isArray(b.sellable_states) ? b.sellable_states : []
+    const sellableStates = sellableStatesArr.map(String).filter(Boolean).join("|")
 
-    return NextResponse.json({ ok: true }, { headers })
-  } catch (error) {
-    console.error("API error:", error)
-    return NextResponse.json(
-      { ok: false, error: "Failed to save lead" },
-      { status: 500, headers }
-    )
+    const row = [
+      new Date().toISOString(),                // created_at
+      email,                                   // email
+      String(b.first_name).trim(),             // first_name
+      String(b.last_name).trim(),              // last_name
+      String(Math.trunc(ageNum)),              // age
+      String(b.city).trim(),                   // city
+      String(b.state).trim(),                  // state
+      String(b.neighborhood).trim(),           // neighborhood
+      sellableStates,                          // sellable_states
+      String(b.sellable_other_text ?? "").trim(), // sellable_other_text
+      String(b.offer_trigger ?? "").trim(),    // offer_trigger
+      String(b.offer_other_text ?? "").trim(), // offer_other_text
+      String(b.example_item ?? "").trim(),     // example_item
+      String(b.sold_secondhand_before ?? "").trim(), // sold_secondhand_before
+      String(b.sell_priority ?? "").trim(),    // sell_priority
+      String(b.sell_priority_other_text ?? "").trim(), // sell_priority_other_text
+      String(b.notes ?? "").trim(),            // notes
+      String(req.headers["user-agent"] ?? ""), // user_agent
+      getClientIp(req),                        // ip
+    ]
+
+    // --- Google Sheets append ---
+    // ENV you must set in Vercel:
+    // GOOGLE_SERVICE_ACCOUNT_EMAIL
+    // GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY  (replace \n properly)
+    // GOOGLE_SHEETS_ID
+    // GOOGLE_SHEETS_RANGE  e.g. "Leads!A:S"
+    const auth = new google.auth.JWT({
+      email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+      key: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+      scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+    })
+
+    const sheets = google.sheets({ version: "v4", auth })
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID,
+      range: process.env.GOOGLE_SHEETS_RANGE || "Leads!A:S",
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [row] },
+    })
+
+    return res.status(200).json({ ok: true })
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || "Server error" })
   }
 }
