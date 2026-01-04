@@ -2,20 +2,6 @@
 import type { NextApiRequest, NextApiResponse } from "next"
 import { google } from "googleapis"
 
-const REQUIRED = [
-  "email",
-  "first_name",
-  "last_name",
-  "age",
-  "city",
-  "state",
-  "neighborhood",
-  "example_item",
-  "sold_secondhand_before",
-  "sell_priority",
-  "offer_trigger",
-] as const
-
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 function getClientIp(req: NextApiRequest) {
@@ -25,19 +11,26 @@ function getClientIp(req: NextApiRequest) {
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Method not allowed" })
+  if (req.method !== "POST") {
+    return res.status(405).json({ ok: false, error: "Method not allowed" })
+  }
 
   try {
     const b = req.body ?? {}
 
     const email = String(b.email ?? "").trim().toLowerCase()
-    if (!EMAIL_RE.test(email)) return res.status(400).json({ ok: false, error: "Invalid email" })
+    if (!EMAIL_RE.test(email)) {
+      return res.status(400).json({ ok: false, error: "Invalid email" })
+    }
 
-    // Required checks (lightweight)
-    for (const k of REQUIRED) {
-      if (b[k] === undefined || b[k] === null || String(b[k]).trim() === "") {
-        return res.status(400).json({ ok: false, error: `Missing: ${k}` })
-      }
+    const first = String(b.first_name ?? "").trim()
+    const last = String(b.last_name ?? "").trim()
+    const city = String(b.city ?? "").trim()
+    const state = String(b.state ?? "").trim()
+    const neighborhood = String(b.neighborhood ?? "").trim()
+
+    if (!first || !last || !city || !state || !neighborhood) {
+      return res.status(400).json({ ok: false, error: "Missing required fields" })
     }
 
     const ageNum = Number(b.age)
@@ -45,37 +38,38 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ ok: false, error: "Invalid age" })
     }
 
-    const sellableStatesArr: string[] = Array.isArray(b.sellable_states) ? b.sellable_states : []
-    const sellableStates = sellableStatesArr.map(String).filter(Boolean).join("|")
+    const homeStatesArr: string[] = Array.isArray(b.home_states) ? b.home_states : []
+    const categoriesArr: string[] = Array.isArray(b.categories) ? b.categories : []
+
+    const home_states = homeStatesArr.map(String).filter(Boolean).join("|")
+    const categories = categoriesArr.map(String).filter(Boolean).join("|")
 
     const row = [
-      new Date().toISOString(),                // created_at
-      email,                                   // email
-      String(b.first_name).trim(),             // first_name
-      String(b.last_name).trim(),              // last_name
-      String(Math.trunc(ageNum)),              // age
-      String(b.city).trim(),                   // city
-      String(b.state).trim(),                  // state
-      String(b.neighborhood).trim(),           // neighborhood
-      sellableStates,                          // sellable_states
-      String(b.sellable_other_text ?? "").trim(), // sellable_other_text
-      String(b.offer_trigger ?? "").trim(),    // offer_trigger
-      String(b.offer_other_text ?? "").trim(), // offer_other_text
-      String(b.example_item ?? "").trim(),     // example_item
-      String(b.sold_secondhand_before ?? "").trim(), // sold_secondhand_before
-      String(b.sell_priority ?? "").trim(),    // sell_priority
-      String(b.sell_priority_other_text ?? "").trim(), // sell_priority_other_text
-      String(b.notes ?? "").trim(),            // notes
-      String(req.headers["user-agent"] ?? ""), // user_agent
-      getClientIp(req),                        // ip
+      new Date().toISOString(),                    // created_at
+      email,                                       // email
+      first,                                       // first_name
+      last,                                        // last_name
+      String(Math.trunc(ageNum)),                  // age
+      city,                                        // city
+      state,                                       // state
+      neighborhood,                                // neighborhood
+      home_states,                                 // home_states
+      String(b.home_other_text ?? "").trim(),      // home_other_text
+      String(b.blocker ?? "").trim(),              // blocker
+      String(b.blocker_other_text ?? "").trim(),   // blocker_other_text
+      categories,                                  // categories
+      String(b.category_other_text ?? "").trim(),  // category_other_text
+      String(b.example_item ?? "").trim(),         // example_item
+      String(b.notes ?? "").trim(),                // notes
+      String(req.headers["user-agent"] ?? ""),     // user_agent
+      getClientIp(req),                            // ip
     ]
 
-    // --- Google Sheets append ---
-    // ENV you must set in Vercel:
+    // Required env vars in Vercel:
     // GOOGLE_SERVICE_ACCOUNT_EMAIL
-    // GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY  (replace \n properly)
+    // GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY  (store with \n escaped, we convert below)
     // GOOGLE_SHEETS_ID
-    // GOOGLE_SHEETS_RANGE  e.g. "Leads!A:S"
+    // GOOGLE_SHEETS_RANGE  e.g. "Leads!A:R"
     const auth = new google.auth.JWT({
       email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
       key: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, "\n"),
@@ -86,7 +80,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-      range: process.env.GOOGLE_SHEETS_RANGE || "Leads!A:S",
+      range: process.env.GOOGLE_SHEETS_RANGE || "Leads!A:R",
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [row] },
     })
