@@ -4,11 +4,9 @@ import { Text } from 'react-native';
 import { AppTabsParamList } from './types';
 
 // Import stack navigators
-import ListStack from './stacks/ListStack';
-import WantsStack from './stacks/WantsStack';
-import SwipeStack from './stacks/SwipeStack';
-import DealsStack from './stacks/DealsStack';
-import ProfileStack from './stacks/ProfileStack';
+import HomeStack from './stacks/HomeStack';
+import UploadStack from './stacks/UploadStack';
+import StubScreen from '../screens/StubScreen';
 
 const Tab = createBottomTabNavigator<AppTabsParamList>();
 
@@ -16,7 +14,7 @@ export default function AppTabs() {
   return (
     <Tab.Navigator
       id="app"
-      initialRouteName="ListTab"
+      initialRouteName="Home"
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: '#2D2A26',
@@ -35,8 +33,8 @@ export default function AppTabs() {
       }}
     >
       <Tab.Screen
-        name="ListTab"
-        component={ListStack}
+        name="Home"
+        component={HomeStack}
         options={{
           title: 'List',
           tabBarLabel: 'List',
@@ -46,8 +44,8 @@ export default function AppTabs() {
         }}
       />
       <Tab.Screen
-        name="WantsTab"
-        component={WantsStack}
+        name="Upload"
+        component={UploadStack}
         options={{
           title: 'Wants',
           tabBarLabel: 'Wants',
@@ -57,8 +55,7 @@ export default function AppTabs() {
         }}
       />
       <Tab.Screen
-        name="SwipeTab"
-        component={SwipeStack}
+        name="Swipe"
         options={{
           title: 'Swipe',
           tabBarLabel: 'Swipe',
@@ -66,10 +63,11 @@ export default function AppTabs() {
             <Text style={{ fontSize: 18 }}>👆</Text>
           ),
         }}
-      />
+      >
+        {() => <StubScreen title="Swipe" subtitle="Browse nearby items" />}
+      </Tab.Screen>
       <Tab.Screen
-        name="DealsTab"
-        component={DealsStack}
+        name="Deals"
         options={{
           title: 'Deals',
           tabBarLabel: 'Deals',
@@ -77,10 +75,11 @@ export default function AppTabs() {
             <Text style={{ fontSize: 18 }}>🤝</Text>
           ),
         }}
-      />
+      >
+        {() => <StubScreen title="Deals" subtitle="Your active transactions" />}
+      </Tab.Screen>
       <Tab.Screen
-        name="ProfileTab"
-        component={ProfileStack}
+        name="Chat"
         options={{
           title: 'Profile',
           tabBarLabel: 'Profile',
@@ -88,7 +87,9 @@ export default function AppTabs() {
             <Text style={{ fontSize: 18 }}>👤</Text>
           ),
         }}
-      />
+      >
+        {() => <StubScreen title="Profile" subtitle="Your profile settings" />}
+      </Tab.Screen>
     </Tab.Navigator>
   );
 }

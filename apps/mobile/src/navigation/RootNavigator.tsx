@@ -2,6 +2,7 @@ import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { RootStackParamList } from './types';
+import { useAuthStore } from '../state/authStore';
 
 // Import navigators
 import AuthStack from './AuthStack';
@@ -14,16 +15,9 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
  *
  * This is the single NavigationContainer for the entire app.
  * It decides between Auth flow and App tabs based on authentication state.
- *
- * TODO: Replace `isAuthed` with real auth state from Supabase:
- * - Install @supabase/supabase-js
- * - Create auth context/provider
- * - Use: const { session } = useAuth(); const isAuthed = !!session;
  */
 export default function RootNavigator() {
-  // MOCK: Hardcode to false for auth flow, true for app
-  // Change this to test different flows
-  const isAuthed = true; // Set to false to see auth flow, true to see app tabs
+  const isAuthed = useAuthStore((state) => state.isAuthed);
 
   return (
     <NavigationContainer>
