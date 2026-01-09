@@ -8,23 +8,23 @@ import {
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { colors, radii } from '../theme/tokens';
-import { RootStackParamList } from '../navigation/AppNavigator';
+import { AuthStackParamList } from '../navigation/types';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
+type Props = NativeStackScreenProps<AuthStackParamList, 'Welcome'>;
 
-export default function HomeScreen({ navigation }: Props) {
+export default function WelcomeScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.screen}>
       <View style={styles.homeContent}>
-        {/* Logo: 14px, muted, letterSpacing 0.5, marginBottom 48 */}
+        {/* Logo: Fraunces 14px, muted, letterSpacing 0.5, marginBottom 48 */}
         <Text style={styles.homeLogo}>passive</Text>
 
-        {/* Headline: 36px, lineHeight ~41 (1.15), marginBottom 16 */}
+        {/* Headline: Fraunces 36px, lineHeight ~41 (1.15), marginBottom 16 */}
         <Text style={styles.homeHeadline}>
           Passive{'\n'}shopping
         </Text>
 
-        {/* Subtext: 16px, lineHeight 24, secondary color, marginBottom 48 */}
+        {/* Subtext: DM Sans 16px, lineHeight 24, secondary color, marginBottom 48 */}
         <Text style={styles.homeSubtext}>
           List what you own. Share what you want. We'll handle the rest.
         </Text>
@@ -33,21 +33,21 @@ export default function HomeScreen({ navigation }: Props) {
         <View style={styles.homeButtons}>
           <TouchableOpacity
             style={[styles.btn, styles.btnPrimary]}
-            onPress={() => navigation.navigate('Upload')}
+            onPress={() => navigation.navigate('AuthForm')}
             activeOpacity={0.8}
           >
             <Text style={[styles.btnText, styles.btnPrimaryText]}>
-              Upload an item
+              Get started
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[styles.btn, styles.btnSecondary]}
-            onPress={() => navigation.navigate('SwipeBuy')}
+            onPress={() => navigation.navigate('AuthForm')}
             activeOpacity={0.8}
           >
             <Text style={[styles.btnText, styles.btnSecondaryText]}>
-              Swipe nearby
+              I have an account
             </Text>
           </TouchableOpacity>
         </View>
