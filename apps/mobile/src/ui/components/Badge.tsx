@@ -3,7 +3,7 @@ import { View, StyleSheet, ViewStyle } from 'react-native';
 import { Text } from './Text';
 import { colors, radius, spacing } from '../tokens';
 
-type BadgeVariant = 'neutral' | 'success' | 'warning' | 'danger' | 'purple' | 'blue';
+type BadgeVariant = 'neutral' | 'success' | 'warning' | 'danger' | 'purple' | 'blue' | 'primary' | 'info' | 'secondary';
 
 interface BadgeProps {
   variant?: BadgeVariant;
@@ -35,6 +35,18 @@ const variantStyles = {
   blue: {
     backgroundColor: colors.blueSoft,
     textColor: 'blue' as const,
+  },
+  primary: {
+    backgroundColor: colors.accent,
+    textColor: 'white' as const,
+  },
+  info: {
+    backgroundColor: colors.blueSoft,
+    textColor: 'blue' as const,
+  },
+  secondary: {
+    backgroundColor: colors.accentSoft,
+    textColor: 'secondary' as const,
   },
 };
 

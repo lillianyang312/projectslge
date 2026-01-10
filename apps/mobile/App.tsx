@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, ActivityIndicator, StyleSheet, LogBox } from 'react-native';
 import {
   useFonts,
   DMSans_400Regular,
@@ -12,7 +12,15 @@ import {
   Fraunces_600SemiBold,
 } from '@expo-google-fonts/fraunces';
 import RootNavigator from './src/navigation/RootNavigator';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { colors } from './src/ui/tokens';
+
+// Suppress specific warnings in development if needed
+if (__DEV__) {
+  LogBox.ignoreLogs([
+    // Add specific warning patterns to ignore here
+  ]);
+}
 
 export default function App() {
   const [fontsLoaded] = useFonts({
@@ -32,7 +40,19 @@ export default function App() {
     );
   }
 
-  return <RootNavigator />;
+  return (
+    <ErrorBoundary
+      onError={(error, errorInfo) => {
+        // Log to error tracking service in production
+        if (!__DEV__) {
+          // TODO: Integrate with error tracking service (e.g., Sentry, Bugsnag)
+          console.error('Error caught by boundary:', error, errorInfo);
+        }
+      }}
+    >
+      <RootNavigator />
+    </ErrorBoundary>
+  );
 }
 
 const styles = StyleSheet.create({
