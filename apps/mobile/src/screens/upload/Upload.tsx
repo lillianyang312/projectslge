@@ -1,16 +1,46 @@
-import React from 'react';
-import { View, StyleSheet, SafeAreaView, Pressable, Alert } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, StyleSheet, SafeAreaView, Pressable, Alert, ScrollView } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
 import { UploadStackParamList } from '../../navigation/types';
 import { Text, Button } from '../../ui/components';
 import { colors, spacing, radius, typography } from '../../ui/tokens';
 import { useItemsStore } from '../../state/itemsStore';
+import { ListingPhase } from '../../schemas/schema';
 
 type Props = NativeStackScreenProps<UploadStackParamList, 'Upload'>;
 
 export default function UploadScreen({ navigation }: Props) {
   const setDraftFromImage = useItemsStore((state) => state.setDraftFromImage);
+  const listings = useItemsStore((state) => state.listings);
+  const seedDemoListings = useItemsStore((state) => state.seedDemoListings);
+
+  useEffect(() => {
+    seedDemoListings();
+  }, [seedDemoListings]);
+
+  // Get CLARIFICATION phase listings for notifications
+  const clarificationListings = listings.filter(
+    (listing) => listing.phase === ListingPhase.CLARIFICATION && listing.isActive
+  );
+
+  useEffect(() => {
+    if (clarificationListings.length > 0) {
+      // Show alert when there are CLARIFICATION phase listings
+      const listingCount = clarificationListings.length;
+      const message =
+        listingCount === 1
+          ? `You have 1 listing in clarification phase: "${clarificationListings[0].original.title}"`
+          : `You have ${listingCount} listings waiting for clarification.`;
+
+      Alert.alert(
+        'Listings Need Clarification',
+        message,
+        [{ text: 'OK' }],
+        { cancelable: true }
+      );
+    }
+  }, [clarificationListings.length]); // Only show once when count changes
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -61,17 +91,39 @@ export default function UploadScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.screen}>
-      <View style={styles.content}>
-        <View style={styles.header}>
-          <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <Text size="xxxl">←</Text>
-          </Pressable>
-          <Text variant="headingMedium" size="heading3">
-            Upload
-          </Text>
-        </View>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={styles.content}>
+          <View style={styles.header}>
+            <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
+              <Text size="xxxl">←</Text>
+            </Pressable>
+            <Text variant="headingMedium" size="heading3">
+              Upload
+            </Text>
+          </View>
 
-        <Pressable style={styles.uploadZone} onPress={pickImage}>
+          {/* Notification banner for CLARIFICATION phase listings */}
+          {clarificationListings.length > 0 && (
+            <View style={styles.notificationBanner}>
+              <Text style={styles.notificationIcon}>📋</Text>
+              <View style={styles.notificationContent}>
+                <Text variant="body" size="md" style={styles.notificationTitle}>
+                  {clarificationListings.length === 1
+                    ? '1 listing needs clarification'
+                    : `${clarificationListings.length} listings need clarification`}
+                </Text>
+                <Text variant="body" size="sm" color="secondary" style={styles.notificationText}>
+                  {clarificationListings
+                    .slice(0, 2)
+                    .map((l) => l.original.title)
+                    .join(', ')}
+                  {clarificationListings.length > 2 && '...'}
+                </Text>
+              </View>
+            </View>
+          )}
+
+          <Pressable style={styles.uploadZone} onPress={pickImage}>
           <View style={styles.uploadIcon}>
             <Text style={styles.uploadIconText}>📸</Text>
           </View>
@@ -96,7 +148,8 @@ export default function UploadScreen({ navigation }: Props) {
         >
           Take a clear photo of the item you want to add to your list
         </Text>
-      </View>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -106,9 +159,37 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.bg,
   },
+  scrollContent: {
+    flexGrow: 1,
+  },
   content: {
     flex: 1,
     paddingHorizontal: spacing.xxl,
+  },
+  notificationBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF3C7', // Amber/light yellow background
+    borderLeftWidth: 4,
+    borderLeftColor: '#F59E0B', // Amber border
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+    gap: spacing.md,
+  },
+  notificationIcon: {
+    fontSize: 24,
+  },
+  notificationContent: {
+    flex: 1,
+  },
+  notificationTitle: {
+    fontWeight: '600',
+    color: '#92400E', // Dark amber text
+    marginBottom: spacing.xs,
+  },
+  notificationText: {
+    color: '#78350F', // Slightly lighter amber text
   },
   header: {
     flexDirection: 'row',

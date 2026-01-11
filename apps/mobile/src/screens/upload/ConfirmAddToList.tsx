@@ -32,7 +32,7 @@ export default function ConfirmAddToListScreen({ navigation }: Props) {
     // TODO: Get actual seller ID from auth store
     const result = commitDraft('current-user');
     
-    if (!result.success) {
+    if (result.success === false) {
       Alert.alert(
         'Error',
         result.error.getFirstError() || 'Failed to create listing'
