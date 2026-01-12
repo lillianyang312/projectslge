@@ -332,9 +332,9 @@ const styles = StyleSheet.create({
   },
   customInput: {
     flex: 1,
-    fontSize: typography.size.heading3,
-    fontFamily: typography.family.medium,
-    color: colors.text,
+    fontSize: typography.sizes.heading3,
+    fontFamily: typography.fonts.bodyMedium,
+    color: colors.textPrimary,
   },
   customBtn: {},
 });

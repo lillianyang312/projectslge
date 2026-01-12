@@ -285,9 +285,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    fontSize: typography.size.base,
-    fontFamily: typography.family.regular,
-    color: colors.text,
+    fontSize: typography.sizes.base,
+    fontFamily: typography.fonts.body,
+    color: colors.textPrimary,
     maxHeight: 100,
   },
   sendBtn: {
