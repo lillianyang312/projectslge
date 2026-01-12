@@ -11,6 +11,7 @@ type Props = NativeStackScreenProps<ListStackParamList, 'Upload'>;
 
 export default function UploadScreen({ navigation }: Props) {
   const setDraftFromImage = useItemsStore((state) => state.setDraftFromImage);
+  const updateDraft = useItemsStore((state) => state.updateDraft);
 
   const takePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -48,13 +49,20 @@ export default function UploadScreen({ navigation }: Props) {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
+      allowsEditing: false, // Allow multiple selection without cropping
+      allowsMultipleSelection: true, // Enable multiple photo selection
       quality: 0.8,
+      selectionLimit: 5, // Limit to 5 photos
     });
 
-    if (!result.canceled && result.assets[0]) {
-      setDraftFromImage(result.assets[0].uri);
+    if (!result.canceled && result.assets.length > 0) {
+      // Get all selected image URIs
+      const imageUris = result.assets.map(asset => asset.uri);
+
+      // Set the first image as the primary image and store all images
+      setDraftFromImage(imageUris[0]);
+      updateDraft({ imageUris });
+
       navigation.navigate('ItemDetails');
     }
   };

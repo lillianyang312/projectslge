@@ -7,8 +7,11 @@ import {
   Image,
   TextInput,
   ActivityIndicator,
+  Pressable,
+  Alert,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import * as ImagePicker from 'expo-image-picker';
 import { ListStackParamList } from '../../navigation/types';
 import { Text, Button, Input, Card, Header, Pill } from '../../ui/components';
 import { colors, spacing, radius, typography } from '../../ui/tokens';
@@ -35,6 +38,7 @@ export default function ItemDetailsScreen({ navigation }: Props) {
   const [notes, setNotes] = useState(draft?.notes || '');
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzed, setAnalyzed] = useState(false);
+  const [images, setImages] = useState<string[]>(draft?.imageUris || [draft?.imageUri].filter(Boolean) || []);
 
   // Auto-analyze image when screen loads
   useEffect(() => {
@@ -106,6 +110,39 @@ export default function ItemDetailsScreen({ navigation }: Props) {
     { value: 'both', label: 'Both' },
   ];
 
+  const addMorePhotos = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (status !== 'granted') {
+      Alert.alert(
+        'Permission needed',
+        'We need camera roll permissions to upload images.'
+      );
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false,
+      allowsMultipleSelection: true,
+      quality: 0.8,
+      selectionLimit: Math.max(1, 5 - images.length), // Limit total to 5 photos
+    });
+
+    if (!result.canceled && result.assets.length > 0) {
+      const newUris = result.assets.map(asset => asset.uri);
+      const updatedImages = [...images, ...newUris].slice(0, 5); // Max 5 images
+      setImages(updatedImages);
+      updateDraft({ imageUris: updatedImages });
+    }
+  };
+
+  const removePhoto = (index: number) => {
+    const updatedImages = images.filter((_, i) => i !== index);
+    setImages(updatedImages);
+    updateDraft({ imageUris: updatedImages });
+  };
+
   const handleContinue = () => {
     // Map condition to string format
     const conditionMap: Record<Condition, string> = {
@@ -135,20 +172,43 @@ export default function ItemDetailsScreen({ navigation }: Props) {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <Header title="Item details" showBack={true} />
 
-        {/* Image Preview */}
-        {draft?.imageUri && (
-          <Card style={styles.imageCard}>
-            <Image source={{ uri: draft.imageUri }} style={styles.image} />
-            {analyzing && (
-              <View style={styles.analyzingOverlay}>
-                <ActivityIndicator size="large" color={colors.accent} />
-                <Text variant="bodyMedium" size="md" color="muted" style={styles.analyzingText}>
-                  Analyzing image...
-                </Text>
+        {/* Image Gallery */}
+        <View style={styles.imageGallery}>
+          <Text variant="bodyMedium" size="base" color="secondary" style={styles.galleryLabel}>
+            Photos ({images.length}/5)
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imageScroll}>
+            {images.map((uri, index) => (
+              <View key={index} style={styles.imageWrapper}>
+                <Image source={{ uri }} style={styles.thumbnail} />
+                {analyzing && index === 0 && (
+                  <View style={styles.analyzingOverlay}>
+                    <ActivityIndicator size="small" color={colors.accent} />
+                  </View>
+                )}
+                <Pressable
+                  style={styles.removeBtn}
+                  onPress={() => removePhoto(index)}
+                >
+                  <Text style={styles.removeBtnText}>✕</Text>
+                </Pressable>
+                {index === 0 && (
+                  <View style={styles.primaryBadge}>
+                    <Text style={styles.primaryBadgeText}>Main</Text>
+                  </View>
+                )}
               </View>
+            ))}
+            {images.length < 5 && (
+              <Pressable style={styles.addPhotoBtn} onPress={addMorePhotos}>
+                <Text style={styles.addPhotoIcon}>+</Text>
+                <Text variant="body" size="xs" color="secondary">
+                  Add photo
+                </Text>
+              </Pressable>
             )}
-          </Card>
-        )}
+          </ScrollView>
+        </View>
 
         {/* Item name */}
         <Input
@@ -293,16 +353,71 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xxl,
     paddingBottom: spacing.xxxl,
   },
-  imageCard: {
-    padding: 0,
-    overflow: 'hidden',
+  imageGallery: {
     marginBottom: spacing.xl,
-    position: 'relative',
   },
-  image: {
-    width: '100%',
-    aspectRatio: 1,
+  galleryLabel: {
+    marginBottom: spacing.sm,
+  },
+  imageScroll: {
+    marginHorizontal: -spacing.xxl,
+    paddingHorizontal: spacing.xxl,
+  },
+  imageWrapper: {
+    position: 'relative',
+    marginRight: spacing.md,
+  },
+  thumbnail: {
+    width: 120,
+    height: 120,
+    borderRadius: radius.md,
     backgroundColor: colors.accentSoft,
+  },
+  removeBtn: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  removeBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  primaryBadge: {
+    position: 'absolute',
+    bottom: 4,
+    left: 4,
+    backgroundColor: colors.accent,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+  },
+  primaryBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  addPhotoBtn: {
+    width: 120,
+    height: 120,
+    borderRadius: radius.md,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  addPhotoIcon: {
+    fontSize: 32,
+    color: colors.textMuted,
   },
   analyzingOverlay: {
     position: 'absolute',
@@ -313,6 +428,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+    borderRadius: radius.md,
   },
   analyzingText: {
     marginTop: spacing.md,
