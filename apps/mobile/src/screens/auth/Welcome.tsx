@@ -9,10 +9,10 @@ import { useAuthStore } from '../../state/authStore';
 type Props = NativeStackScreenProps<AuthStackParamList, 'Welcome'>;
 
 export default function WelcomeScreen({ navigation }: Props) {
-  const login = useAuthStore((state) => state.login);
+  const continueAsGuest = useAuthStore((state) => state.continueAsGuest);
 
   const handleGuestMode = () => {
-    login(); // Set isAuthed to true to go to app
+    continueAsGuest(); // Set isAuthed to true to go to app
   };
 
   return (

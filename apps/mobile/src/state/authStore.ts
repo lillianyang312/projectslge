@@ -12,6 +12,7 @@ type AuthStore = {
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
+  continueAsGuest: () => void;
 };
 
 export const useAuthStore = create<AuthStore>((set, get) => ({
@@ -88,5 +89,15 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     } catch (error) {
       console.error('Error signing out:', error);
     }
+  },
+
+  continueAsGuest: () => {
+    // Set as authenticated without a session (guest mode)
+    set({
+      isAuthed: true,
+      session: null,
+      user: null,
+      loading: false,
+    });
   },
 }));
