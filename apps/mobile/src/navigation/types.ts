@@ -37,6 +37,15 @@ export type HomeStackParamList = {
   ItemDetail: { itemId: string };
 };
 
+// List stack (includes Upload flow)
+export type ListStackParamList = {
+  MyList: undefined;
+  ItemDetail: { itemId: string };
+  Upload: undefined;
+  Clarification: undefined;
+  ConfirmAddToList: undefined;
+};
+
 // Upload stack (Upload → ConfirmAddToList, skip Clarification for now)
 export type UploadStackParamList = {
   Upload: undefined;

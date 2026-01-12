@@ -1,0 +1,232 @@
+clarification_rules:
+  name: "Multi-Modal Item Identification Clarification Rules"
+  purpose: >
+    Define confidence-based rules for when to suggest item information,
+    present multiple options, or ask targeted clarifying questions during
+    multi-modal LLM image-to-item identification.
+
+  confidence_thresholds:
+    description: >
+      Quantitative thresholds for categorizing identification confidence levels.
+      These values are adjustable to ensure future scalability of the system.
+    high_confidence_min: 0.85
+    medium_confidence_min: 0.60
+    low_confidence_max: 0.59
+    note: >
+      Confidence scores are expected to be in the range [0.0, 1.0].
+      High: [0.85, 1.0] - Suggest as placeholder, user can overwrite
+      Medium: [0.60, 0.84] - Present multiple options (power of two choices)
+      Low: [0.0, 0.59] - Ask targeted follow-up question
+
+  confidence_categories:
+    high_confidence:
+      threshold_range: [0.85, 1.0]
+      behavior: "suggest_as_placeholder"
+      description: >
+        When the multi-modal LLM has high confidence in item identification,
+        suggest the information as a placeholder value that the user can overwrite.
+        This builds trust by showing the system's best guess while giving the user
+        full control to correct it.
+      implementation:
+        - Set identified item fields as placeholder/suggested values
+        - Allow user to edit all suggested fields
+        - Mark fields as "suggested" in the UI
+        - User can accept, modify, or completely overwrite
+      user_experience:
+        goal: >
+          Build trust by demonstrating accurate identification while maintaining
+          user autonomy over their data.
+        ui_indication: >
+          Suggested fields should be visually distinct (e.g., light background,
+          "Suggested" label, or similar visual cue) to indicate they can be edited.
+
+    medium_confidence:
+      threshold_range: [0.60, 0.84]
+      behavior: "present_multiple_options"
+      description: >
+        When confidence is medium, present multiple options (preferably a power
+        of two, e.g., 2, 4, 8 options) for the user to choose from. This gives
+        users the illusion that the best options have been curated, increasing
+        perceived system intelligence while providing choice.
+      implementation:
+        - Generate 2-8 candidate options (prefer powers of 2: 2, 4, 8)
+        - Each option should include: label, id, thumbnail (if available), short descriptor
+        - Present options in a clear, scannable format
+        - Allow user to select one option
+        - After selection, proceed with that item as if high confidence
+      option_requirements:
+        min_options: 2
+        max_options: 8
+        preferred_count: [2, 4, 8]
+        each_option_must_have:
+          - label: "Human-readable item name/title"
+          - id: "Unique identifier for the option"
+          - thumbnail: "Optional image URI or reference (if available)"
+          - descriptor: "Short 1-2 sentence description"
+      user_experience:
+        goal: >
+          Present curated options that feel intelligent and reduce cognitive load
+          while giving users meaningful choice.
+        ui_indication: >
+          Options should be presented as cards or selectable items with clear
+          visual hierarchy. Use thumbnails when available to aid recognition.
+
+    low_confidence:
+      threshold_range: [0.0, 0.59]
+      behavior: "ask_targeted_question"
+      description: >
+        When confidence is low, ask a targeted follow-up question to gather
+        additional information. This acts as the "catch all" in a try-catch pattern,
+        allowing the system to iteratively refine its understanding through conversation.
+      implementation:
+        - Generate a specific, targeted question based on what information is missing
+        - Questions should be concise and actionable
+        - After receiving user response, repeat the identification computation loop
+        - Re-evaluate confidence with the new information
+        - Continue until confidence reaches medium or high, or max iterations reached
+      question_guidelines:
+        - Be specific and actionable (not "What is this?" but "Is this a desk chair or office chair?")
+        - Focus on distinguishing characteristics
+        - Prefer binary or multiple-choice questions when possible
+        - Avoid open-ended questions that require extensive user input
+      iteration_limits:
+        max_clarification_iterations: 3
+        note: >
+          After max iterations, fall back to manual entry or present best-guess options
+          even if confidence is still low.
+      user_experience:
+        goal: >
+          Gather targeted information efficiently without frustrating the user with
+          too many questions.
+        ui_indication: >
+          Questions should be displayed prominently with clear input fields or
+          selection options.
+
+  computation_loop:
+    description: >
+      The identification process follows an iterative loop pattern, similar to
+      a try-catch block where low confidence triggers clarification.
+    steps:
+      1. Initial multi-modal LLM analysis of image
+      2. Compute confidence score
+      3. Categorize confidence (high/medium/low)
+      4. Execute appropriate behavior based on category
+      5. If low confidence, ask question and repeat from step 1 with new context
+      6. Continue until high/medium confidence achieved or max iterations reached
+
+  schema_structure:
+    identified_type:
+      description: >
+        When item is identified (high or medium confidence after selection),
+        return the identified item with confidence score.
+      fields:
+        type: "identified"
+        item:
+          title: "string (required)"
+          category: "string (required)"
+          description: "string (optional)"
+          condition: "string (optional)"
+          tags: "string[] (optional)"
+          # Additional fields as needed from OriginalListingData
+        confidence: "number (0.0-1.0, required)"
+
+    needs_clarification_type:
+      description: >
+        When clarification is needed (low confidence or medium confidence before selection).
+      fields:
+        type: "needs_clarification"
+        question: "string (required) - Targeted question for user"
+        options:
+          description: "array (optional for medium confidence, empty for low confidence)"
+          item_structure:
+            label: "string (required) - Display name"
+            id: "string (required) - Unique identifier"
+            thumbnail: "string (optional) - Image URI or reference"
+            descriptor: "string (required) - Short 1-2 sentence description"
+        confidence: "number (0.0-1.0, required) - Current confidence level"
+
+  examples:
+    high_confidence_example:
+      scenario: "Clear photo of a Herman Miller Aeron chair"
+      confidence: 0.92
+      response:
+        type: "identified"
+        item:
+          title: "Herman Miller Aeron Chair"
+          category: "Furniture"
+          description: "Ergonomic office chair with mesh back and adjustable features"
+          condition: "Like new"
+          tags: ["chair", "office", "ergonomic", "herman miller"]
+        confidence: 0.92
+      ui_behavior: >
+        Pre-fill form fields with suggested values, marked as "Suggested".
+        User can edit any field.
+
+    medium_confidence_example:
+      scenario: "Photo of a chair, but brand/model unclear"
+      confidence: 0.72
+      response:
+        type: "needs_clarification"
+        question: "Which chair matches your item?"
+        options:
+          - label: "Herman Miller Aeron Chair"
+            id: "option-1"
+            thumbnail: "https://example.com/aeron.jpg"
+            descriptor: "Mesh back, ergonomic office chair with adjustable arms"
+          - label: "Steelcase Leap Chair"
+            id: "option-2"
+            thumbnail: "https://example.com/leap.jpg"
+            descriptor: "Ergonomic office chair with contoured back"
+          - label: "IKEA Markus Chair"
+            id: "option-3"
+            thumbnail: "https://example.com/markus.jpg"
+            descriptor: "Affordable office chair with mesh back"
+          - label: "None of the above"
+            id: "option-4"
+            descriptor: "My chair is different"
+        confidence: 0.72
+      ui_behavior: >
+        Display options as selectable cards. After selection, use selected item
+        as if it was high confidence.
+
+    low_confidence_example:
+      scenario: "Blurry or ambiguous photo"
+      confidence: 0.35
+      response:
+        type: "needs_clarification"
+        question: "What type of furniture is this?"
+        options: []
+        confidence: 0.35
+      ui_behavior: >
+        Display question prominently with input field or category selection.
+        After user responds, re-run identification with new context.
+
+    iteration_example:
+      iteration_1:
+        confidence: 0.40
+        question: "What type of furniture is this?"
+        user_response: "It's an office chair"
+      iteration_2:
+        confidence: 0.65
+        type: "needs_clarification"
+        question: "Which chair matches your item?"
+        options: [4 options presented]
+        user_response: "Herman Miller Aeron"
+      iteration_3:
+        confidence: 0.88
+        type: "identified"
+        item: { ... }
+        # Process complete
+
+  enforcement_note: >
+    The multi-modal LLM should always output one of the two schema types:
+    "identified" or "needs_clarification". The confidence score should be computed
+    using quantitative metrics (e.g., model logits, similarity scores, etc.) and
+    compared against the defined thresholds. Threshold values can be adjusted
+    based on system performance and user feedback to optimize the balance between
+    automation and accuracy.
+    
+    When requested, responses should be returned in JSON format following the
+    schema structure defined above. This ensures consistency and enables programmatic
+    processing of identification results.
+

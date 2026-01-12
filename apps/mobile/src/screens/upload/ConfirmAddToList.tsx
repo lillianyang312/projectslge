@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, SafeAreaView, ScrollView, Pressable, Image } from 'react-native';
+import { View, StyleSheet, SafeAreaView, ScrollView, Pressable, Image, Alert } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { UploadStackParamList } from '../../navigation/types';
 import { Text, Button, Input, Card } from '../../ui/components';
@@ -24,10 +24,21 @@ export default function ConfirmAddToListScreen({ navigation }: Props) {
     updateDraft({
       title,
       category,
+      description: notes || title, // Use notes as description, fallback to title
       notes,
       intent: selectedIntent,
     });
-    commitDraft();
+    
+    // TODO: Get actual seller ID from auth store
+    const result = commitDraft('current-user');
+    
+    if (result.success === false) {
+      Alert.alert(
+        'Error',
+        result.error.getFirstError() || 'Failed to create listing'
+      );
+      return;
+    }
 
     // Navigate back to Home tab and then to MyList
     const parent = navigation.getParent();
