@@ -102,7 +102,85 @@ To verify everything was created:
 
 3. Click each table to verify columns are present
 
-## Step 8: Test Auth & RLS (Optional but Recommended)
+## Step 8: Deploy Edge Function (analyzeImage)
+
+The Edge Function uses Deno runtime with modern `Deno.serve` API (no external imports needed).
+
+### Prerequisites
+
+1. Install Supabase CLI:
+   ```bash
+   npm install -g supabase
+   ```
+
+2. Login to Supabase:
+   ```bash
+   supabase login
+   ```
+
+3. Link to your project (replace `your-project-ref` with your actual project reference):
+   ```bash
+   supabase link --project-ref your-project-ref
+   ```
+   - You can find your project ref in the Supabase dashboard URL: `https://supabase.com/dashboard/project/your-project-ref`
+   - Or in Settings → API → Project URL (the part after `https://` and before `.supabase.co`)
+
+### Deno Configuration
+
+The Edge Function is configured in `supabase/functions/analyzeImage/`:
+
+- **`index.ts`**: Uses `Deno.serve()` (built-in Deno API, no imports needed)
+- **`deno.json`**: Configures imports and TypeScript compiler options
+  - Uses `@supabase/supabase-js@2.39.0` from esm.sh
+  - Includes `deno.window` and `deno.ns` in compiler libs for proper type support
+
+**Important:** The function uses `Deno.serve()` instead of the old `std/http` import pattern. This is the recommended approach for Supabase Edge Functions.
+
+### Deploy the Function
+
+From the project root:
+
+```bash
+supabase functions deploy analyzeImage
+```
+
+You should see output like:
+```
+Deploying function analyzeImage...
+Function analyzeImage deployed successfully
+```
+
+### Verify Deployment
+
+1. In Supabase Dashboard, go to **"Edge Functions"** in the left sidebar
+2. You should see `analyzeImage` listed
+3. Click on it to see logs and invocation details
+
+### Test the Function (Optional)
+
+You can test it using curl or the Supabase dashboard:
+
+```bash
+curl -X POST \
+  https://your-project-ref.supabase.co/functions/v1/analyzeImage \
+  -H "Authorization: Bearer YOUR_ANON_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"imageUrl":"https://example.com/image.jpg","imagePath":"test/123.jpg"}'
+```
+
+Or use the Supabase Dashboard:
+1. Go to **"Edge Functions"** → **"analyzeImage"**
+2. Click **"Invoke"** tab
+3. Enter test payload:
+   ```json
+   {
+     "imageUrl": "https://example.com/image.jpg",
+     "imagePath": "test/123.jpg"
+   }
+   ```
+4. Click **"Invoke Function"**
+
+## Step 9: Test Auth & RLS (Optional but Recommended)
 
 In the SQL editor, try this test:
 
@@ -130,7 +208,7 @@ Then verify RLS works by running this as that user (you'd need to use a client l
 
 The smoke test script (see [DAY1_BACKEND_NOTES.md](../DAY1_BACKEND_NOTES.md)) will handle this more thoroughly.
 
-## Step 9: Share Credentials
+## Step 10: Share Credentials
 
 Once complete, post this checklist in the team Slack channel:
 
@@ -144,6 +222,7 @@ Storage Bucket: item-images
 Auth Provider: Email/Password ✅
 Redirect URLs: exp://localhost:19000, exp://127.0.0.1:19000, http://localhost:19006, http://localhost:3000 ✅
 Schema Applied: ✅
+Edge Function Deployed: analyzeImage ✅
 ```
 
 **IMPORTANT:** Only share the **Anon Key** and **Service Role Key** via secure channels (1Password, private Slack thread, etc.). Never commit them to the repo.
@@ -171,15 +250,35 @@ Schema Applied: ✅
 - You may have hit a rate limit; wait a few minutes and try again
 - Ensure bucket name has no spaces or special characters
 
+### "Edge Function deployment failed"
+
+- Ensure Supabase CLI is installed: `npm install -g supabase`
+- Verify you're logged in: `supabase login`
+- Check that you've linked to the correct project: `supabase link --project-ref your-project-ref`
+- Verify `deno.json` exists in `supabase/functions/analyzeImage/` with correct imports
+- Check function logs in Supabase Dashboard → Edge Functions → analyzeImage → Logs
+
+### "Deno.serve is not defined" or TypeScript errors
+
+- The function uses `Deno.serve()` which is built into Deno runtime
+- If you see TypeScript errors in your IDE, this is normal - the Deno types are available at runtime
+- The function includes a type declaration for `Deno` to satisfy the TypeScript linter
+- At runtime in Supabase, `Deno.serve` will work correctly
+
 ---
 
 ## Next Steps
 
 1. ✅ Fill in env files:
-   - `apps/mobile/.env`
-   - `lge-leads-backend/.env.local`
+   - `apps/mobile/.env` (with `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY`)
+   - `apps/mobile/.env.local` (with `SUPABASE_URL` and `SUPABASE_ANON_KEY` for smoke test)
 
-2. ✅ Run the smoke test:
+2. ✅ Deploy Edge Function (if not done in Step 8):
+   ```bash
+   supabase functions deploy analyzeImage
+   ```
+
+3. ✅ Run the smoke test:
    ```bash
    npm install @supabase/supabase-js
    npx tsx scripts/supabase_smoke_test.ts

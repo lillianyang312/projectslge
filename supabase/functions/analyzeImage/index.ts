@@ -1,5 +1,9 @@
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
+import { createClient } from '@supabase/supabase-js';
+
+// Deno global is available in Supabase Edge Functions runtime
+declare const Deno: {
+  serve: (handler: (req: Request) => Response | Promise<Response>) => void;
+};
 
 const HIGH_CONFIDENCE_THRESHOLD = 0.80;
 
@@ -79,7 +83,7 @@ function analyzeImageStub(imageUrl: string): AnalyzeImageResponse {
   }
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   // Handle CORS
   if (req.method === 'OPTIONS') {
     return new Response('ok', {

@@ -22,7 +22,7 @@ import { fileURLToPath } from 'url';
 
 // Load .env.local
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-config({ path: path.resolve(__dirname, '../lge-leads-backend/.env.local') });
+config({ path: path.resolve(__dirname, '../apps/mobile/.env.local') });
 
 // Load env vars from .env.local (for Next.js backend)
 // or use process.env directly
