@@ -267,7 +267,176 @@ async function runTests() {
     }
 
     // ========================================================================
-    // 4. RLS Tests
+    // 4. Edge Function Tests
+    // ========================================================================
+    console.log('\n--- Edge Function Tests ---');
+
+    await test('Edge function analyzeImage returns ClarificationResponse format', async () => {
+        const { data, error } = await supabase.functions.invoke('analyzeImage', {
+            body: {
+                imageUrl: 'https://example.com/test-image.jpg',
+                imagePath: 'test/test-image.jpg',
+            },
+        });
+
+        if (error) {
+            // Check if function is not deployed (404)
+            const errorMessage = error.message || String(error);
+            if (errorMessage.includes('non-2xx') || error.name === 'FunctionsHttpError') {
+                // Try to get more info via direct HTTP call
+                try {
+                    const response = await fetch(`${SUPABASE_URL}/functions/v1/analyzeImage`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            imageUrl: 'https://example.com/test-image.jpg',
+                            imagePath: 'test/test-image.jpg',
+                        }),
+                    });
+                    const text = await response.text();
+                    if (response.status === 404 || text.includes('NOT_FOUND')) {
+                        throw new Error(
+                            'Edge function "analyzeImage" is not deployed. ' +
+                            'Deploy it with: supabase functions deploy analyzeImage --project-ref wnerxlpanzosudbipvom\n' +
+                            'Make sure you are logged in: supabase login'
+                        );
+                    }
+                } catch (fetchError: any) {
+                    if (fetchError.message.includes('not deployed')) {
+                        throw fetchError;
+                    }
+                }
+            }
+            throw error;
+        }
+        if (!data) throw new Error('No data returned from edge function');
+
+        // Validate response structure matches ClarificationResponse
+        if (typeof data !== 'object') {
+            throw new Error('Response must be an object');
+        }
+
+        // Check for required fields
+        if (!data.type) {
+            throw new Error('Response must have a "type" field');
+        }
+
+        if (data.type !== 'identified' && data.type !== 'needs_clarification') {
+            throw new Error('Response type must be either "identified" or "needs_clarification"');
+        }
+
+        // Validate confidence
+        if (typeof data.confidence !== 'number' || data.confidence < 0 || data.confidence > 1) {
+            throw new Error('Confidence must be a number in range [0.0, 1.0]');
+        }
+
+        // Validate based on type
+        if (data.type === 'identified') {
+            if (!data.item || typeof data.item !== 'object') {
+                throw new Error('Identified response must have an "item" object');
+            }
+            if (!data.item.title || typeof data.item.title !== 'string') {
+                throw new Error('Item must have a "title" string');
+            }
+            if (!data.item.category || typeof data.item.category !== 'string') {
+                throw new Error('Item must have a "category" string');
+            }
+        } else if (data.type === 'needs_clarification') {
+            if (!data.question || typeof data.question !== 'string') {
+                throw new Error('Needs clarification response must have a "question" string');
+            }
+            if (!Array.isArray(data.options)) {
+                throw new Error('Needs clarification response must have an "options" array');
+            }
+            // Validate options if present
+            data.options.forEach((option: any, index: number) => {
+                if (!option.id || typeof option.id !== 'string') {
+                    throw new Error(`Option at index ${index} must have an "id" string`);
+                }
+                if (!option.label || typeof option.label !== 'string') {
+                    throw new Error(`Option at index ${index} must have a "label" string`);
+                }
+                if (!option.descriptor || typeof option.descriptor !== 'string') {
+                    throw new Error(`Option at index ${index} must have a "descriptor" string`);
+                }
+            });
+        }
+    });
+
+    await test('Edge function analyzeImage respects confidence thresholds', async () => {
+        // Run multiple times to test different confidence levels
+        // Note: Since we're using a stub with Math.random(), we can't guarantee specific thresholds,
+        // but we can verify the response structure is correct for each type
+        const { data, error } = await supabase.functions.invoke('analyzeImage', {
+            body: {
+                imageUrl: 'https://example.com/test-image.jpg',
+                imagePath: 'test/test-image.jpg',
+            },
+        });
+
+        if (error) {
+            // Check if function is not deployed (404)
+            const errorMessage = error.message || String(error);
+            if (errorMessage.includes('non-2xx') || error.name === 'FunctionsHttpError') {
+                // Try to get more info via direct HTTP call
+                try {
+                    const response = await fetch(`${SUPABASE_URL}/functions/v1/analyzeImage`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            imageUrl: 'https://example.com/test-image.jpg',
+                            imagePath: 'test/test-image.jpg',
+                        }),
+                    });
+                    const text = await response.text();
+                    if (response.status === 404 || text.includes('NOT_FOUND')) {
+                        throw new Error(
+                            'Edge function "analyzeImage" is not deployed. ' +
+                            'Deploy it with: supabase functions deploy analyzeImage --project-ref wnerxlpanzosudbipvom\n' +
+                            'Make sure you are logged in: supabase login'
+                        );
+                    }
+                } catch (fetchError: any) {
+                    if (fetchError.message.includes('not deployed')) {
+                        throw fetchError;
+                    }
+                }
+            }
+            throw error;
+        }
+        if (!data) throw new Error('No data returned');
+
+        // Verify confidence thresholds are respected in response structure
+        if (data.type === 'identified') {
+            // High confidence (≥0.85) should return identified
+            if (data.confidence < 0.85) {
+                throw new Error(`Identified response should have confidence ≥0.85, got ${data.confidence}`);
+            }
+        } else if (data.type === 'needs_clarification') {
+            // Medium confidence (0.60-0.84) should have options
+            // Low confidence (<0.60) should have empty options
+            if (data.confidence >= 0.60 && data.confidence < 0.85) {
+                if (data.options.length === 0) {
+                    throw new Error(`Medium confidence (${data.confidence}) should have options`);
+                }
+            } else if (data.confidence < 0.60) {
+                // Low confidence can have empty options (this is correct)
+                // But we verify the structure is valid
+                if (!Array.isArray(data.options)) {
+                    throw new Error('Options must be an array even if empty');
+                }
+            }
+        }
+    });
+
+    // ========================================================================
+    // 5. RLS Tests
     // ========================================================================
     console.log('\n--- Row-Level Security Tests ---');
 
@@ -294,7 +463,7 @@ async function runTests() {
     });
 
     // ========================================================================
-    // 5. Summary
+    // 6. Summary
     // ========================================================================
     console.log('\n--- Test Summary ---');
     console.log(`✅ Passed: ${tests.passed}`);
