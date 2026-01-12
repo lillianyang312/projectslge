@@ -46,8 +46,16 @@ export type ListStackParamList = {
   ConfirmAddToList: undefined;
 };
 
-// Upload stack (Upload → ConfirmAddToList, skip Clarification for now)
+// Upload stack (Upload → Clarification → ConfirmAddToList)
 export type UploadStackParamList = {
   Upload: undefined;
+  Clarification: {
+    imageUri: string;
+    imagePath: string;
+    question: string;
+    options: Array<{ id: string; label: string }>;
+    originalLabel: string;
+    confidence: number;
+  };
   ConfirmAddToList: undefined;
 };

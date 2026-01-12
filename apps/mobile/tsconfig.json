@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "skipLibCheck": true,
-    "types": ["jest", "@testing-library/jest-native"]
+    "types": ["jest"]
   },
   "extends": "expo/tsconfig.base",
   "include": [

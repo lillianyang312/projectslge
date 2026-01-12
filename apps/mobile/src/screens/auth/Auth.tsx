@@ -11,8 +11,15 @@ type Props = NativeStackScreenProps<AuthStackParamList, 'Auth'>;
 export default function AuthScreen({ navigation, route }: Props) {
   const initialMode = (route.params as any)?.mode || 'signup';
   const [mode, setMode] = useState<'login' | 'signup'>(initialMode);
-  const login = useAuthStore((state) => state.login);
-  const signup = useAuthStore((state) => state.signup);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [neighborhood, setNeighborhood] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const signIn = useAuthStore((state) => state.signIn);
+  const signUp = useAuthStore((state) => state.signUp);
 
   useEffect(() => {
     if ((route.params as any)?.mode) {
@@ -22,11 +29,27 @@ export default function AuthScreen({ navigation, route }: Props) {
 
   const isLogin = mode === 'login';
 
-  const handleSubmit = () => {
-    if (isLogin) {
-      login();
-    } else {
-      signup();
+  const handleSubmit = async () => {
+    if (!email || !password) {
+      setError('Please fill in all required fields');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const { error: authError } = isLogin
+        ? await signIn(email, password)
+        : await signUp(email, password);
+
+      if (authError) {
+        setError(authError.message);
+      }
+    } catch (err: any) {
+      setError(err.message || 'An error occurred');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -48,23 +71,45 @@ export default function AuthScreen({ navigation, route }: Props) {
             : 'Join thousands of people passively buying and selling in their neighborhood.'}
         </Text>
 
+        {error ? (
+          <View style={styles.errorBox}>
+            <Text variant="body" size="base" style={styles.errorText}>
+              {error}
+            </Text>
+          </View>
+        ) : null}
+
         <Input
           label="Email"
           placeholder="you@email.com"
           keyboardType="email-address"
           autoCapitalize="none"
+          value={email}
+          onChangeText={setEmail}
         />
 
         <Input
           label="Password"
           placeholder={isLogin ? 'Your password' : 'At least 8 characters'}
           secureTextEntry
+          value={password}
+          onChangeText={setPassword}
         />
 
         {!isLogin && (
           <>
-            <Input label="Display name" placeholder="How others will see you" />
-            <Input label="Your neighborhood" placeholder="ZIP code or neighborhood" />
+            <Input
+              label="Display name"
+              placeholder="How others will see you"
+              value={displayName}
+              onChangeText={setDisplayName}
+            />
+            <Input
+              label="Your neighborhood"
+              placeholder="ZIP code or neighborhood"
+              value={neighborhood}
+              onChangeText={setNeighborhood}
+            />
             <Text variant="body" size="sm" color="muted" style={styles.hint}>
               We'll show you items nearby. Your exact location is never shared.
             </Text>
@@ -88,8 +133,9 @@ export default function AuthScreen({ navigation, route }: Props) {
           variant="primary"
           onPress={handleSubmit}
           style={styles.submitBtn}
+          disabled={loading}
         >
-          {isLogin ? 'Sign in' : 'Create account'}
+          {loading ? 'Loading...' : isLogin ? 'Sign in' : 'Create account'}
         </Button>
 
         <View style={styles.divider}>
@@ -230,5 +276,16 @@ const styles = StyleSheet.create({
   footer: {
     textAlign: 'center',
     marginTop: spacing.xxl,
+  },
+  errorBox: {
+    backgroundColor: colors.dangerSoft,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.danger,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  errorText: {
+    color: colors.danger,
   },
 });

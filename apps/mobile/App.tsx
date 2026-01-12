@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, ActivityIndicator, StyleSheet, LogBox } from 'react-native';
 import {
   useFonts,
@@ -14,6 +14,7 @@ import {
 import RootNavigator from './src/navigation/RootNavigator';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { colors } from './src/ui/tokens';
+import { useAuthStore } from './src/state/authStore';
 
 // Suppress specific warnings in development if needed
 if (__DEV__) {
@@ -32,7 +33,14 @@ export default function App() {
     Fraunces_600SemiBold,
   });
 
-  if (!fontsLoaded) {
+  const initialize = useAuthStore((state) => state.initialize);
+  const loading = useAuthStore((state) => state.loading);
+
+  useEffect(() => {
+    initialize();
+  }, [initialize]);
+
+  if (!fontsLoaded || loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.accent} />
