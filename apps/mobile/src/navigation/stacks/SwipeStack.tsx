@@ -3,8 +3,8 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SwipeStackParamList } from '../types';
 
 // Import screens
-import SwipeScreen from '../../screens/SwipeScreen';
-import ItemDetailScreen from '../../screens/ItemDetailScreen';
+import SwipeBuyScreen from '../../screens/swipe/SwipeBuy';
+import SwipeSellScreen from '../../screens/swipe/SwipeSell';
 
 const Stack = createNativeStackNavigator<SwipeStackParamList>();
 
@@ -12,13 +12,13 @@ export default function SwipeStack() {
   return (
     <Stack.Navigator
       id="swipe"
-      initialRouteName="Swipe"
+      initialRouteName="SwipeBuy"
       screenOptions={{
-        headerShown: true,
+        headerShown: false,
       }}
     >
-      <Stack.Screen name="Swipe" component={SwipeScreen} options={{ title: 'Swipe' }} />
-      <Stack.Screen name="ItemDetail" component={ItemDetailScreen} options={{ title: 'Item Detail' }} />
+      <Stack.Screen name="SwipeBuy" component={SwipeBuyScreen} />
+      <Stack.Screen name="SwipeSell" component={SwipeSellScreen} />
     </Stack.Navigator>
   );
 }

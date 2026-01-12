@@ -3,8 +3,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { MatchesStackParamList } from '../types';
 
 // Import screens
-import MatchesHomeScreen from '../../screens/MatchesHomeScreen';
-import MatchDetailScreen from '../../screens/MatchDetailScreen';
+import MatchesHomeScreen from '../../screens/matches/MatchesHome';
 
 const Stack = createNativeStackNavigator<MatchesStackParamList>();
 
@@ -14,11 +13,11 @@ export default function MatchesStack() {
       id="matches"
       initialRouteName="MatchesHome"
       screenOptions={{
-        headerShown: true,
+        headerShown: false,
       }}
     >
-      <Stack.Screen name="MatchesHome" component={MatchesHomeScreen} options={{ title: 'Matches' }} />
-      <Stack.Screen name="MatchDetail" component={MatchDetailScreen} options={{ title: 'Match Detail' }} />
+      <Stack.Screen name="MatchesHome" component={MatchesHomeScreen} />
+      {/* TODO: Add MatchDetail screen */}
     </Stack.Navigator>
   );
 }

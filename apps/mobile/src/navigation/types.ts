@@ -59,3 +59,25 @@ export type UploadStackParamList = {
   };
   ConfirmAddToList: undefined;
 };
+
+// Swipe stack (Day 3)
+export type SwipeStackParamList = {
+  SwipeBuy: undefined;
+  SwipeSell: undefined;
+};
+
+// Matches stack (Day 3)
+export type MatchesStackParamList = {
+  MatchesHome: undefined;
+  MatchDetail: { matchId: string };
+};
+
+// Deals stack (Day 3)
+export type DealsStackParamList = {
+  DealsHome: undefined;
+  DealDetail: { dealId: string };
+  Offer: { dealId: string };
+  DealChat: { dealId: string; deliveryMethod?: string };
+  PickupDetails: { dealId: string };
+  Shipping: { dealId: string };
+};
