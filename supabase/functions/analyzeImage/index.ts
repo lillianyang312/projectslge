@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { CONFIDENCE_THRESHOLDS } from '../shared/constants.ts';
 
 // Deno global is available in Supabase Edge Functions runtime
 declare const Deno: {
@@ -7,13 +8,6 @@ declare const Deno: {
     get: (key: string) => string | undefined;
   };
 };
-
-// Confidence thresholds matching clarification_schema.ts
-const CONFIDENCE_THRESHOLDS = {
-  HIGH_MIN: 0.85,
-  MEDIUM_MIN: 0.60,
-  LOW_MAX: 0.59,
-} as const;
 
 // Type definitions matching clarification_schema.ts
 export interface AnalyzeImageRequest {

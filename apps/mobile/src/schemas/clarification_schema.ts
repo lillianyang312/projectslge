@@ -8,18 +8,13 @@
  * - Low confidence: Ask targeted follow-up question, then repeat computation loop
  */
 
+import { CONFIDENCE_THRESHOLDS } from '../../../../supabase/functions/shared/constants';
+
 /**
- * Confidence threshold configuration
- * These values are quantitative and adjustable for system scalability
+ * Re-export confidence thresholds for convenience
+ * These values are imported from the shared constants file
  */
-export const CONFIDENCE_THRESHOLDS = {
-  /** Minimum confidence score for high confidence category [0.85, 1.0] */
-  HIGH_MIN: 0.85,
-  /** Minimum confidence score for medium confidence category [0.60, 0.84] */
-  MEDIUM_MIN: 0.60,
-  /** Maximum confidence score for low confidence category [0.0, 0.59] */
-  LOW_MAX: 0.59,
-} as const;
+export { CONFIDENCE_THRESHOLDS };
 
 /**
  * Maximum number of clarification iterations before fallback
