@@ -87,11 +87,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   headline: {
-    lineHeight: typography.lineHeights.tight * typography.sizes.display,
+    lineHeight: (typography?.lineHeights?.tight || 1.15) * (typography?.sizes?.display || 36),
     marginBottom: spacing.lg,
   },
   subtext: {
-    lineHeight: typography.lineHeights.relaxed * typography.sizes.xl,
+    lineHeight: (typography?.lineHeights?.relaxed || 1.5) * (typography?.sizes?.xl || 16),
     marginBottom: spacing.huge,
   },
   buttons: {

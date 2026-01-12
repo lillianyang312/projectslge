@@ -2,11 +2,14 @@ import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text } from 'react-native';
 import { AppTabsParamList } from './types';
+import { colors } from '../ui/tokens';
 
 // Import stack navigators
 import HomeStack from './stacks/HomeStack';
-import UploadStack from './stacks/UploadStack';
-import StubScreen from '../screens/StubScreen';
+import WantsStack from './stacks/WantsStack';
+import SwipeStack from './stacks/SwipeStack';
+import DealsStack from './stacks/DealsStack';
+import ProfileStack from './stacks/ProfileStack';
 
 const Tab = createBottomTabNavigator<AppTabsParamList>();
 
@@ -14,82 +17,74 @@ export default function AppTabs() {
   return (
     <Tab.Navigator
       id="app"
-      initialRouteName="Home"
+      initialRouteName="List"
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#2D2A26',
-        tabBarInactiveTintColor: '#9C9891',
+        tabBarActiveTintColor: colors.accent,
+        tabBarInactiveTintColor: colors.textMuted,
         tabBarStyle: {
-          backgroundColor: '#FFFFFF',
-          borderTopColor: '#E8E5E0',
-          height: 84,
+          backgroundColor: colors.card,
+          borderTopColor: colors.border,
+          height: 90,
           paddingTop: 12,
-          paddingBottom: 28,
+          paddingBottom: 30,
         },
         tabBarLabelStyle: {
           fontSize: 11,
-          fontFamily: 'System',
+          fontFamily: 'DMSans_400Regular',
         },
       }}
     >
       <Tab.Screen
-        name="Home"
+        name="List"
         component={HomeStack}
         options={{
-          title: 'List',
           tabBarLabel: 'List',
-          tabBarIcon: ({ color }) => (
+          tabBarIcon: ({ focused }) => (
             <Text style={{ fontSize: 18 }}>📦</Text>
           ),
         }}
       />
       <Tab.Screen
-        name="Upload"
-        component={UploadStack}
+        name="Wants"
+        component={WantsStack}
         options={{
-          title: 'Wants',
           tabBarLabel: 'Wants',
-          tabBarIcon: ({ color }) => (
+          tabBarIcon: ({ focused }) => (
             <Text style={{ fontSize: 18 }}>💫</Text>
           ),
         }}
       />
       <Tab.Screen
         name="Swipe"
+        component={SwipeStack}
         options={{
-          title: 'Swipe',
           tabBarLabel: 'Swipe',
-          tabBarIcon: ({ color }) => (
+          tabBarIcon: ({ focused }) => (
             <Text style={{ fontSize: 18 }}>👆</Text>
           ),
         }}
-      >
-        {() => <StubScreen title="Swipe" subtitle="Browse nearby items" />}
-      </Tab.Screen>
+      />
       <Tab.Screen
         name="Deals"
+        component={DealsStack}
         options={{
-          title: 'Deals',
           tabBarLabel: 'Deals',
-          tabBarIcon: ({ color }) => (
+          tabBarIcon: ({ focused }) => (
             <Text style={{ fontSize: 18 }}>🤝</Text>
           ),
         }}
-      >
-        {() => <StubScreen title="Deals" subtitle="Your active transactions" />}
-      </Tab.Screen>
+      />
       <Tab.Screen
-        name="Chat"
+        name="Profile"
+        component={ProfileStack}
         options={{
-          title: 'Profile',
           tabBarLabel: 'Profile',
-          tabBarIcon: ({ color }) => (
+          tabBarIcon: ({ focused }) => (
             <Text style={{ fontSize: 18 }}>👤</Text>
           ),
         }}
-      >
-        {() => <StubScreen title="Profile" subtitle="Your profile settings" />}
-      </Tab.Screen>
+      />
     </Tab.Navigator>
   );
 }

@@ -6,7 +6,7 @@ import { Text, Button, Card, Input } from '../../ui/components';
 import { colors, spacing } from '../../ui/tokens';
 import { setLogistics } from '../../services/dealsService';
 
-type Props = NativeStackScreenProps} <DealsStackParamList, 'Shipping'>;
+type Props = NativeStackScreenProps<DealsStackParamList, 'Shipping'>;
 
 export default function ShippingScreen({ navigation, route }: Props) {
   const { dealId } = route.params;

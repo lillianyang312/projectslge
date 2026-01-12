@@ -8,6 +8,8 @@ import OfferScreen from '../../screens/deals/Offer';
 import DealChatScreen from '../../screens/deals/DealChat';
 import PickupDetailsScreen from '../../screens/logistics/PickupDetails';
 import ShippingScreen from '../../screens/logistics/Shipping';
+import ConversationsListScreen from '../../screens/chat/ConversationsList';
+import ChatThreadScreen from '../../screens/chat/ChatThread';
 
 const Stack = createNativeStackNavigator<DealsStackParamList>();
 
@@ -26,6 +28,8 @@ export default function DealsStack() {
       <Stack.Screen name="DealChat" component={DealChatScreen} />
       <Stack.Screen name="PickupDetails" component={PickupDetailsScreen} />
       <Stack.Screen name="Shipping" component={ShippingScreen} />
+      <Stack.Screen name="Conversations" component={ConversationsListScreen} />
+      <Stack.Screen name="ChatThread" component={ChatThreadScreen} />
     </Stack.Navigator>
   );
 }

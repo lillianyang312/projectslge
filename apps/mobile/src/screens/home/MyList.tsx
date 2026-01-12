@@ -1,60 +1,237 @@
-import React, { useEffect } from 'react';
-import { View, StyleSheet, SafeAreaView, FlatList, Pressable } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View,
+  StyleSheet,
+  SafeAreaView,
+  FlatList,
+  Pressable,
+  Modal,
+  Alert,
+  Image,
+  RefreshControl,
+} from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { HomeStackParamList } from '../../navigation/types';
-import { Text, Card, Badge } from '../../ui/components';
-import { colors, spacing, radius, shadows, typography } from '../../ui/tokens';
+import { useFocusEffect } from '@react-navigation/native';
+import { ListStackParamList } from '../../navigation/types';
+import { Text, Card, Badge, FAB } from '../../ui/components';
+import { colors, spacing, radius, typography, shadows } from '../../ui/tokens';
 import { useItemsStore } from '../../state/itemsStore';
-import { ListingPhase } from '../../schemas/schema';
+import { useAuthStore } from '../../state/authStore';
+import { getMyItems, deleteItem, Item } from '../../services/itemsService';
 
-type Props = NativeStackScreenProps<HomeStackParamList, 'MyList'>;
+type Props = NativeStackScreenProps<ListStackParamList, 'MyList'>;
 
-function getPhaseBadgeVariant(phase: ListingPhase): 'primary' | 'warning' | 'success' | 'info' {
-  switch (phase) {
-    case ListingPhase.ORIGINAL:
-      return 'info';
-    case ListingPhase.CLARIFICATION:
-      return 'warning';
-    case ListingPhase.NEGOTIATION:
-      return 'primary';
-    case ListingPhase.COMPLETED:
-      return 'success';
+// Map sell intent to badge styling matching HTML spec
+function getSellIntentBadge(condition?: string): { label: string; variant: 'neutral' | 'warning' | 'success' } {
+  switch (condition?.toLowerCase()) {
+    case 'want gone':
+      return { label: 'Want gone', variant: 'success' };
+    case 'if good offer':
+      return { label: 'If good offer', variant: 'warning' };
+    case 'maybe':
     default:
-      return 'info';
+      return { label: 'Maybe', variant: 'neutral' };
   }
 }
 
+// Demo data matching HTML spec exactly
+const initialDemoItems = [
+  { id: '1', emoji: '🪑', title: 'Herman Miller Aeron', category: 'Furniture', sellIntent: 'If good offer' },
+  { id: '2', emoji: '📱', title: 'iPhone 14 Pro', category: 'Electronics', sellIntent: 'Maybe' },
+  { id: '3', emoji: '🎸', title: 'Fender Stratocaster', category: 'Music', sellIntent: 'Want gone' },
+];
+
 export default function MyListScreen({ navigation }: Props) {
   const listings = useItemsStore((state) => state.listings);
-  const items = useItemsStore((state) => state.items);
-  const seedDemoItems = useItemsStore((state) => state.seedDemoItems);
   const seedDemoListings = useItemsStore((state) => state.seedDemoListings);
+  const user = useAuthStore((state) => state.user);
+  
+  const [demoItems, setDemoItems] = useState(initialDemoItems);
+  const [supabaseItems, setSupabaseItems] = useState<Item[]>([]);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showMenu, setShowMenu] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Fetch items from Supabase
+  const fetchItems = useCallback(async () => {
+    if (user) {
+      const { data, error } = await getMyItems();
+      if (!error && data) {
+        setSupabaseItems(data);
+      }
+    }
+  }, [user]);
 
   useEffect(() => {
-    seedDemoItems();
     seedDemoListings();
-  }, [seedDemoItems, seedDemoListings]);
+    fetchItems();
+  }, [seedDemoListings, fetchItems]);
 
+  // Refresh items when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      fetchItems();
+    }, [fetchItems])
+  );
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchItems();
+    setRefreshing(false);
+  };
+
+  // Navigate to Upload within this stack (not to another tab)
   const navigateToUpload = () => {
-    // Navigate to Upload tab
-    const parent = navigation.getParent();
-    if (parent) {
-      parent.navigate('Upload' as never);
+    navigation.navigate('Upload');
+  };
+
+  // Get user-added listings from local store (filter out demo seed data)
+  const localListings = listings
+    .filter((l) => l.isActive && l.original.intent === 'owned' && !l.id.startsWith('demo-') && !l.id.startsWith('listing-') && !l.id.startsWith('clarification-'))
+    .map((l) => ({
+      id: l.id,
+      emoji: '📦',
+      title: l.original.title,
+      category: l.original.category,
+      sellIntent: l.original.condition || 'Maybe',
+      imageUri: l.original.imageUris?.[0],
+      isLocal: true,
+    }));
+
+  // Convert Supabase items to display format
+  const supabaseDisplayItems = supabaseItems.map((item) => ({
+    id: item.id,
+    emoji: '📦',
+    title: item.title,
+    category: item.category,
+    sellIntent: item.condition || 'Maybe',
+    imageUri: item.photos?.[0],
+    isLocal: false,
+  }));
+
+  // Combine all items: Supabase items first, then local items, then demo items
+  const displayItems = [...supabaseDisplayItems, ...localListings, ...demoItems];
+
+  const toggleSelection = (id: string) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
     }
+    setSelectedIds(newSelected);
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return;
+    
+    Alert.alert(
+      'Delete Items',
+      `Are you sure you want to delete ${selectedIds.size} item${selectedIds.size > 1 ? 's' : ''}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            // Delete from Supabase
+            for (const id of selectedIds) {
+              const isSupabaseItem = supabaseItems.some(item => item.id === id);
+              if (isSupabaseItem) {
+                await deleteItem(id);
+              }
+            }
+            
+            // Delete demo items locally
+            setDemoItems(prev => prev.filter(item => !selectedIds.has(item.id)));
+            
+            // Refresh Supabase items
+            await fetchItems();
+            
+            setSelectedIds(new Set());
+            setIsEditMode(false);
+          },
+        },
+      ]
+    );
+  };
+
+  const exitEditMode = () => {
+    setIsEditMode(false);
+    setSelectedIds(new Set());
   };
 
   return (
     <SafeAreaView style={styles.screen}>
+      {/* Header */}
       <View style={styles.header}>
-        <Text variant="headingMedium" size="heading2">
-          My List
-        </Text>
-        <Text variant="body" size="md" color="secondary">
-          Items you own
-        </Text>
+        <View style={styles.headerLeft}>
+          <Text variant="headingMedium" size="heading2">
+            My List
+          </Text>
+          <Text variant="body" size="md" color="secondary">
+            Items you own
+          </Text>
+        </View>
+        
+        {/* Three dots menu button */}
+        <Pressable
+          style={styles.menuButton}
+          onPress={() => setShowMenu(true)}
+        >
+          <Text style={styles.menuDots}>⋯</Text>
+        </Pressable>
       </View>
 
-      {listings.length === 0 && items.length === 0 ? (
+      {/* Edit mode header */}
+      {isEditMode && (
+        <View style={styles.editHeader}>
+          <Pressable onPress={exitEditMode} style={styles.cancelBtn}>
+            <Text variant="bodyMedium" size="md" color="secondary">Cancel</Text>
+          </Pressable>
+          <Text variant="bodyMedium" size="md">
+            {selectedIds.size} selected
+          </Text>
+          <Pressable
+            onPress={handleDeleteSelected}
+            style={[styles.deleteBtn, selectedIds.size === 0 && styles.deleteBtnDisabled]}
+            disabled={selectedIds.size === 0}
+          >
+            <Text
+              variant="bodyMedium"
+              size="md"
+              color={selectedIds.size > 0 ? 'danger' : 'muted'}
+            >
+              Delete
+            </Text>
+          </Pressable>
+        </View>
+      )}
+
+      {/* Menu Modal */}
+      <Modal
+        visible={showMenu}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowMenu(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowMenu(false)}>
+          <View style={styles.menuContainer}>
+            <Pressable
+              style={styles.menuItem}
+              onPress={() => {
+                setShowMenu(false);
+                setIsEditMode(true);
+              }}
+            >
+              <Text variant="bodyMedium" size="lg">Edit</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {displayItems.length === 0 ? (
         <View style={styles.emptyState}>
           <Text variant="heading" size="xxxl" style={styles.emptyIcon}>
             📦
@@ -73,74 +250,75 @@ export default function MyListScreen({ navigation }: Props) {
         </View>
       ) : (
         <FlatList
-          data={listings.filter((l) => l.original.intent === 'owned')}
-          keyExtractor={(listing) => listing.id}
+          data={displayItems}
+          keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
-          renderItem={({ item: listing }) => (
-            <Card
-              pressable
-              onPress={() => navigation.navigate('ItemDetail', { itemId: listing.id })}
-            >
-              <View style={styles.itemCard}>
-                <View style={styles.itemThumb}>
-                  <Text style={styles.itemIcon}>
-                    {listing.original.imageUris.length > 0 ? '📷' : '📦'}
-                  </Text>
-                </View>
-                <View style={styles.itemInfo}>
-                  <Text variant="bodyMedium" size="lg" style={styles.itemName}>
-                    {listing.original.title}
-                  </Text>
-                  <Text variant="body" size="base" color="secondary">
-                    {listing.original.category}
-                  </Text>
-                </View>
-                <Badge variant={getPhaseBadgeVariant(listing.phase)}>
-                  {listing.phase === 'original' ? 'Draft' : listing.phase}
-                </Badge>
-              </View>
-            </Card>
-          )}
-          ListFooterComponent={
-            items.length > 0 ? (
-              <View>
-                {items.map((item) => (
-                  <Card
-                    key={item.id}
-                    pressable
-                    onPress={() => navigation.navigate('ItemDetail', { itemId: item.id })}
-                  >
-                    <View style={styles.itemCard}>
-                      <View style={styles.itemThumb}>
-                        <Text style={styles.itemIcon}>
-                          {item.imageUri ? '📷' : '📦'}
-                        </Text>
-                      </View>
-                      <View style={styles.itemInfo}>
-                        <Text variant="bodyMedium" size="lg" style={styles.itemName}>
-                          {item.title}
-                        </Text>
-                        <Text variant="body" size="base" color="secondary">
-                          {item.category}
-                        </Text>
-                      </View>
-                      <Badge variant="warning">Legacy</Badge>
-                    </View>
-                  </Card>
-                ))}
-              </View>
-            ) : null
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
+          renderItem={({ item }) => {
+            const badge = getSellIntentBadge(item.sellIntent);
+            const isSelected = selectedIds.has(item.id);
+            
+            return (
+              <Pressable
+                onPress={() => {
+                  if (isEditMode) {
+                    toggleSelection(item.id);
+                  } else {
+                    navigation.navigate('ItemDetail', { itemId: item.id });
+                  }
+                }}
+              >
+                <Card style={[styles.card, isSelected && styles.cardSelected]}>
+                  <View style={styles.itemCard}>
+                    {/* Delete X button in edit mode */}
+                    {isEditMode && (
+                      <Pressable
+                        style={[
+                          styles.deleteCircle,
+                          isSelected && styles.deleteCircleSelected,
+                        ]}
+                        onPress={() => toggleSelection(item.id)}
+                      >
+                        <Text style={[
+                          styles.deleteX,
+                          isSelected && styles.deleteXSelected,
+                        ]}>
+                          {isSelected ? '✓' : ''}
+                        </Text>
+                      </Pressable>
+                    )}
+                    <View style={styles.itemThumb}>
+                      {item.imageUri ? (
+                        <Image source={{ uri: item.imageUri }} style={styles.itemImage} />
+                      ) : (
+                        <Text style={styles.itemIcon}>{item.emoji}</Text>
+                      )}
+                    </View>
+                    <View style={styles.itemInfo}>
+                      <Text variant="bodyMedium" size="lg" style={styles.itemName}>
+                        {item.title}
+                      </Text>
+                      <Text variant="body" size="base" color="secondary">
+                        {item.category}
+                      </Text>
+                    </View>
+                    {!isEditMode && (
+                      <Badge variant={badge.variant}>
+                        {badge.label}
+                      </Badge>
+                    )}
+                  </View>
+                </Card>
+              </Pressable>
+            );
+          }}
         />
       )}
 
-      {/* Floating Action Button */}
-      <Pressable
-        style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
-        onPress={navigateToUpload}
-      >
-        <Text style={styles.fabIcon}>+</Text>
-      </Pressable>
+      {/* Floating Action Button - ONLY entry point for Upload */}
+      {!isEditMode && <FAB onPress={navigateToUpload} />}
     </SafeAreaView>
   );
 }
@@ -151,14 +329,79 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
   header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
     paddingHorizontal: spacing.xxl,
     paddingTop: spacing.sm,
     paddingBottom: spacing.sm,
   },
+  headerLeft: {
+    flex: 1,
+  },
+  menuButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 20,
+  },
+  menuDots: {
+    fontSize: 24,
+    color: colors.textPrimary,
+    fontWeight: '600',
+  },
+  editHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.xxl,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.accentSoft,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  cancelBtn: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  deleteBtn: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  deleteBtnDisabled: {
+    opacity: 0.5,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-end',
+    paddingTop: 100,
+    paddingRight: spacing.xxl,
+  },
+  menuContainer: {
+    backgroundColor: colors.card,
+    borderRadius: radius.md,
+    ...shadows.lg,
+    minWidth: 120,
+    overflow: 'hidden',
+  },
+  menuItem: {
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+  },
   list: {
     paddingHorizontal: spacing.xxl,
     paddingTop: spacing.xl,
-    paddingBottom: 100,
+    paddingBottom: 120, // Space for FAB and tab bar
+  },
+  card: {
+    marginBottom: spacing.md,
+  },
+  cardSelected: {
+    borderColor: colors.danger,
+    borderWidth: 2,
   },
   emptyState: {
     flex: 1,
@@ -174,12 +417,34 @@ const styles = StyleSheet.create({
   },
   emptyMessage: {
     textAlign: 'center',
-    lineHeight: typography.lineHeights.relaxed * typography.sizes.lg,
+    lineHeight: (typography?.lineHeights?.relaxed || 1.5) * (typography?.sizes?.lg || 15),
   },
   itemCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
+  },
+  deleteCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteCircleSelected: {
+    backgroundColor: colors.danger,
+    borderColor: colors.danger,
+  },
+  deleteX: {
+    fontSize: 14,
+    color: colors.textMuted,
+    fontWeight: '600',
+  },
+  deleteXSelected: {
+    color: '#FFFFFF',
   },
   itemThumb: {
     width: 56,
@@ -192,30 +457,15 @@ const styles = StyleSheet.create({
   itemIcon: {
     fontSize: 24,
   },
+  itemImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: radius.sm,
+  },
   itemInfo: {
     flex: 1,
   },
   itemName: {
     marginBottom: 4,
-  },
-  fab: {
-    position: 'absolute',
-    bottom: 96, // Just above the tab bar (84px height + 12px margin)
-    right: spacing.xxl,
-    width: 56,
-    height: 56,
-    backgroundColor: colors.accent,
-    borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...shadows.lg,
-  },
-  fabPressed: {
-    opacity: 0.8,
-  },
-  fabIcon: {
-    fontSize: 24,
-    color: '#FFFFFF',
-    fontWeight: '300',
   },
 });

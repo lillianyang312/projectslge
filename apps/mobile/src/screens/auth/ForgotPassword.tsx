@@ -82,7 +82,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   subtitle: {
-    lineHeight: typography.lineHeights.relaxed * typography.sizes.lg,
+    lineHeight: (typography?.lineHeights?.relaxed || 1.5) * (typography?.sizes?.lg || 15),
     marginBottom: spacing.xxxl,
   },
   submitBtn: {

@@ -1,13 +1,14 @@
 import React from 'react';
 import { View, StyleSheet, ViewStyle } from 'react-native';
 import { Text } from './Text';
-import { colors, radius, spacing } from '../tokens';
+import { colors, radius } from '../tokens';
 
-type BadgeVariant = 'neutral' | 'success' | 'warning' | 'danger' | 'purple' | 'blue' | 'primary' | 'info' | 'secondary';
+type BadgeVariant = 'neutral' | 'success' | 'warning' | 'danger' | 'purple' | 'blue' | 'primary' | 'info' | 'secondary' | 'soft';
 
 interface BadgeProps {
   variant?: BadgeVariant;
-  children: React.ReactNode;
+  children?: React.ReactNode;
+  text?: string; // Legacy prop for backward compatibility
   style?: ViewStyle;
 }
 
@@ -48,10 +49,15 @@ const variantStyles = {
     backgroundColor: colors.accentSoft,
     textColor: 'secondary' as const,
   },
+  soft: {
+    backgroundColor: colors.accentSoft,
+    textColor: 'secondary' as const,
+  },
 };
 
-export function Badge({ variant = 'neutral', children, style }: BadgeProps) {
+export function Badge({ variant = 'neutral', children, text, style }: BadgeProps) {
   const variantStyle = variantStyles[variant];
+  const displayContent = children ?? text;
 
   return (
     <View
@@ -66,7 +72,7 @@ export function Badge({ variant = 'neutral', children, style }: BadgeProps) {
         size="sm"
         color={variantStyle.textColor}
       >
-        {children}
+        {displayContent}
       </Text>
     </View>
   );

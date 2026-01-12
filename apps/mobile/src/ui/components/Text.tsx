@@ -34,13 +34,16 @@ export function Text({
   children,
   ...props
 }: CustomTextProps) {
+  const fontSize = typography?.sizes?.[size] || 14;
+  const fontFamily = typography?.fonts?.[variant] || 'DMSans_400Regular';
+
   return (
     <RNText
       style={[
         styles.base,
         {
-          fontFamily: typography.fonts[variant],
-          fontSize: typography.sizes[size],
+          fontFamily,
+          fontSize,
           color: colorMap[color],
         },
         style,

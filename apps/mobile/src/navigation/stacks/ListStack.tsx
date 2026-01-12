@@ -3,11 +3,11 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { ListStackParamList } from '../types';
 
 // Import screens
-import MyListScreen from '../../screens/MyListScreen';
-import ItemDetailScreen from '../../screens/ItemDetailScreen';
-import UploadScreen from '../../screens/UploadScreen';
-import ClarificationScreen from '../../screens/ClarificationScreen';
-import ConfirmAddToListScreen from '../../screens/ConfirmAddToListScreen';
+import MyListScreen from '../../screens/home/MyList';
+import ItemDetailScreen from '../../screens/home/ItemDetail';
+import UploadScreen from '../../screens/upload/Upload';
+import ItemDetailsScreen from '../../screens/upload/ItemDetails';
+import PriceReviewScreen from '../../screens/upload/PriceReview';
 
 const Stack = createNativeStackNavigator<ListStackParamList>();
 
@@ -17,14 +17,14 @@ export default function ListStack() {
       id="list"
       initialRouteName="MyList"
       screenOptions={{
-        headerShown: true,
+        headerShown: false,
       }}
     >
-      <Stack.Screen name="MyList" component={MyListScreen} options={{ title: 'My List' }} />
-      <Stack.Screen name="ItemDetail" component={ItemDetailScreen} options={{ title: 'Item Detail' }} />
-      <Stack.Screen name="Upload" component={UploadScreen} options={{ title: 'Upload Item' }} />
-      <Stack.Screen name="Clarification" component={ClarificationScreen} options={{ title: 'Clarification' }} />
-      <Stack.Screen name="ConfirmAddToList" component={ConfirmAddToListScreen} options={{ title: 'Confirm' }} />
+      <Stack.Screen name="MyList" component={MyListScreen} />
+      <Stack.Screen name="ItemDetail" component={ItemDetailScreen} />
+      <Stack.Screen name="Upload" component={UploadScreen} />
+      <Stack.Screen name="ItemDetails" component={ItemDetailsScreen} />
+      <Stack.Screen name="PriceReview" component={PriceReviewScreen} />
     </Stack.Navigator>
   );
 }

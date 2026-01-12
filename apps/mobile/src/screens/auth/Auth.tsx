@@ -41,7 +41,7 @@ export default function AuthScreen({ navigation, route }: Props) {
     try {
       const { error: authError } = isLogin
         ? await signIn(email, password)
-        : await signUp(email, password);
+        : await signUp(email, password, displayName || undefined);
 
       if (authError) {
         setError(authError.message);
@@ -217,7 +217,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   subtitle: {
-    lineHeight: typography.lineHeights.relaxed * typography.sizes.lg,
+    lineHeight: (typography?.lineHeights?.relaxed || 1.5) * (typography?.sizes?.lg || 15),
     marginBottom: spacing.xxxl,
   },
   toggleGroup: {

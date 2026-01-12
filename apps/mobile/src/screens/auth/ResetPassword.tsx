@@ -47,7 +47,7 @@ const styles = StyleSheet.create({
   },
   message: {
     textAlign: 'center',
-    lineHeight: typography.lineHeights.relaxed * typography.sizes.lg,
+    lineHeight: (typography?.lineHeights?.relaxed || 1.5) * (typography?.sizes?.lg || 15),
     marginBottom: spacing.xxxl,
   },
 });

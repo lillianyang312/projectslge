@@ -1,287 +1,351 @@
-import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, SafeAreaView, Pressable, ScrollView, Image, Alert } from 'react-native';
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { HomeStackParamList } from '../../navigation/types';
-import { Text, Card, Badge, Button } from '../../ui/components';
-import { colors, spacing, radius } from '../../ui/tokens';
-import { useItemsStore } from '../../state/itemsStore';
+import React, { useState, useEffect } from 'react';
 import {
-  Listing,
-  ListingPhase,
-  formatCurrency,
-  getPhaseDisplayText,
-  hasClarificationData,
-  hasNegotiationData,
-} from '../../schemas/schema';
-import { handleListingError, safeGetListingData } from '../../schemas/errorHandling';
+  View,
+  StyleSheet,
+  SafeAreaView,
+  ScrollView,
+  Pressable,
+  Alert,
+  Image,
+} from 'react-native';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { ListStackParamList } from '../../navigation/types';
+import { Text, Button, Input, Pill } from '../../ui/components';
+import { colors, spacing, radius, typography } from '../../ui/tokens';
+import { useItemsStore } from '../../state/itemsStore';
+import { useAuthStore } from '../../state/authStore';
+import { getItemById, updateItem, deleteItem, Item } from '../../services/itemsService';
+import { getSignedUrl } from '../../services/imageService';
 
-type Props = NativeStackScreenProps<HomeStackParamList, 'ItemDetail'>;
+type Props = NativeStackScreenProps<ListStackParamList, 'ItemDetail'>;
+
+type Condition = 'New' | 'Like new' | 'Good' | 'Fair';
+type SellIntent = 'Maybe' | 'If good offer' | 'Want gone';
+type DeliveryPref = 'Local only' | 'Shipping OK';
+
+// Demo data matching HTML spec
+const demoItemsData: Record<string, {
+  emoji: string;
+  title: string;
+  category: string;
+  condition: Condition;
+  estimatedValue: number;
+  estimatedRange: string;
+  sellIntent: SellIntent;
+  deliveryPref: DeliveryPref;
+}> = {
+  '1': {
+    emoji: '🪑',
+    title: 'Herman Miller Aeron',
+    category: 'Furniture → Office Chair',
+    condition: 'Like new',
+    estimatedValue: 650,
+    estimatedRange: '$500 – $800',
+    sellIntent: 'If good offer',
+    deliveryPref: 'Local only',
+  },
+  '2': {
+    emoji: '📱',
+    title: 'iPhone 14 Pro',
+    category: 'Electronics → Smartphones',
+    condition: 'Good',
+    estimatedValue: 800,
+    estimatedRange: '$700 – $900',
+    sellIntent: 'Maybe',
+    deliveryPref: 'Shipping OK',
+  },
+  '3': {
+    emoji: '🎸',
+    title: 'Fender Stratocaster',
+    category: 'Music → Guitars',
+    condition: 'Good',
+    estimatedValue: 600,
+    estimatedRange: '$500 – $750',
+    sellIntent: 'Want gone',
+    deliveryPref: 'Local only',
+  },
+};
 
 export default function ItemDetailScreen({ navigation, route }: Props) {
   const { itemId } = route.params;
-  const getListingById = useItemsStore((state) => state.getListingById);
-  const seedDemoListings = useItemsStore((state) => state.seedDemoListings);
-  const [listing, setListing] = useState<Listing | undefined>(undefined);
-  const [error, setError] = useState<string | null>(null);
-
+  const listings = useItemsStore((state) => state.listings);
+  const updateListing = useItemsStore((state) => state.updateListing);
+  const user = useAuthStore((state) => state.user);
+  
+  const [supabaseItem, setSupabaseItem] = useState<Item | null>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  
+  // Try to get listing from store first
+  const storedListing = listings.find((l) => l.id === itemId);
+  
+  // Fetch Supabase item if user is authenticated and item not found locally
   useEffect(() => {
-    // Seed demo listings if needed
-    seedDemoListings();
-    
-    // Try to get listing by ID (could be legacy item ID or new listing ID)
-    const foundListing = getListingById(itemId);
-    if (foundListing) {
-      setListing(foundListing);
-      setError(null);
-    } else {
-      // Check if it's a legacy item ID and try to find it
-      // For now, set error if not found
-      setError('Listing not found');
+    async function fetchItem() {
+      if (user && !storedListing && !demoItemsData[itemId]) {
+        const { data } = await getItemById(itemId);
+        if (data) {
+          setSupabaseItem(data);
+          // Get signed URL for the image if it exists
+          if (data.photos?.[0]) {
+            const url = await getSignedUrl(data.photos[0]);
+            setImageUrl(url);
+          }
+        }
+      }
+      setLoading(false);
     }
-  }, [itemId, getListingById, seedDemoListings]);
+    fetchItem();
+  }, [itemId, user, storedListing]);
+  
+  // Get item data from various sources
+  const itemData = supabaseItem
+    ? {
+        emoji: '📦',
+        title: supabaseItem.title,
+        category: supabaseItem.category,
+        condition: (supabaseItem.condition || 'Good') as Condition,
+        estimatedValue: supabaseItem.asking_price || 100,
+        estimatedRange: '$50 – $150',
+        sellIntent: 'Maybe' as SellIntent,
+        deliveryPref: (supabaseItem.delivery_pref === 'shipping_ok' ? 'Shipping OK' : 'Local only') as DeliveryPref,
+        imageUri: imageUrl,
+        isSupabase: true,
+      }
+    : storedListing
+    ? {
+        emoji: '📦',
+        title: storedListing.original.title,
+        category: storedListing.original.category,
+        condition: (storedListing.original.condition || 'Good') as Condition,
+        estimatedValue: 100,
+        estimatedRange: '$50 – $150',
+        sellIntent: 'Maybe' as SellIntent,
+        deliveryPref: 'Local only' as DeliveryPref,
+        imageUri: storedListing.original.imageUris?.[0],
+        isSupabase: false,
+      }
+    : { ...demoItemsData[itemId] || demoItemsData['1'], isSupabase: false };
+  
+  const [condition, setCondition] = useState<Condition>(itemData.condition);
+  const [askingPrice, setAskingPrice] = useState(itemData.estimatedValue?.toString() || '');
+  const [sellIntent, setSellIntent] = useState<SellIntent>(itemData.sellIntent);
+  const [deliveryPref, setDeliveryPref] = useState<DeliveryPref>(itemData.deliveryPref);
+  const [saving, setSaving] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
-  const displayData = listing ? safeGetListingData(listing) : null;
+  const conditionOptions: Condition[] = ['New', 'Like new', 'Good', 'Fair'];
+  const sellIntentOptions: SellIntent[] = ['Maybe', 'If good offer', 'Want gone'];
+  const deliveryOptions: DeliveryPref[] = ['Local only', 'Shipping OK'];
 
-  const showAlert = (title: string, message: string) => {
-    Alert.alert(title, message);
+  const handleSave = async () => {
+    setSaving(true);
+    
+    try {
+      if (supabaseItem) {
+        // Update Supabase item
+        const { error } = await updateItem(itemId, {
+          condition,
+          delivery_pref: deliveryPref === 'Shipping OK' ? 'shipping_ok' : 'local_only',
+          asking_price: askingPrice ? parseFloat(askingPrice) : undefined,
+        });
+        
+        if (error) {
+          Alert.alert('Error', error);
+          setSaving(false);
+          return;
+        }
+      } else if (storedListing) {
+        // Update local stored listing
+        updateListing(itemId, {
+          original: {
+            ...storedListing.original,
+            condition,
+          },
+        });
+      }
+      
+      setSaving(false);
+      setIsEditing(false);
+      Alert.alert('Saved', 'Your changes have been saved.');
+    } catch (error) {
+      console.error('Save error:', error);
+      setSaving(false);
+      Alert.alert('Error', 'Failed to save changes');
+    }
   };
 
-  if (error && !listing) {
-    return (
-      <SafeAreaView style={styles.screen}>
-        <View style={styles.header}>
-          <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <Text size="xxxl">←</Text>
-          </Pressable>
-          <Text variant="headingMedium" size="heading3">
-            Item Detail
-          </Text>
-        </View>
-        <View style={styles.errorContent}>
-          <Text variant="body" size="lg" color="danger">
-            {error}
-          </Text>
-          <Button variant="secondary" onPress={() => navigation.goBack()} style={styles.backButton}>
-            Go Back
-          </Button>
-        </View>
-      </SafeAreaView>
+  const handleDelete = () => {
+    Alert.alert(
+      'Delete Item',
+      'Are you sure you want to delete this item from your list?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            if (supabaseItem) {
+              // Delete from Supabase
+              const { error } = await deleteItem(itemId);
+              if (error) {
+                Alert.alert('Error', error);
+                return;
+              }
+            } else if (storedListing) {
+              // Mark local listing as inactive
+              updateListing(itemId, { isActive: false });
+            }
+            navigation.goBack();
+          },
+        },
+      ]
     );
-  }
-
-  if (!listing || !displayData) {
-    return (
-      <SafeAreaView style={styles.screen}>
-        <View style={styles.header}>
-          <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <Text size="xxxl">←</Text>
-          </Pressable>
-          <Text variant="headingMedium" size="heading3">
-            Item Detail
-          </Text>
-        </View>
-        <View style={styles.content}>
-          <Text variant="body" size="lg" color="secondary">
-            Loading...
-          </Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  };
 
   return (
     <SafeAreaView style={styles.screen}>
-      <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Text size="xxxl">←</Text>
-        </Pressable>
-        <Text variant="headingMedium" size="heading3">
-          Item Detail
-        </Text>
-      </View>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Phase Badge */}
-        <View style={styles.badgeContainer}>
-          <Badge variant={getPhaseBadgeVariant(listing.phase)}>
-            {getPhaseDisplayText(listing.phase)}
-          </Badge>
+        {/* Header with back arrow, title, and edit button */}
+        <View style={styles.header}>
+          <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <Text size="xl">←</Text>
+          </Pressable>
+          <Text variant="headingMedium" size="heading3" style={styles.headerTitle}>
+            {itemData.title}
+          </Text>
+          <Pressable style={styles.editBtn} onPress={() => setIsEditing(!isEditing)}>
+            <Text variant="bodyMedium" size="md" color="primary">
+              {isEditing ? 'Done' : 'Edit'}
+            </Text>
+          </Pressable>
         </View>
 
-        {/* Images */}
-        {displayData.imageUris.length > 0 && (
-          <View style={styles.imageContainer}>
-            {displayData.imageUris.map((uri, index) => (
-              <Image key={index} source={{ uri }} style={styles.image} />
+        {/* Item Image */}
+        <View style={styles.detailImage}>
+          {itemData.imageUri ? (
+            <Image source={{ uri: itemData.imageUri }} style={styles.image} resizeMode="cover" />
+          ) : (
+            <Text style={styles.imageEmoji}>{itemData.emoji}</Text>
+          )}
+        </View>
+
+        {/* Category */}
+        <Text variant="body" size="md" color="secondary" style={styles.detailCategory}>
+          {itemData.category}
+        </Text>
+
+        {/* Condition Pills */}
+        <View style={styles.inputGroup}>
+          <Text variant="body" size="base" color="secondary" style={styles.label}>
+            Condition
+          </Text>
+          <View style={styles.pills}>
+            {conditionOptions.map((opt) => (
+              <Pill
+                key={opt}
+                label={opt}
+                selected={condition === opt}
+                onPress={() => setCondition(opt)}
+              />
             ))}
           </View>
-        )}
+        </View>
 
-        {/* Basic Info */}
-        <Card style={styles.section}>
-          <Text variant="headingMedium" size="heading3" style={styles.title}>
-            {displayData.title}
+        {/* Estimate Box */}
+        <View style={styles.estimateBox}>
+          <Text variant="body" size="sm" color="secondary" style={styles.estimateLabel}>
+            ESTIMATED MARKET VALUE
           </Text>
-          <Text variant="body" size="base" color="secondary" style={styles.category}>
-            {displayData.category}
+          <Text variant="heading" size="heading1" style={styles.estimateValue}>
+            ${itemData.estimatedValue}
           </Text>
-          {listing.original.condition && (
-            <Badge variant="info" style={styles.conditionBadge}>
-              {listing.original.condition}
-            </Badge>
-          )}
-        </Card>
+          <Text variant="body" size="base" color="secondary" style={styles.estimateRange}>
+            Range: {itemData.estimatedRange}
+          </Text>
+        </View>
 
-        {/* Description */}
-        <Card style={styles.section}>
-          <Text variant="bodyMedium" size="md" style={styles.sectionTitle}>
-            Description
+        {/* Would let go for */}
+        <View style={styles.inputGroup}>
+          <Text variant="body" size="base" color="secondary" style={styles.label}>
+            Would let go for
           </Text>
-          <Text variant="body" size="base" color="secondary" style={styles.description}>
-            {displayData.description}
+          <View style={styles.priceInputRow}>
+            <Input
+              placeholder="$0"
+              value={askingPrice}
+              onChangeText={setAskingPrice}
+              keyboardType="numeric"
+              style={styles.priceInput}
+            />
+            <Button
+              variant="secondary"
+              onPress={() => setAskingPrice('')}
+              style={styles.notSureBtn}
+            >
+              Not sure
+            </Button>
+          </View>
+        </View>
+
+        {/* How likely to sell */}
+        <View style={styles.inputGroup}>
+          <Text variant="body" size="base" color="secondary" style={styles.label}>
+            How likely to sell?
           </Text>
-          {listing.original.notes && (
-            <Text variant="body" size="sm" color="muted" style={styles.notes}>
-              {listing.original.notes}
-            </Text>
-          )}
-        </Card>
+          <View style={styles.pills}>
+            {sellIntentOptions.map((opt) => (
+              <Pill
+                key={opt}
+                label={opt}
+                selected={sellIntent === opt}
+                onPress={() => setSellIntent(opt)}
+              />
+            ))}
+          </View>
+        </View>
 
-        {/* Clarification Data */}
-        {hasClarificationData(listing) && (
-          <Card style={styles.section}>
-            <Text variant="bodyMedium" size="md" style={styles.sectionTitle}>
-              Location & Details
-            </Text>
-            {listing.clarification.sellerLocation?.displayAddress && (
-              <Text variant="body" size="base" color="secondary">
-                📍 {listing.clarification.sellerLocation.displayAddress}
-              </Text>
-            )}
-            {listing.clarification.pickupMethod && (
-              <Text variant="body" size="base" color="secondary" style={styles.detailRow}>
-                Pickup: {listing.clarification.pickupMethod}
-              </Text>
-            )}
-            {listing.clarification.shippingAvailable !== undefined && (
-              <Text variant="body" size="base" color="secondary" style={styles.detailRow}>
-                Shipping: {listing.clarification.shippingAvailable ? 'Available' : 'Not available'}
-              </Text>
-            )}
-            {listing.clarification.availability && (
-              <Text variant="body" size="base" color="secondary" style={styles.detailRow}>
-                Availability: {listing.clarification.availability}
-              </Text>
-            )}
-          </Card>
-        )}
+        {/* Delivery preference */}
+        <View style={styles.inputGroup}>
+          <Text variant="body" size="base" color="secondary" style={styles.label}>
+            Delivery preference
+          </Text>
+          <View style={styles.pills}>
+            {deliveryOptions.map((opt) => (
+              <Pill
+                key={opt}
+                label={opt}
+                selected={deliveryPref === opt}
+                onPress={() => setDeliveryPref(opt)}
+              />
+            ))}
+          </View>
+        </View>
 
-        {/* Negotiation Data */}
-        {hasNegotiationData(listing) && (
+        {/* Action Buttons - only visible in edit mode */}
+        {isEditing && (
           <>
-            <Card style={styles.section}>
-              <Text variant="bodyMedium" size="md" style={styles.sectionTitle}>
-                Pricing
-              </Text>
-              {listing.negotiation.estimatedMarketValue && (
-                <View style={styles.priceRow}>
-                  <Text variant="body" size="base" color="secondary">
-                    Estimated Value:
-                  </Text>
-                  <Text variant="bodyMedium" size="lg">
-                    {formatCurrency(listing.negotiation.estimatedMarketValue)}
-                  </Text>
-                </View>
-              )}
-              {listing.negotiation.askingPrice && (
-                <View style={styles.priceRow}>
-                  <Text variant="body" size="base" color="secondary">
-                    Asking Price:
-                  </Text>
-                  <Text variant="bodyMedium" size="lg" style={styles.primaryPrice}>
-                    {formatCurrency(listing.negotiation.askingPrice)}
-                  </Text>
-                </View>
-              )}
-              {listing.negotiation.minimumPrice && (
-                <Text variant="body" size="sm" color="muted">
-                  Minimum: {formatCurrency(listing.negotiation.minimumPrice)}
-                </Text>
-              )}
-            </Card>
+            <Button
+              variant="primary"
+              onPress={handleSave}
+              disabled={saving}
+              style={styles.saveBtn}
+            >
+              {saving ? 'Saving...' : 'Save changes'}
+            </Button>
 
-            {/* Bids */}
-            {listing.negotiation.bids.length > 0 && (
-              <Card style={styles.section}>
-                <Text variant="bodyMedium" size="md" style={styles.sectionTitle}>
-                  Bids ({listing.negotiation.bids.filter((b) => b.isActive).length} active)
-                </Text>
-                {listing.negotiation.bids
-                  .filter((bid) => bid.isActive)
-                  .sort((a, b) => b.amount - a.amount)
-                  .map((bid) => (
-                    <View key={bid.id} style={styles.bidCard}>
-                      <View style={styles.bidHeader}>
-                        <Text variant="bodyMedium" size="base">
-                          {bid.buyerName || `Buyer ${bid.buyerId.slice(-6)}`}
-                        </Text>
-                        <Text variant="headingMedium" size="lg" style={styles.bidAmount}>
-                          {formatCurrency(bid.amount)}
-                        </Text>
-                      </View>
-                      {bid.buyerRating && (
-                        <View style={styles.bidRating}>
-                          <Text variant="body" size="sm" color="secondary">
-                            ⭐ {bid.buyerRating.toFixed(1)}
-                          </Text>
-                          {bid.buyerReviewCount && (
-                            <Text variant="body" size="sm" color="muted">
-                              ({bid.buyerReviewCount} reviews)
-                            </Text>
-                          )}
-                        </View>
-                      )}
-                      {bid.message && (
-                        <Text variant="body" size="sm" color="muted" style={styles.bidMessage}>
-                          "{bid.message}"
-                        </Text>
-                      )}
-                    </View>
-                  ))}
-              </Card>
-            )}
+            <Button
+              variant="secondary"
+              onPress={handleDelete}
+              style={styles.deleteBtn}
+            >
+              Delete item
+            </Button>
           </>
-        )}
-
-        {/* Tags */}
-        {listing.original.tags && listing.original.tags.length > 0 && (
-          <Card style={styles.section}>
-            <View style={styles.tagsContainer}>
-              {listing.original.tags.map((tag, index) => (
-                <Badge key={index} variant="secondary" style={styles.tag}>
-                  {tag}
-                </Badge>
-              ))}
-            </View>
-          </Card>
         )}
       </ScrollView>
     </SafeAreaView>
   );
-}
-
-function getPhaseBadgeVariant(phase: ListingPhase): 'primary' | 'warning' | 'success' | 'info' {
-  switch (phase) {
-    case ListingPhase.ORIGINAL:
-      return 'info';
-    case ListingPhase.CLARIFICATION:
-      return 'warning';
-    case ListingPhase.NEGOTIATION:
-      return 'primary';
-    case ListingPhase.COMPLETED:
-      return 'success';
-    default:
-      return 'info';
-  }
 }
 
 const styles = StyleSheet.create({
@@ -289,12 +353,15 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.bg,
   },
+  scrollContent: {
+    paddingHorizontal: spacing.xxl,
+    paddingBottom: spacing.xxxl,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.lg,
-    paddingHorizontal: spacing.xxl,
     paddingVertical: spacing.sm,
+    marginBottom: spacing.lg,
   },
   backBtn: {
     width: 36,
@@ -306,108 +373,80 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  scrollContent: {
-    paddingHorizontal: spacing.xxl,
-    paddingBottom: spacing.xxxl,
+  headerTitle: {
+    flex: 1,
+    marginLeft: spacing.md,
   },
-  badgeContainer: {
-    marginVertical: spacing.lg,
-    alignItems: 'flex-start',
+  editBtn: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
   },
-  imageContainer: {
-    marginBottom: spacing.xl,
-    gap: spacing.md,
+  detailImage: {
+    width: '100%',
+    aspectRatio: 4 / 3,
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.md,
+    marginBottom: spacing.xxl,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
   },
   image: {
     width: '100%',
-    aspectRatio: 4 / 3,
-    borderRadius: radius.md,
-    backgroundColor: colors.accentSoft,
+    height: '100%',
   },
-  section: {
+  imageEmoji: {
+    fontSize: 48,
+  },
+  imageContainer: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detailCategory: {
+    marginBottom: spacing.xxl,
+  },
+  inputGroup: {
     marginBottom: spacing.xl,
   },
-  title: {
-    marginBottom: spacing.xs,
+  label: {
+    marginBottom: 6,
   },
-  category: {
-    marginBottom: spacing.md,
-  },
-  conditionBadge: {
-    alignSelf: 'flex-start',
-    marginTop: spacing.xs,
-  },
-  sectionTitle: {
-    marginBottom: spacing.md,
-  },
-  description: {
-    lineHeight: 22,
-    marginBottom: spacing.sm,
-  },
-  notes: {
-    marginTop: spacing.sm,
-    fontStyle: 'italic',
-  },
-  detailRow: {
-    marginTop: spacing.sm,
-  },
-  priceRow: {
+  pills: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  primaryPrice: {
-    color: colors.accent,
-  },
-  bidCard: {
-    padding: spacing.md,
-    backgroundColor: colors.card,
-    borderRadius: radius.sm,
-    marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  bidHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.xs,
-  },
-  bidAmount: {
-    color: colors.accent,
-  },
-  bidRating: {
-    flexDirection: 'row',
-    gap: spacing.xs,
-    marginBottom: spacing.xs,
-  },
-  bidMessage: {
-    marginTop: spacing.xs,
-    fontStyle: 'italic',
-  },
-  tagsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: spacing.sm,
+    flexWrap: 'wrap',
   },
-  tag: {
-    marginRight: spacing.xs,
+  estimateBox: {
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.md,
+    padding: spacing.lg,
+    marginBottom: spacing.xl,
   },
-  content: {
+  estimateLabel: {
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  estimateValue: {
+    fontFamily: typography?.fonts?.heading || 'Fraunces_400Regular',
+  },
+  estimateRange: {
+    marginTop: 4,
+  },
+  priceInputRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  priceInput: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: spacing.xxl,
   },
-  errorContent: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: spacing.xxl,
-    gap: spacing.lg,
+  notSureBtn: {
+    paddingHorizontal: spacing.lg,
   },
-  backButton: {
-    marginTop: spacing.md,
+  saveBtn: {
+    marginBottom: spacing.md,
   },
+  deleteBtn: {},
 });

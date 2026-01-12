@@ -28,11 +28,23 @@ export type Item = {
   createdAt: number;
 };
 
+// Sell intent type
+export type SellIntent = 'keep' | 'sell' | 'might_sell';
+
+// Delivery preference type for listings
+export type ListingDeliveryPref = 'local_only' | 'shipping_ok' | 'both';
+
 // Draft type for creating new listings
 export type DraftListing = Partial<OriginalListingData> & {
   imageUri?: string;
   // Current clarification response from the identification process
   clarificationResponse?: ClarificationResponse;
+  // New fields for upload flow
+  pricePurchased?: number;        // Optional price paid for item
+  sellIntent?: SellIntent;        // How likely to sell
+  deliveryPref?: ListingDeliveryPref;  // Local only or shipping OK
+  estimatedPrice?: number;        // API estimated price
+  minimumPrice?: number;          // Optional minimum price to sell
 };
 
 type ItemsStore = {
