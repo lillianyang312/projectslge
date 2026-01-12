@@ -12,6 +12,7 @@ type Props = NativeStackScreenProps<ListStackParamList, 'Upload'>;
 export default function UploadScreen({ navigation }: Props) {
   const setDraftFromImage = useItemsStore((state) => state.setDraftFromImage);
   const updateDraft = useItemsStore((state) => state.updateDraft);
+  const draft = useItemsStore((state) => state.draft);
 
   const takePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -25,14 +26,38 @@ export default function UploadScreen({ navigation }: Props) {
     }
 
     const result = await ImagePicker.launchCameraAsync({
-      allowsEditing: true,
-      aspect: [1, 1],
+      allowsEditing: false,
       quality: 0.8,
     });
 
     if (!result.canceled && result.assets[0]) {
-      setDraftFromImage(result.assets[0].uri);
-      navigation.navigate('ItemDetails');
+      const newUri = result.assets[0].uri;
+      const existingUris = draft?.imageUris || [];
+
+      // Add new photo to existing photos (max 5)
+      const updatedUris = [...existingUris, newUri].slice(0, 5);
+
+      if (existingUris.length === 0) {
+        // First photo - set as primary
+        setDraftFromImage(newUri);
+      }
+
+      updateDraft({ imageUris: updatedUris });
+
+      // Ask if user wants to take more photos or continue
+      if (updatedUris.length < 5) {
+        Alert.alert(
+          'Photo added',
+          `${updatedUris.length}/5 photos. Take another photo or continue to details?`,
+          [
+            { text: 'Take another', onPress: takePhoto },
+            { text: 'Continue', onPress: () => navigation.navigate('ItemDetails') },
+          ]
+        );
+      } else {
+        Alert.alert('Maximum photos reached', 'You can add up to 5 photos per item.');
+        navigation.navigate('ItemDetails');
+      }
     }
   };
 

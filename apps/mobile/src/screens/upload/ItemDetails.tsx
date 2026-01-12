@@ -39,6 +39,7 @@ export default function ItemDetailsScreen({ navigation }: Props) {
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzed, setAnalyzed] = useState(false);
   const [images, setImages] = useState<string[]>(draft?.imageUris || [draft?.imageUri].filter(Boolean) || []);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
   // Auto-analyze image when screen loads
   useEffect(() => {
@@ -141,6 +142,21 @@ export default function ItemDetailsScreen({ navigation }: Props) {
     const updatedImages = images.filter((_, i) => i !== index);
     setImages(updatedImages);
     updateDraft({ imageUris: updatedImages });
+
+    // Adjust current index if needed
+    if (currentImageIndex >= updatedImages.length && updatedImages.length > 0) {
+      setCurrentImageIndex(updatedImages.length - 1);
+    } else if (updatedImages.length === 0) {
+      setCurrentImageIndex(0);
+    }
+  };
+
+  const goToPreviousImage = () => {
+    setCurrentImageIndex((prev) => (prev > 0 ? prev - 1 : images.length - 1));
+  };
+
+  const goToNextImage = () => {
+    setCurrentImageIndex((prev) => (prev < images.length - 1 ? prev + 1 : 0));
   };
 
   const handleContinue = () => {
@@ -172,20 +188,68 @@ export default function ItemDetailsScreen({ navigation }: Props) {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <Header title="Item details" showBack={true} />
 
-        {/* Image Gallery */}
+        {/* Main Image Preview with Navigation */}
+        {images.length > 0 && (
+          <Card style={styles.mainImageCard}>
+            <Image source={{ uri: images[currentImageIndex] }} style={styles.mainImage} />
+            {analyzing && currentImageIndex === 0 && (
+              <View style={styles.analyzingOverlay}>
+                <ActivityIndicator size="large" color={colors.accent} />
+                <Text variant="bodyMedium" size="md" color="muted" style={styles.analyzingText}>
+                  Analyzing image...
+                </Text>
+              </View>
+            )}
+
+            {/* Navigation Arrows */}
+            {images.length > 1 && (
+              <>
+                <Pressable style={styles.arrowLeft} onPress={goToPreviousImage}>
+                  <Text style={styles.arrowText}>‹</Text>
+                </Pressable>
+                <Pressable style={styles.arrowRight} onPress={goToNextImage}>
+                  <Text style={styles.arrowText}>›</Text>
+                </Pressable>
+              </>
+            )}
+
+            {/* Image Counter */}
+            {images.length > 1 && (
+              <View style={styles.imageCounter}>
+                <Text style={styles.imageCounterText}>
+                  {currentImageIndex + 1} / {images.length}
+                </Text>
+              </View>
+            )}
+
+            {/* Main Photo Badge */}
+            {currentImageIndex === 0 && (
+              <View style={styles.mainPhotoBadge}>
+                <Text style={styles.mainPhotoBadgeText}>Main Photo</Text>
+              </View>
+            )}
+          </Card>
+        )}
+
+        {/* Thumbnail Gallery */}
         <View style={styles.imageGallery}>
           <Text variant="bodyMedium" size="base" color="secondary" style={styles.galleryLabel}>
             Photos ({images.length}/5)
           </Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imageScroll}>
             {images.map((uri, index) => (
-              <View key={index} style={styles.imageWrapper}>
-                <Image source={{ uri }} style={styles.thumbnail} />
-                {analyzing && index === 0 && (
-                  <View style={styles.analyzingOverlay}>
-                    <ActivityIndicator size="small" color={colors.accent} />
-                  </View>
-                )}
+              <Pressable
+                key={index}
+                style={styles.imageWrapper}
+                onPress={() => setCurrentImageIndex(index)}
+              >
+                <Image
+                  source={{ uri }}
+                  style={[
+                    styles.thumbnail,
+                    currentImageIndex === index && styles.thumbnailActive,
+                  ]}
+                />
                 <Pressable
                   style={styles.removeBtn}
                   onPress={() => removePhoto(index)}
@@ -197,7 +261,7 @@ export default function ItemDetailsScreen({ navigation }: Props) {
                     <Text style={styles.primaryBadgeText}>Main</Text>
                   </View>
                 )}
-              </View>
+              </Pressable>
             ))}
             {images.length < 5 && (
               <Pressable style={styles.addPhotoBtn} onPress={addMorePhotos}>
@@ -353,6 +417,75 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xxl,
     paddingBottom: spacing.xxxl,
   },
+  mainImageCard: {
+    padding: 0,
+    overflow: 'hidden',
+    marginBottom: spacing.lg,
+    position: 'relative',
+  },
+  mainImage: {
+    width: '100%',
+    aspectRatio: 1,
+    backgroundColor: colors.accentSoft,
+  },
+  arrowLeft: {
+    position: 'absolute',
+    left: 8,
+    top: '50%',
+    transform: [{ translateY: -24 }],
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  arrowRight: {
+    position: 'absolute',
+    right: 8,
+    top: '50%',
+    transform: [{ translateY: -24 }],
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  arrowText: {
+    color: '#FFFFFF',
+    fontSize: 36,
+    fontWeight: '300',
+    lineHeight: 48,
+  },
+  imageCounter: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.sm,
+  },
+  imageCounterText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  mainPhotoBadge: {
+    position: 'absolute',
+    bottom: 8,
+    left: 8,
+    backgroundColor: colors.accent,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.sm,
+  },
+  mainPhotoBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
   imageGallery: {
     marginBottom: spacing.xl,
   },
@@ -372,6 +505,12 @@ const styles = StyleSheet.create({
     height: 120,
     borderRadius: radius.md,
     backgroundColor: colors.accentSoft,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  thumbnailActive: {
+    borderColor: colors.accent,
+    borderWidth: 3,
   },
   removeBtn: {
     position: 'absolute',
