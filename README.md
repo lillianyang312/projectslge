@@ -62,6 +62,20 @@ apps/mobile/
 └── package.json
 ```
 
+### Environment Variables
+
+The mobile app requires Supabase configuration. Copy the template and fill in your values:
+
+```bash
+cp apps/mobile/.env.example apps/mobile/.env
+```
+
+Then add your Supabase project credentials to `apps/mobile/.env`:
+- `EXPO_PUBLIC_SUPABASE_URL` - Your Supabase project URL
+- `EXPO_PUBLIC_SUPABASE_ANON_KEY` - Your Supabase anon key
+
+**Note:** These are prefixed with `EXPO_PUBLIC_` so they are safe to expose in the client.
+
 ### Troubleshooting
 
 - If you encounter issues, try clearing the cache:
