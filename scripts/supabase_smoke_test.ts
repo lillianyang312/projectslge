@@ -118,33 +118,6 @@ async function runTests() {
     if (!testUserId) {
         console.log('⏭️  Skipping auth-required database tests (no authenticated user)\n');
     } else {
-        // Create profile
-        await test('Create user profile', async () => {
-            const { error } = await supabase
-                .from('profiles')
-                .insert({
-                    id: testUserId,
-                    display_name: `Test User ${Date.now()}`,
-                });
-
-            if (error) throw error;
-        });
-
-        // Read profile
-        let profileId = '';
-        await test('Read user profile', async () => {
-            const { data, error } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', testUserId)
-                .single();
-
-            if (error) throw error;
-            if (!data?.id) throw new Error('Profile not found');
-
-            profileId = data.id;
-        });
-
         // Create item
         let itemId = '';
         await test('Create item listing', async () => {
@@ -152,11 +125,10 @@ async function runTests() {
                 .from('items')
                 .insert({
                     owner_id: testUserId,
-                    title: `Test Item ${Date.now()}`,
+                    image_path: `test/${Date.now()}.jpg`,
+                    label: 'Smoke Test Item',
                     category: 'Electronics',
-                    condition: 'Good',
-                    delivery_pref: 'pickup',
-                    asking_price: 99.99,
+                    description: 'Smoke test item',
                 })
                 .select('id')
                 .single();
@@ -171,12 +143,12 @@ async function runTests() {
         await test('Read item listing', async () => {
             const { data, error } = await supabase
                 .from('items')
-                .select('*')
+                .select('id,label,image_path')
                 .eq('id', itemId)
                 .single();
 
             if (error) throw error;
-            if (!data?.title) throw new Error('Item not found');
+            if (!data?.label) throw new Error('Item not found');
         });
 
         // Create want
@@ -440,19 +412,8 @@ async function runTests() {
     // ========================================================================
     console.log('\n--- Row-Level Security Tests ---');
 
-    // Verify user can read their own profile
-    await test('RLS: User can read own profile', async () => {
-        const { data, error } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', testUserId);
-
-        if (error) throw error;
-        if (data?.length === 0) throw new Error('Own profile not readable');
-    });
-
-    // Verify user can read all public items (not restricted)
-    await test('RLS: User can read all items', async () => {
+    // Verify user can read their own items via RLS
+    await test('RLS: User can read own items', async () => {
         const { data, error } = await supabase
             .from('items')
             .select('id')
