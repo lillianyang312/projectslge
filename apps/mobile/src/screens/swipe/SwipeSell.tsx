@@ -15,6 +15,7 @@ import { colors, spacing, radius } from '../../ui/tokens';
 import { Item } from '../../types/models';
 import { getSwipeToSellFeed, recordSwipeAction, createMatch } from '../../services/matchingService';
 import { getSignedUrl } from '../../services/imageService';
+import { evaluateOurTake } from '../../services/ourTakeService';
 import { useAuthStore } from '../../state/authStore';
 
 type Props = NativeStackScreenProps<SwipeStackParamList, 'SwipeSell'>;
@@ -112,6 +113,9 @@ export default function SwipeSellScreen({ navigation }: Props) {
 
   const { want, myItem } = current;
 
+  const myAskingPrice = myItem.user_min_price || myItem.market_value_min || 0;
+  const ourTake = evaluateOurTake(myItem, myAskingPrice, 'sell');
+
   return (
     <SafeAreaView style={styles.screen}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -201,39 +205,15 @@ export default function SwipeSellScreen({ navigation }: Props) {
             OUR TAKE
           </Text>
 
-          {want.user_max_price && myItem.user_min_price ? (
-            want.user_max_price >= myItem.user_min_price ? (
-              <>
-                <Text variant="bodyMedium" size="lg" style={styles.agentTake}>
-                  Strong match! Their budget covers your asking price.
-                </Text>
-                <Text variant="body" size="sm" color="secondary">
-                  • Budget: ${want.user_max_price} meets your ${myItem.user_min_price} ask
-                </Text>
-                {want.urgency === 'urgent' && (
-                  <Text variant="body" size="sm" color="secondary">
-                    • Buyer is urgent - likely to move quickly
-                  </Text>
-                )}
-              </>
-            ) : (
-              <>
-                <Text variant="bodyMedium" size="lg" style={styles.agentTake}>
-                  Potential match, but price gap exists.
-                </Text>
-                <Text variant="body" size="sm" color="secondary">
-                  • Their budget: ${want.user_max_price} vs your ask: ${myItem.user_min_price}
-                </Text>
-                <Text variant="body" size="sm" color="secondary">
-                  • Consider if you're willing to negotiate
-                </Text>
-              </>
-            )
-          ) : (
-            <Text variant="bodyMedium" size="base">
-              They're interested in {want.category || 'this category'}. Worth exploring!
+          <Text variant="bodyMedium" size="lg" style={styles.agentTake}>
+            {ourTake.agent_take}
+          </Text>
+
+          {ourTake.reasoning.map((reason, idx) => (
+            <Text key={idx} variant="body" size="sm" color="secondary">
+              • {reason}
             </Text>
-          )}
+          ))}
         </Card>
 
         {/* Swipe Actions */}

@@ -14,7 +14,7 @@ import { Text, Button, Card, Badge } from '../../ui/components';
 import { colors, spacing, radius } from '../../ui/tokens';
 import { Item } from '../../types/models';
 import { getSwipeToBuyFeed, recordSwipeAction, createMatch } from '../../services/matchingService';
-import { evaluateDeal } from '../../services/marketService';
+import { evaluateOurTake } from '../../services/ourTakeService';
 import { getSignedUrl } from '../../services/imageService';
 import { useAuthStore } from '../../state/authStore';
 
@@ -102,9 +102,9 @@ export default function SwipeBuyScreen({ navigation }: Props) {
 
   if (!currentItem) return null;
 
-  // Calculate deal evaluation
+  // Calculate deal evaluation using shared OUR TAKE rules
   const askingPrice = currentItem.user_min_price || currentItem.market_value_min || 0;
-  const evaluation = evaluateDeal(currentItem, askingPrice);
+  const evaluation = evaluateOurTake(currentItem, askingPrice, 'buy');
 
   return (
     <SafeAreaView style={styles.screen}>

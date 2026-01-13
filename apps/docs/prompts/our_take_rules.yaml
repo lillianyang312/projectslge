@@ -1,0 +1,44 @@
+rules:
+  - scenario: "Undervalued item (Seller asking too low)"
+    conditions:
+      image_identified: true        # Item recognized successfully
+      price_difference_to_market: 
+        less_than: -0.20           # Seller’s price is >20% below market value
+    recommendation: "Ask for higher price"
+    reasoning: "Your asking price is well below the item’s market value; you could list it for more to maximize your return."
+
+  - scenario: "Fairly priced item"
+    conditions:
+      price_difference_to_market:
+        between: [-0.10, 0.10]     # Within ±10% of market value 
+    recommendation: "Sell at current price"
+    reasoning: "Your price is in line with market expectations, so the item is likely to attract buyers and sell in a reasonable time frame."
+
+  - scenario: "Slightly overpriced item"
+    conditions:
+      price_difference_to_market: 
+        greater_than: 0.10         # >10% above market, but <=25% above (moderate)
+      seller_urgency: "high"       # Seller wants a quick sale
+    recommendation: "Lower price to market value"
+    reasoning: "Your desired price is a bit high. For a quicker sale, consider pricing closer to the market average so buyers see it as a fair deal."
+
+  - scenario: "Significantly overpriced item"
+    conditions:
+      price_difference_to_market: 
+        greater_than: 0.25         # >25% above market value
+    recommendation: "Keep (do not sell now)"
+    reasoning: "The price you want is much higher than what buyers are paying. It likely won’t sell at this price. You may choose to keep it for now or rethink your price later rather than have it sit unsold."
+
+  - scenario: "Low-demand period (seasonal)"
+    conditions:
+      category: "textbook"
+      semester_time: "end"         # Listing at end of semester when demand is lowest
+    recommendation: "Hold and sell later"
+    reasoning: "Market demand is currently low (e.g. right after finals). It’s better to wait and sell this item just before the next semester, when more buyers are looking for it and prices are higher [oai_citation:14‡cheapesttextbooks.com](https://www.cheapesttextbooks.com/collegeknowledge/college-knowledge-about-textbooks/the-absolute-best-time-to-sell-textbooks-and-the-worst-time-to.html#:~:text=So%2C%20you%20completed%20your%20final,your%20textbook%2C%20right%3F%20Mentally%2C%20sure) [oai_citation:15‡cheapesttextbooks.com](https://www.cheapesttextbooks.com/collegeknowledge/college-knowledge-about-textbooks/the-absolute-best-time-to-sell-textbooks-and-the-worst-time-to.html#:~:text=Even%20the%20college%20textbook%20industry,and%20end%20of%20school%20semesters)."
+
+  - scenario: "Upcoming model or depreciation event"
+    conditions:
+      category: "electronics"
+      new_model_release: "soon"    # A newer model/version is imminent
+    recommendation: "Sell now"
+    reasoning: "A new version or model is on the horizon, which typically drives down prices of older models. Sell now while your item is still current to avoid further depreciation."
