@@ -100,14 +100,21 @@ export async function updateProfile(updates: { display_name?: string; avatar_url
 
 /**
  * Ensure user has a profile (create if doesn't exist)
+ * Note: This is non-blocking - if profiles table doesn't exist, it will silently fail
  */
 export async function ensureProfile(): Promise<{ data: Profile | null; error: string | null }> {
-  const { data: existingProfile } = await getMyProfile();
-  
-  if (existingProfile) {
-    return { data: existingProfile, error: null };
+  try {
+    const { data: existingProfile } = await getMyProfile();
+
+    if (existingProfile) {
+      return { data: existingProfile, error: null };
+    }
+
+    return await createProfile();
+  } catch (err) {
+    // Silently fail - profiles table may not exist in this version
+    console.warn('Profile ensure failed (non-blocking):', err);
+    return { data: null, error: null };
   }
-  
-  return createProfile();
 }
 

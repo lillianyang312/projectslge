@@ -1,5 +1,6 @@
 /**
  * Type definitions for the analyzeImage Edge Function
+ * UPDATED: Uses new clarification schema format (Phase 1 complete)
  */
 
 export interface AnalyzeImageRequest {
@@ -10,19 +11,32 @@ export interface AnalyzeImageRequest {
 export interface ClarificationOption {
   id: string;
   label: string;
+  thumbnail?: string;
+  descriptor: string;
 }
 
-export interface ClarificationData {
+export interface IdentifiedItem {
+  title: string;
+  category: string;
+  description?: string;
+  condition?: string;
+  tags?: string[];
+}
+
+export type IdentifiedResponse = {
+  type: 'identified';
+  item: IdentifiedItem;
+  confidence: number;
+};
+
+export type NeedsClarificationResponse = {
+  type: 'needs_clarification';
   question: string;
   options: ClarificationOption[];
-}
-
-export interface AnalyzeImageResponse {
-  mode: 'final' | 'clarify';
   confidence: number;
-  label: string;
-  clarification?: ClarificationData;
-}
+};
+
+export type AnalyzeImageResponse = IdentifiedResponse | NeedsClarificationResponse;
 
 /**
  * Sample request payload:
@@ -35,26 +49,29 @@ export interface AnalyzeImageResponse {
 /**
  * Sample response payload (high confidence):
  * {
- *   "mode": "final",
- *   "confidence": 0.92,
- *   "label": "furniture"
+ *   "type": "identified",
+ *   "item": {
+ *     "title": "Office Chair",
+ *     "category": "Furniture",
+ *     "description": "Ergonomic office chair",
+ *     "condition": "Good",
+ *     "tags": ["chair", "office"]
+ *   },
+ *   "confidence": 0.92
  * }
  */
 
 /**
  * Sample response payload (low confidence - needs clarification):
  * {
- *   "mode": "clarify",
- *   "confidence": 0.65,
- *   "label": "electronics",
- *   "clarification": {
- *     "question": "We're not quite sure what this is. Can you help us out?",
- *     "options": [
- *       { "id": "option-1", "label": "laptop" },
- *       { "id": "option-2", "label": "tablet" },
- *       { "id": "option-3", "label": "phone" },
- *       { "id": "option-4", "label": "camera" }
- *     ]
- *   }
+ *   "type": "needs_clarification",
+ *   "question": "Which item matches your photo?",
+ *   "options": [
+ *     { "id": "option-1", "label": "Furniture", "descriptor": "A furniture item" },
+ *     { "id": "option-2", "label": "Electronics", "descriptor": "An electronics item" },
+ *     { "id": "option-3", "label": "Clothing", "descriptor": "A clothing item" },
+ *     { "id": "option-4", "label": "Books", "descriptor": "A books item" }
+ *   ],
+ *   "confidence": 0.65
  * }
  */

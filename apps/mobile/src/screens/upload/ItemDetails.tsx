@@ -18,6 +18,7 @@ import { colors, spacing, radius, typography } from '../../ui/tokens';
 import { useItemsStore, SellIntent, ListingDeliveryPref } from '../../state/itemsStore';
 import { useAuthStore } from '../../state/authStore';
 import { uploadImage, analyzeImage, getSignedUrl } from '../../services/imageService';
+import type { AnalyzeImageResponse } from '../../types/analyzeImage';
 
 type Props = NativeStackScreenProps<ListStackParamList, 'ItemDetails'>;
 
@@ -43,40 +44,57 @@ export default function ItemDetailsScreen({ navigation }: Props) {
 
   // Auto-analyze image when screen loads
   useEffect(() => {
+    console.log('ItemDetails useEffect triggered', {
+      hasImageUri: !!draft?.imageUri,
+      hasUser: !!user,
+      analyzed,
+      imageUri: draft?.imageUri,
+      userId: user?.id
+    });
+
     async function analyzeItemImage() {
       if (draft?.imageUri && user && !analyzed) {
         setAnalyzing(true);
         try {
+          console.log('Starting image analysis for:', draft.imageUri);
+
           // Upload image to Supabase Storage
           const uploadResult = await uploadImage(draft.imageUri, user.id);
-          
+          console.log('Upload result:', uploadResult);
+
           if (!uploadResult.error && uploadResult.path) {
             // Get signed URL for the uploaded image
             const signedUrl = await getSignedUrl(uploadResult.path);
-            
+            console.log('Signed URL:', signedUrl);
+
             if (signedUrl) {
               // Call analyzeImage Edge Function
+              console.log('Calling analyzeImage with:', { signedUrl, path: uploadResult.path });
               const analysisResult = await analyzeImage(signedUrl, uploadResult.path);
-              
+              console.log('Analysis result:', analysisResult);
+
               if (analysisResult) {
                 // Auto-populate title and category from analysis
-                if (analysisResult.label) {
-                  // Capitalize the label for display
-                  const capitalizedLabel = analysisResult.label.charAt(0).toUpperCase() + analysisResult.label.slice(1);
-                  setTitle(capitalizedLabel);
-                  setCategory(capitalizedLabel);
+                if (analysisResult.type === 'identified') {
+                  console.log('Item identified:', analysisResult.item);
+                  setTitle(analysisResult.item.title);
+                  setCategory(analysisResult.item.category);
+                  if (analysisResult.item.condition) {
+                    setCondition(analysisResult.item.condition.toLowerCase() as Condition);
+                  }
+                  if (analysisResult.item.description) {
+                    setDescription(analysisResult.item.description);
+                  }
                 }
-                
+
                 // Store the analysis result in draft
                 updateDraft({
-                  category: analysisResult.label,
-                  clarificationResponse: analysisResult.clarification ? {
-                    question: analysisResult.clarification.question,
-                    options: analysisResult.clarification.options,
-                  } : undefined,
+                  clarificationResponse: analysisResult,
                 });
               }
             }
+          } else {
+            console.warn('Upload failed:', uploadResult.error);
           }
         } catch (error) {
           console.warn('Image analysis failed:', error);
@@ -87,9 +105,9 @@ export default function ItemDetailsScreen({ navigation }: Props) {
         }
       }
     }
-    
+
     analyzeItemImage();
-  }, [draft?.imageUri, user, analyzed]);
+  }, [draft?.imageUri, user]);
 
   const conditionOptions: { value: Condition; label: string }[] = [
     { value: 'new', label: 'New' },

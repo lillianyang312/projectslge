@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
-import * as FileSystem from 'expo-file-system';
+import { readAsStringAsync } from 'expo-file-system/legacy';
 import { AnalyzeImageRequest, AnalyzeImageResponse } from '../types/analyzeImage';
+import * as ImageManipulator from 'expo-image-manipulator';
 
 const BUCKET_NAME = 'item-images';
 
@@ -27,18 +28,34 @@ export async function uploadImage(
     const fileName = `${timestamp}.${ext}`;
     const path = `${userId}/${fileName}`;
 
-    // Read file as base64
-    const base64 = await FileSystem.readAsStringAsync(localUri, {
-      encoding: FileSystem.EncodingType.Base64,
+    console.log('Starting image compression...');
+    // Compress image before upload
+    const compressedImage = await ImageManipulator.manipulateAsync(
+      localUri,
+      [{ resize: { width: 1920, height: 1920 } }],
+      { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+    );
+
+    console.log('Image compressed, reading file...');
+    // Read compressed file as base64 (using legacy API for compatibility)
+    const base64Data = await readAsStringAsync(compressedImage.uri, {
+      encoding: 'base64',
     });
 
-    // Convert base64 to blob
-    const blob = base64ToBlob(base64, `image/${ext}`);
+    console.log('Base64 data length:', base64Data.length);
+    // Convert base64 to binary for upload
+    const byteCharacters = atob ? atob(base64Data) : Buffer.from(base64Data, 'base64').toString('binary');
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
 
+    console.log('Uploading image of size:', byteArray.byteLength, 'bytes');
     // Upload to Supabase Storage
     const { error: uploadError } = await supabase.storage
       .from(BUCKET_NAME)
-      .upload(path, blob, {
+      .upload(path, byteArray, {
         contentType: `image/${ext}`,
         upsert: false,
       });
@@ -48,8 +65,7 @@ export async function uploadImage(
       return { path: '', error: uploadError.message };
     }
 
-    // Note: For private buckets, we'll use signed URLs later
-    // For now, just return the path
+    console.log('Image uploaded successfully to:', path);
     return { path };
   } catch (error: any) {
     console.error('Error uploading image:', error);
@@ -68,16 +84,30 @@ export async function getSignedUrl(
   expiresIn: number = 3600
 ): Promise<string | null> {
   try {
-    const { data, error } = await supabase.storage
-      .from(BUCKET_NAME)
-      .createSignedUrl(path, expiresIn);
+    const maxAttempts = 10;
+    const delayMs = 10000; // 10 seconds between attempts
 
-    if (error) {
-      console.error('Error creating signed URL:', error);
-      return null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      console.log(`Attempt ${attempt}/${maxAttempts}: Creating signed URL for path: ${path}`);
+
+      const { data, error } = await supabase.storage
+        .from(BUCKET_NAME)
+        .createSignedUrl(path, expiresIn);
+
+      if (!error) {
+        console.log('Successfully created signed URL');
+        return data.signedUrl;
+      }
+
+      if (attempt < maxAttempts) {
+        console.log(`Attempt ${attempt} failed: ${error.message}. Waiting 10 seconds before retry...`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      } else {
+        console.error(`All ${maxAttempts} attempts failed. Last error:`, error);
+      }
     }
 
-    return data.signedUrl;
+    return null;
   } catch (error) {
     console.error('Error getting signed URL:', error);
     return null;

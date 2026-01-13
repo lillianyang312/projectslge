@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import { Session, User } from '@supabase/supabase-js';
-import { createProfile, ensureProfile } from '../services/profileService';
 
 type AuthStore = {
   isAuthed: boolean;
@@ -37,18 +36,9 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       const { data: { session } } = await supabase.auth.getSession();
       get().setSession(session);
 
-      // Ensure profile exists for logged-in users
-      if (session) {
-        await ensureProfile();
-      }
-
       // Listen for auth changes
       supabase.auth.onAuthStateChange(async (_event, session) => {
         get().setSession(session);
-        // Ensure profile exists when user logs in
-        if (session) {
-          await ensureProfile();
-        }
       });
     } catch (error) {
       console.error('Error initializing auth:', error);
@@ -86,11 +76,6 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       }
 
       get().setSession(data.session);
-
-      // Create profile for the new user with display name
-      if (data.session) {
-        await createProfile(displayName);
-      }
 
       return { error: null };
     } catch (error) {
