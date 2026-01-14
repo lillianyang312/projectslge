@@ -9,3 +9,5 @@ export { Pill } from './Pill';
 export { Header } from './Header';
 export { SwipeCard } from './SwipeCard';
 export { SwipeActions } from './SwipeActions';
+export { RichPriceText } from './RichPriceText';
+export type { PriceReference } from './RichPriceText';

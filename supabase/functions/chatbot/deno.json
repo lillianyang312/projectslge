@@ -1,6 +1,8 @@
 {
   "imports": {
-    "openai": "npm:openai@^4.0.0"
+    "openai": "npm:openai@^4.0.0",
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@^2.48.0",
+    "std/assert": "https://deno.land/std@0.208.0/assert/mod.ts"
   },
   "compilerOptions": {
     "lib": ["deno.window", "deno.ns"],

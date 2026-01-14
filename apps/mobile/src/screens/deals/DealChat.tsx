@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { DealsStackParamList } from '../../navigation/types';
-import { Text, Button, Card } from '../../ui/components';
+import { Text, Button, Card, RichPriceText, type PriceReference } from '../../ui/components';
 import { colors, spacing, radius, typography } from '../../ui/tokens';
 import { Message } from '../../types/models';
 import { getMessages, sendMessage } from '../../services/dealsService';
@@ -19,6 +19,55 @@ import { getQuickActionMessages } from '../../services/agentService';
 import { useAuthStore } from '../../state/authStore';
 
 type Props = NativeStackScreenProps<DealsStackParamList, 'DealChat'>;
+
+// Demo messages with price references for showcasing RichPriceText
+const demoMessagesWithPrices: (Message & { priceReferences?: PriceReference[] })[] = [
+  {
+    id: 'demo-1',
+    deal_id: 'demo',
+    sender_id: null,
+    is_agent: true,
+    content: "Great news! I've analyzed the market and found that your Herman Miller Aeron is worth around $500-$650. The current offer of $550 is right in the sweet spot.",
+    message_type: 'system',
+    metadata: {
+      priceReferences: [
+        { kind: 'market_low', amount: 500 },
+        { kind: 'market_high', amount: 650 },
+        { kind: 'buyer_bid', amount: 550 },
+      ],
+    },
+    created_at: new Date(Date.now() - 3600000).toISOString(),
+  },
+  {
+    id: 'demo-2',
+    deal_id: 'demo',
+    sender_id: null,
+    is_agent: true,
+    content: "The buyer has made an offer of $550. Based on your minimum price of $520, this is a good deal! Should I accept?",
+    message_type: 'system',
+    metadata: {
+      priceReferences: [
+        { kind: 'buyer_bid', amount: 550 },
+        { kind: 'listing_price', amount: 520 },
+      ],
+    },
+    created_at: new Date(Date.now() - 1800000).toISOString(),
+  },
+  {
+    id: 'demo-3',
+    deal_id: 'demo',
+    sender_id: null,
+    is_agent: true,
+    content: "Deal confirmed at $550! I'm coordinating pickup based on both your availability.",
+    message_type: 'system',
+    metadata: {
+      priceReferences: [
+        { kind: 'agreed_price', amount: 550 },
+      ],
+    },
+    created_at: new Date(Date.now() - 600000).toISOString(),
+  },
+];
 
 export default function DealChatScreen({ navigation, route }: Props) {
   const { dealId, deliveryMethod } = route.params;
@@ -34,7 +83,12 @@ export default function DealChatScreen({ navigation, route }: Props) {
 
   async function loadMessages() {
     const msgs = await getMessages(dealId);
-    setMessages(msgs);
+    // If no messages, show demo messages with price references
+    if (msgs.length === 0) {
+      setMessages(demoMessagesWithPrices as Message[]);
+    } else {
+      setMessages(msgs);
+    }
     setLoading(false);
   }
 
@@ -77,7 +131,7 @@ export default function DealChatScreen({ navigation, route }: Props) {
           <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
             <Text size="xxxl">←</Text>
           </Pressable>
-          <Text variant="headingMedium" size="heading4">
+          <Text variant="headingMedium" size="heading3">
             Chat
           </Text>
         </View>
@@ -167,14 +221,12 @@ function MessageBubble({ message, isOwn }: MessageBubbleProps) {
         </Text>
       )}
 
-      <Text
-        variant="body"
+      <RichPriceText
+        text={message.content}
+        references={message.metadata?.priceReferences}
         size="base"
         color={isOwn && !isAgent ? 'white' : 'primary'}
-        style={styles.messageText}
-      >
-        {message.content}
-      </Text>
+      />
 
       <Text
         variant="body"
