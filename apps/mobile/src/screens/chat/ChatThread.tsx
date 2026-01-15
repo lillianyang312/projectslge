@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ProfileStackParamList } from '../../navigation/types';
-import { Text, Card } from '../../ui/components';
+import { Text, Card, RichPriceText, type PriceReference } from '../../ui/components';
 import { colors, spacing, radius, typography, shadows } from '../../ui/tokens';
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'ChatThread'>;
@@ -24,6 +24,7 @@ interface Message {
   senderName?: string;
   text: string;
   time: string;
+  priceReferences?: PriceReference[];
 }
 
 // Demo messages matching HTML spec exactly
@@ -34,6 +35,12 @@ const demoMessages: Message[] = [
     senderName: 'Agent',
     text: "Deal confirmed at $550! I'm coordinating pickup based on both your availability.",
     time: '2:34 PM',
+    priceReferences: [
+      {
+        kind: 'agreed_price',
+        amount: 550,
+      },
+    ],
   },
   {
     id: '2',
@@ -124,13 +131,12 @@ export default function ChatThreadScreen({ navigation, route }: Props) {
               {msg.senderName}
             </Text>
           )}
-          <Text
-            variant="body"
+          <RichPriceText
+            text={msg.text}
+            references={msg.priceReferences}
             size="md"
-            style={isUser ? styles.messageTextUser : undefined}
-          >
-            {msg.text}
-          </Text>
+            color={isUser ? 'white' : 'primary'}
+          />
           <Text
             variant="body"
             size="xs"

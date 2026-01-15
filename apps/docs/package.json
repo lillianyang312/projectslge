@@ -6,7 +6,8 @@
     "build": "tsc",
     "start": "ts-node yamlToPromptString.ts",
     "eval": "ts-node eval/openai_api.ts",
-    "eval:clarification": "ts-node eval/clarification_rules_eval.ts"
+    "eval:clarification": "ts-node eval/clarification_rules_eval.ts",
+    "eval:negotiation": "ts-node eval/negotiation_rules_eval.ts"
   },
   "dependencies": {
     "openai": "^4.20.0",

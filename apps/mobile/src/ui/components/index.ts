@@ -10,3 +10,5 @@ export { Header } from './Header';
 export { SwipeCard } from './SwipeCard';
 export { SwipeActions } from './SwipeActions';
 export { Tabs } from './Tabs';
+export { RichPriceText } from './RichPriceText';
+export type { PriceReference } from './RichPriceText';
