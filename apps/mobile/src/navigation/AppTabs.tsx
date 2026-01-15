@@ -9,6 +9,7 @@ import HomeStack from './stacks/HomeStack';
 import WantsStack from './stacks/WantsStack';
 import SwipeStack from './stacks/SwipeStack';
 import DealsStack from './stacks/DealsStack';
+import InboxStack from './stacks/InboxStack';
 import ProfileStack from './stacks/ProfileStack';
 
 const Tab = createBottomTabNavigator<AppTabsParamList>();
@@ -46,22 +47,12 @@ export default function AppTabs() {
         }}
       />
       <Tab.Screen
-        name="Wants"
-        component={WantsStack}
-        options={{
-          tabBarLabel: 'Wants',
-          tabBarIcon: ({ focused }) => (
-            <Text style={{ fontSize: 18 }}>💫</Text>
-          ),
-        }}
-      />
-      <Tab.Screen
         name="Swipe"
         component={SwipeStack}
         options={{
-          tabBarLabel: 'Swipe',
+          tabBarLabel: 'Browse',
           tabBarIcon: ({ focused }) => (
-            <Text style={{ fontSize: 18 }}>👆</Text>
+            <Text style={{ fontSize: 18 }}>🔍</Text>
           ),
         }}
       />
@@ -73,6 +64,17 @@ export default function AppTabs() {
           tabBarIcon: ({ focused }) => (
             <Text style={{ fontSize: 18 }}>🤝</Text>
           ),
+        }}
+      />
+      <Tab.Screen
+        name="Inbox"
+        component={InboxStack}
+        options={{
+          tabBarLabel: 'Inbox',
+          tabBarIcon: ({ focused }) => (
+            <Text style={{ fontSize: 18 }}>💬</Text>
+          ),
+          tabBarBadge: 2,
         }}
       />
       <Tab.Screen

@@ -9,8 +9,10 @@ import {
   Image,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { ListStackParamList } from '../../navigation/types';
-import { Text, Button, Input, Pill } from '../../ui/components';
+import { useNavigation } from '@react-navigation/native';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { ListStackParamList, AppTabsParamList } from '../../navigation/types';
+import { Text, Button, Input, Pill, Tabs, Badge } from '../../ui/components';
 import { colors, spacing, radius, typography } from '../../ui/tokens';
 import { useItemsStore } from '../../state/itemsStore';
 import { useAuthStore } from '../../state/authStore';
@@ -18,6 +20,7 @@ import { getItemById, updateItem, deleteItem, Item } from '../../services/itemsS
 import { getSignedUrl } from '../../services/imageService';
 
 type Props = NativeStackScreenProps<ListStackParamList, 'ItemDetail'>;
+type TabNavProp = BottomTabNavigationProp<AppTabsParamList>;
 
 type Condition = 'New' | 'Like new' | 'Good' | 'Fair';
 type SellIntent = 'Maybe' | 'If good offer' | 'Want gone';
@@ -71,6 +74,7 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
   const listings = useItemsStore((state) => state.listings);
   const updateListing = useItemsStore((state) => state.updateListing);
   const user = useAuthStore((state) => state.user);
+  const tabNavigation = useNavigation<TabNavProp>();
   
   const [supabaseItem, setSupabaseItem] = useState<Item | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -133,6 +137,7 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
   const [deliveryPref, setDeliveryPref] = useState<DeliveryPref>(itemData.deliveryPref);
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [activeTab, setActiveTab] = useState(0); // 0 = Buyer Interest, 1 = Item Details
 
   const conditionOptions: Condition[] = ['New', 'Like new', 'Good', 'Fair'];
   const sellIntentOptions: SellIntent[] = ['Maybe', 'If good offer', 'Want gone'];
@@ -203,145 +208,395 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
     );
   };
 
+  const handleSellItem = (price: number) => {
+    // Navigate directly to Deals tab
+    tabNavigation.navigate('Deals');
+  };
+
   return (
     <SafeAreaView style={styles.screen}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Header with back arrow, title, and edit button */}
+        {/* Header with back arrow and title */}
         <View style={styles.header}>
           <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
             <Text size="xl">←</Text>
           </Pressable>
           <Text variant="headingMedium" size="heading3" style={styles.headerTitle}>
-            {itemData.title}
+            Item
           </Text>
-          <Pressable style={styles.editBtn} onPress={() => setIsEditing(!isEditing)}>
-            <Text variant="bodyMedium" size="md" color="primary">
-              {isEditing ? 'Done' : 'Edit'}
+        </View>
+
+        {/* Tabs */}
+        <Tabs
+          tabs={['Buyer Interest', 'Item Details']}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+        />
+
+        {/* Tab Content: Buyer Interest */}
+        {activeTab === 0 && (
+          <View>
+            {/* Summary of interested buyers */}
+            <View style={styles.buyerSummaryCard}>
+              <Text variant="body" size="xs" color="secondary" style={styles.buyerSummaryLabel}>
+                Buyer interest
+              </Text>
+              <Text variant="heading" size="heading3" style={styles.buyerSummaryValue}>
+                3 interested buyers
+              </Text>
+              <Text variant="body" size="xs" color="secondary" style={styles.buyerSummaryNote}>
+                Answer their questions in your Inbox to see full bid details
+              </Text>
+            </View>
+
+            {/* Agent Recommendation */}
+            <View style={styles.agentRecommendation}>
+              <Text variant="body" size="xs" color="secondary" style={styles.agentRecLabel}>
+                Agent recommendation
+              </Text>
+              <Text variant="heading" size="heading3" color="success" style={styles.agentRecValue}>
+                Accept $550 offer
+              </Text>
+            </View>
+
+            {/* Bids - Demo data matching HTML spec lines 763-801 */}
+            {/* Bid #1: Answered questions - show full details */}
+            <View style={styles.bidCard}>
+              <View style={styles.bidHeader}>
+                <Text variant="heading" size="heading3" color="success">
+                  $550
+                </Text>
+                <Badge variant="success">Recommended</Badge>
+              </View>
+
+              {/* Time indicator */}
+              <View style={styles.timeIndicator}>
+                <Text variant="body" size="xs" color="secondary">
+                  ⏰ 4d left · Active 2h ago
+                </Text>
+              </View>
+
+              {/* Buyer Information Section */}
+              <View style={styles.buyerInfo}>
+                <Text variant="bodyMedium" size="sm" style={styles.buyerInfoTitle}>
+                  Buyer Profile
+                </Text>
+
+                {/* Reputation Section */}
+                <View style={styles.reputationSection}>
+                  <View style={styles.buyerDetailRow}>
+                    <Text variant="body" size="sm" color="secondary">Name</Text>
+                    <Text variant="bodyMedium" size="sm">Sarah M.</Text>
+                  </View>
+                  <View style={styles.buyerDetailRow}>
+                    <Text variant="body" size="sm" color="secondary">Member since</Text>
+                    <Text variant="bodyMedium" size="sm">Jan 2024</Text>
+                  </View>
+                  <View style={styles.buyerDetailRow}>
+                    <Text variant="body" size="sm" color="secondary">Reputation</Text>
+                    <View style={styles.reputationBadge}>
+                      <Text variant="bodyMedium" size="xs" style={styles.reputationText}>
+                        ⭐ Verified · 12 deals
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.buyerDetailRow}>
+                    <Text variant="body" size="sm" color="secondary">Rating</Text>
+                    <Text variant="bodyMedium" size="sm">4.9/5.0 (12 reviews)</Text>
+                  </View>
+                  <View style={styles.buyerDetailRow}>
+                    <Text variant="body" size="sm" color="secondary">Items sold</Text>
+                    <Text variant="bodyMedium" size="sm">8 items</Text>
+                  </View>
+                  <View style={styles.buyerDetailRow}>
+                    <Text variant="body" size="sm" color="secondary">Items purchased</Text>
+                    <Text variant="bodyMedium" size="sm">4 items</Text>
+                  </View>
+                </View>
+
+                {/* Bid Details Section */}
+                <View style={styles.bidDetailsSection}>
+                  <View style={styles.buyerDetailRow}>
+                    <Text variant="body" size="sm" color="secondary">Location</Text>
+                    <Text variant="bodyMedium" size="sm">1.2 mi away</Text>
+                  </View>
+                  <View style={styles.buyerDetailRow}>
+                    <Text variant="body" size="sm" color="secondary">Payment</Text>
+                    <Text variant="bodyMedium" size="sm">Cash on pickup</Text>
+                  </View>
+                  <View style={styles.buyerDetailRow}>
+                    <Text variant="body" size="sm" color="secondary" style={styles.availabilityLabel}>Pickup availability</Text>
+                    <View style={styles.availabilityPills}>
+                      <View style={styles.availabilityPill}>
+                        <Text variant="bodyMedium" size="xs">Weekdays</Text>
+                      </View>
+                      <View style={styles.availabilityPill}>
+                        <Text variant="bodyMedium" size="xs">Weekends</Text>
+                      </View>
+                      <View style={styles.availabilityPill}>
+                        <Text variant="bodyMedium" size="xs">Evenings</Text>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.bidActions}>
+                <Button variant="primary" style={styles.bidActionBtn} onPress={() => handleSellItem(550)}>
+                  Sell for $550
+                </Button>
+                <Button
+                  variant="secondary"
+                  style={styles.bidActionBtn}
+                  onPress={() => navigation.navigate('ChatThread', { conversationId: 'buyer-sarah-1' })}
+                >
+                  Chat with Sarah
+                </Button>
+              </View>
+            </View>
+
+            {/* Bid #2: Questions not answered - show limited info */}
+            <View style={[styles.bidCard, styles.bidCardLocked]}>
+              <View style={styles.bidHeader}>
+                <Text variant="heading" size="heading3" color="secondary">
+                  $???
+                </Text>
+                <Badge variant="secondary">Pending questions</Badge>
+              </View>
+
+              <View style={styles.lockedBidInfo}>
+                <Text variant="body" size="sm" color="secondary" style={styles.lockedBidText}>
+                  Asked about shipping options
+                </Text>
+              </View>
+
+              <View style={styles.bidActions}>
+                <Button
+                  variant="secondary"
+                  style={styles.bidActionBtn}
+                  onPress={() => navigation.navigate('ChatThread', { conversationId: 'buyer-question-1' })}
+                >
+                  Answer Mike
+                </Button>
+              </View>
+            </View>
+
+            {/* Bid #3: Questions not answered - show limited info */}
+            <View style={[styles.bidCard, styles.bidCardLocked]}>
+              <View style={styles.bidHeader}>
+                <Text variant="heading" size="heading3" color="secondary">
+                  $???
+                </Text>
+                <Badge variant="secondary">Pending questions</Badge>
+              </View>
+
+              <View style={styles.lockedBidInfo}>
+                <Text variant="body" size="sm" color="secondary" style={styles.lockedBidText}>
+                  Asked about condition details
+                </Text>
+              </View>
+
+              <View style={styles.bidActions}>
+                <Button
+                  variant="secondary"
+                  style={styles.bidActionBtn}
+                  onPress={() => navigation.navigate('ChatThread', { conversationId: 'buyer-question-2' })}
+                >
+                  Answer Alex
+                </Button>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Tab Content: Item Details */}
+        {activeTab === 1 && (
+          <View>
+            {/* Item Image */}
+            <View style={styles.detailImage}>
+              {itemData.imageUri ? (
+                <Image source={{ uri: itemData.imageUri }} style={styles.image} resizeMode="cover" />
+              ) : (
+                <Text style={styles.imageEmoji}>{itemData.emoji}</Text>
+              )}
+            </View>
+
+            <Text variant="headingMedium" size="heading3" style={styles.detailTitle}>
+              {itemData.title}
             </Text>
-          </Pressable>
-        </View>
 
-        {/* Item Image */}
-        <View style={styles.detailImage}>
-          {itemData.imageUri ? (
-            <Image source={{ uri: itemData.imageUri }} style={styles.image} resizeMode="cover" />
-          ) : (
-            <Text style={styles.imageEmoji}>{itemData.emoji}</Text>
-          )}
-        </View>
+            {/* Category */}
+            <Text variant="body" size="md" color="secondary" style={styles.detailCategory}>
+              {itemData.category}
+            </Text>
 
-        {/* Category */}
-        <Text variant="body" size="md" color="secondary" style={styles.detailCategory}>
-          {itemData.category}
-        </Text>
+            {/* Show facts (read-only) unless in edit mode */}
+            {!isEditing ? (
+              <>
+                {/* Item Facts */}
+                <View style={styles.factsSection}>
+                  <View style={styles.factRow}>
+                    <Text variant="body" size="md" color="secondary">Condition</Text>
+                    <Text variant="bodyMedium" size="md">{condition}</Text>
+                  </View>
+                  <View style={styles.factRow}>
+                    <Text variant="body" size="md" color="secondary">Would let go for</Text>
+                    <Text variant="bodyMedium" size="md">
+                      {askingPrice ? `$${askingPrice}` : 'Not set'}
+                    </Text>
+                  </View>
+                  <View style={styles.factRow}>
+                    <Text variant="body" size="md" color="secondary">How likely to sell</Text>
+                    <Text variant="bodyMedium" size="md">{sellIntent}</Text>
+                  </View>
+                  <View style={styles.factRow}>
+                    <Text variant="body" size="md" color="secondary">Delivery preference</Text>
+                    <Text variant="bodyMedium" size="md">{deliveryPref}</Text>
+                  </View>
+                  <View style={styles.factRow}>
+                    <Text variant="body" size="md" color="secondary">Interested buyers</Text>
+                    <Text variant="bodyMedium" size="md">3</Text>
+                  </View>
+                  <View style={styles.factRow}>
+                    <Text variant="body" size="md" color="secondary">Market estimate</Text>
+                    <Text variant="bodyMedium" size="md">{itemData.estimatedRange}</Text>
+                  </View>
+                </View>
 
-        {/* Condition Pills */}
-        <View style={styles.inputGroup}>
-          <Text variant="body" size="base" color="secondary" style={styles.label}>
-            Condition
-          </Text>
-          <View style={styles.pills}>
-            {conditionOptions.map((opt) => (
-              <Pill
-                key={opt}
-                label={opt}
-                selected={condition === opt}
-                onPress={() => setCondition(opt)}
-              />
-            ))}
+                {/* Notes/Description Section */}
+                <View style={styles.notesSection}>
+                  <Text variant="bodyMedium" size="md" style={styles.notesSectionLabel}>
+                    Notes
+                  </Text>
+                  <Text variant="body" size="md" color="secondary" style={styles.notesSectionText}>
+                    Size B, all original parts, minor wear on armrests
+                  </Text>
+                </View>
+
+                {/* Edit Button */}
+                <Button variant="secondary" onPress={() => setIsEditing(true)} style={styles.editButton}>
+                  Edit item
+                </Button>
+              </>
+            ) : (
+              <>
+                {/* Edit Mode */}
+                {/* Condition Pills */}
+                <View style={styles.inputGroup}>
+                  <Text variant="body" size="base" color="secondary" style={styles.label}>
+                    Condition
+                  </Text>
+                  <View style={styles.pills}>
+                    {conditionOptions.map((opt) => (
+                      <Pill
+                        key={opt}
+                        label={opt}
+                        selected={condition === opt}
+                        onPress={() => setCondition(opt)}
+                      />
+                    ))}
+                  </View>
+                </View>
+
+                {/* Estimate Box */}
+                <View style={styles.estimateBox}>
+                  <Text variant="body" size="sm" color="secondary" style={styles.estimateLabel}>
+                    ESTIMATED MARKET VALUE
+                  </Text>
+                  <Text variant="heading" size="heading1" style={styles.estimateValue}>
+                    ${itemData.estimatedValue}
+                  </Text>
+                  <Text variant="body" size="base" color="secondary" style={styles.estimateRange}>
+                    Range: {itemData.estimatedRange}
+                  </Text>
+                </View>
+
+                {/* Would let go for */}
+                <View style={styles.inputGroup}>
+                  <Text variant="body" size="base" color="secondary" style={styles.label}>
+                    Would let go for
+                  </Text>
+                  <View style={styles.priceInputRow}>
+                    <Input
+                      placeholder="$0"
+                      value={askingPrice}
+                      onChangeText={setAskingPrice}
+                      keyboardType="numeric"
+                      style={styles.priceInput}
+                    />
+                    <Button
+                      variant="secondary"
+                      onPress={() => setAskingPrice('')}
+                      style={styles.notSureBtn}
+                    >
+                      Not sure
+                    </Button>
+                  </View>
+                </View>
+
+                {/* How likely to sell */}
+                <View style={styles.inputGroup}>
+                  <Text variant="body" size="base" color="secondary" style={styles.label}>
+                    How likely to sell?
+                  </Text>
+                  <View style={styles.pills}>
+                    {sellIntentOptions.map((opt) => (
+                      <Pill
+                        key={opt}
+                        label={opt}
+                        selected={sellIntent === opt}
+                        onPress={() => setSellIntent(opt)}
+                      />
+                    ))}
+                  </View>
+                </View>
+
+                {/* Delivery preference */}
+                <View style={styles.inputGroup}>
+                  <Text variant="body" size="base" color="secondary" style={styles.label}>
+                    Delivery preference
+                  </Text>
+                  <View style={styles.pills}>
+                    {deliveryOptions.map((opt) => (
+                      <Pill
+                        key={opt}
+                        label={opt}
+                        selected={deliveryPref === opt}
+                        onPress={() => setDeliveryPref(opt)}
+                      />
+                    ))}
+                  </View>
+                </View>
+
+                {/* Notes */}
+                <View style={styles.inputGroup}>
+                  <Text variant="body" size="base" color="secondary" style={styles.label}>
+                    Notes
+                  </Text>
+                  <Input
+                    placeholder="Any updates about this item..."
+                    multiline
+                    numberOfLines={3}
+                    style={styles.notesInput}
+                    defaultValue="Size B, all original parts, minor wear on armrests"
+                  />
+                </View>
+
+                {/* Save and Cancel buttons */}
+                <Button
+                  variant="primary"
+                  onPress={handleSave}
+                  disabled={saving}
+                  style={styles.saveBtn}
+                >
+                  {saving ? 'Saving...' : 'Save changes'}
+                </Button>
+                <Button variant="secondary" onPress={() => setIsEditing(false)}>
+                  Cancel
+                </Button>
+              </>
+            )}
           </View>
-        </View>
-
-        {/* Estimate Box */}
-        <View style={styles.estimateBox}>
-          <Text variant="body" size="sm" color="secondary" style={styles.estimateLabel}>
-            ESTIMATED MARKET VALUE
-          </Text>
-          <Text variant="heading" size="heading1" style={styles.estimateValue}>
-            ${itemData.estimatedValue}
-          </Text>
-          <Text variant="body" size="base" color="secondary" style={styles.estimateRange}>
-            Range: {itemData.estimatedRange}
-          </Text>
-        </View>
-
-        {/* Would let go for */}
-        <View style={styles.inputGroup}>
-          <Text variant="body" size="base" color="secondary" style={styles.label}>
-            Would let go for
-          </Text>
-          <View style={styles.priceInputRow}>
-            <Input
-              placeholder="$0"
-              value={askingPrice}
-              onChangeText={setAskingPrice}
-              keyboardType="numeric"
-              style={styles.priceInput}
-            />
-            <Button
-              variant="secondary"
-              onPress={() => setAskingPrice('')}
-              style={styles.notSureBtn}
-            >
-              Not sure
-            </Button>
-          </View>
-        </View>
-
-        {/* How likely to sell */}
-        <View style={styles.inputGroup}>
-          <Text variant="body" size="base" color="secondary" style={styles.label}>
-            How likely to sell?
-          </Text>
-          <View style={styles.pills}>
-            {sellIntentOptions.map((opt) => (
-              <Pill
-                key={opt}
-                label={opt}
-                selected={sellIntent === opt}
-                onPress={() => setSellIntent(opt)}
-              />
-            ))}
-          </View>
-        </View>
-
-        {/* Delivery preference */}
-        <View style={styles.inputGroup}>
-          <Text variant="body" size="base" color="secondary" style={styles.label}>
-            Delivery preference
-          </Text>
-          <View style={styles.pills}>
-            {deliveryOptions.map((opt) => (
-              <Pill
-                key={opt}
-                label={opt}
-                selected={deliveryPref === opt}
-                onPress={() => setDeliveryPref(opt)}
-              />
-            ))}
-          </View>
-        </View>
-
-        {/* Action Buttons - only visible in edit mode */}
-        {isEditing && (
-          <>
-            <Button
-              variant="primary"
-              onPress={handleSave}
-              disabled={saving}
-              style={styles.saveBtn}
-            >
-              {saving ? 'Saving...' : 'Save changes'}
-            </Button>
-
-            <Button
-              variant="secondary"
-              onPress={handleDelete}
-              style={styles.deleteBtn}
-            >
-              Delete item
-            </Button>
-          </>
         )}
       </ScrollView>
     </SafeAreaView>
@@ -377,9 +632,116 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: spacing.md,
   },
-  editBtn: {
+  agentRecommendation: {
+    backgroundColor: colors.successSoft,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    alignItems: 'center',
+  },
+  agentRecLabel: {
+    marginBottom: 2,
+  },
+  agentRecValue: {},
+  bidCard: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  bidHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  bidUser: {
+    marginBottom: 4,
+  },
+  bidDetails: {
+    marginBottom: spacing.md,
+  },
+  bidActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  bidActionBtn: {
+    flex: 1,
+  },
+  buyerInfo: {
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.sm,
+    padding: spacing.md,
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
+  },
+  buyerInfoTitle: {
+    marginBottom: spacing.sm,
+  },
+  buyerDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingVertical: spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 0, 0, 0.05)',
+  },
+  buyerQuestion: {
+    flex: 1,
+    fontStyle: 'italic',
+    textAlign: 'right',
+    maxWidth: '65%',
+  },
+  reputationSection: {
+    marginBottom: spacing.sm,
+    paddingBottom: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
+  },
+  bidDetailsSection: {
+    marginTop: spacing.sm,
+  },
+  availabilityLabel: {
+    alignSelf: 'flex-start',
+  },
+  availabilityPills: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    flexWrap: 'wrap',
+    maxWidth: '60%',
+  },
+  availabilityPill: {
+    paddingVertical: 2,
+    paddingHorizontal: spacing.sm,
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.xs,
+  },
+  reputationBadge: {
+    backgroundColor: colors.successSoft,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.xs,
+  },
+  reputationText: {
+    color: colors.success,
+  },
+  agentSummary: {
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.md,
+    padding: spacing.xl,
+    marginBottom: spacing.xl,
+  },
+  agentRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  detailTitle: {
+    marginBottom: 4,
   },
   detailImage: {
     width: '100%',
@@ -449,4 +811,76 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   deleteBtn: {},
+  notesInput: {
+    minHeight: 80,
+  },
+  factsSection: {
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.md,
+    padding: spacing.lg,
+    marginBottom: spacing.xl,
+  },
+  factRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 0, 0, 0.05)',
+  },
+  editButton: {
+    marginBottom: spacing.xl,
+  },
+  notesSection: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.lg,
+    marginBottom: spacing.xl,
+  },
+  notesSectionLabel: {
+    marginBottom: spacing.sm,
+  },
+  notesSectionText: {
+    lineHeight: 22,
+  },
+  buyerSummaryCard: {
+    backgroundColor: colors.blueSoft,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    alignItems: 'center',
+  },
+  buyerSummaryLabel: {
+    marginBottom: 2,
+  },
+  buyerSummaryValue: {
+    marginBottom: spacing.xs,
+  },
+  buyerSummaryNote: {
+    textAlign: 'center',
+  },
+  bidCardLocked: {
+    opacity: 0.7,
+    backgroundColor: colors.cardMuted,
+  },
+  lockedBidInfo: {
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+  },
+  lockedBidText: {
+    textAlign: 'center',
+    marginBottom: 2,
+  },
+  lockedBidSubtext: {
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  timeIndicator: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    backgroundColor: 'rgba(0, 0, 0, 0.03)',
+    borderRadius: radius.xs,
+    marginBottom: spacing.sm,
+  },
 });

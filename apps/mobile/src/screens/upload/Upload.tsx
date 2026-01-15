@@ -94,20 +94,26 @@ export default function UploadScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.screen}>
-      <Header title="Upload" showBack={true} style={styles.header} />
+      <Header
+        title="Add item"
+        onBack={() => navigation.goBack()}
+        style={styles.header}
+      />
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.content}>
+          {/* Main action: Take Photo */}
           <Pressable style={styles.uploadZone} onPress={takePhoto}>
             <View style={styles.uploadIcon}>
               <Text style={styles.uploadIconText}>📸</Text>
             </View>
             <Text variant="body" size="lg" color="secondary" style={styles.uploadText}>
-              Take a clear photo of the item you want to list
+              Tap to take a photo
             </Text>
           </Pressable>
 
-          <Button variant="primary" onPress={pickFromLibrary}>
-            Choose from library
+          {/* Secondary action: Upload from Library */}
+          <Button variant="secondary" onPress={pickFromLibrary} style={styles.libraryButton}>
+            📷 Upload from Library
           </Button>
         </View>
       </ScrollView>
@@ -146,18 +152,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
   },
   uploadIcon: {
-    width: 80,
-    height: 80,
+    width: 48,
+    height: 48,
     backgroundColor: colors.accentSoft,
-    borderRadius: 40,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
   uploadIconText: {
-    fontSize: 40,
+    fontSize: 24,
   },
   uploadText: {
     textAlign: 'center',
     lineHeight: (typography?.lineHeights?.relaxed || 1.5) * (typography?.sizes?.lg || 15),
+  },
+  libraryButton: {
+    marginTop: spacing.md,
+    minWidth: 200,
   },
 });

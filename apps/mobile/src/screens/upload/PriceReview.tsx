@@ -25,15 +25,15 @@ export default function PriceReviewScreen({ navigation }: Props) {
   const clearDraft = useItemsStore((state) => state.clearDraft);
   const user = useAuthStore((state) => state.user);
 
-  // Simulated estimated price (in real app, this would come from API)
-  const [estimatedPrice, setEstimatedPrice] = useState(0);
+  // Simulated estimated price range (in real app, this would come from API)
+  const [priceRange, setPriceRange] = useState({ min: 0, max: 0, mid: 0 });
   const [minimumPrice, setMinimumPrice] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     // Simulate API call for price estimation
     // In real implementation, this would call your pricing API
-    const simulateEstimatedPrice = () => {
+    const simulateEstimatedPriceRange = () => {
       // Generate a reasonable price based on condition
       const conditionMultiplier: Record<string, number> = {
         'New': 1.0,
@@ -42,17 +42,21 @@ export default function PriceReviewScreen({ navigation }: Props) {
         'Fair': 0.45,
         'Poor': 0.25,
       };
-      
+
       // Base price simulation (would come from API in real app)
       const basePrice = Math.floor(Math.random() * 200) + 50; // $50-$250
       const multiplier = conditionMultiplier[draft?.condition || 'Good'] || 0.65;
-      const estimated = Math.round(basePrice * multiplier);
-      
-      setEstimatedPrice(estimated);
-      updateDraft({ estimatedPrice: estimated });
+      const midPrice = Math.round(basePrice * multiplier);
+
+      // Create range: -20% to +20% of mid price
+      const minPrice = Math.round(midPrice * 0.8);
+      const maxPrice = Math.round(midPrice * 1.2);
+
+      setPriceRange({ min: minPrice, max: maxPrice, mid: midPrice });
+      updateDraft({ estimatedPrice: midPrice });
     };
 
-    simulateEstimatedPrice();
+    simulateEstimatedPriceRange();
   }, []);
 
   const handleEdit = () => {
@@ -65,34 +69,47 @@ export default function PriceReviewScreen({ navigation }: Props) {
     try {
       // If user is authenticated, save to Supabase
       if (user) {
-        // 1. Upload image to Supabase Storage
-        let photoUrl = '';
-        if (draft?.imageUri) {
-          const uploadResult = await uploadImage(draft.imageUri, user.id);
+        // 1. Upload all images to Supabase Storage
+        const photoPaths: string[] = [];
+        const imagesToUpload = draft?.imageUris || (draft?.imageUri ? [draft.imageUri] : []);
+
+        for (const imageUri of imagesToUpload) {
+          const uploadResult = await uploadImage(imageUri, user.id);
           if (uploadResult.error) {
             console.warn('Image upload failed:', uploadResult.error);
-            // Continue without image - not a critical error
-          } else {
-            photoUrl = uploadResult.path;
+            // Continue without this image - not critical
+          } else if (uploadResult.path) {
+            photoPaths.push(uploadResult.path);
           }
         }
 
         // 2. Create item in Supabase
+        console.log('[PriceReview] Creating item with data:', {
+          title: draft?.title || 'Untitled Item',
+          category: draft?.category || 'General',
+          condition: draft?.condition || 'Good',
+          photos: photoPaths,
+          delivery_pref: draft?.deliveryPref || 'local_only',
+          asking_price: minimumPrice ? parseFloat(minimumPrice) : undefined,
+        });
+
         const { data, error } = await createItem({
           title: draft?.title || 'Untitled Item',
           category: draft?.category || 'General',
           condition: draft?.condition || 'Good',
-          photos: photoUrl ? [photoUrl] : [],
+          photos: photoPaths,
           delivery_pref: draft?.deliveryPref || 'local_only',
           asking_price: minimumPrice ? parseFloat(minimumPrice) : undefined,
         });
 
         if (error) {
+          console.error('[PriceReview] Error creating item:', error);
           Alert.alert('Error', error);
           setSubmitting(false);
           return;
         }
 
+        console.log('[PriceReview] Item created successfully:', data);
         // Clear draft and navigate
         clearDraft();
         navigation.navigate('MyList');
@@ -148,12 +165,22 @@ export default function PriceReviewScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.screen}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <Header title="Review & Add" showBack={true} />
+        <Header title="Review & Add" onBack={() => navigation.goBack()} />
 
-        {/* Image Preview */}
-        {draft?.imageUri && (
+        {/* Image Preview - show first image or all images */}
+        {(draft?.imageUri || (draft?.imageUris && draft.imageUris.length > 0)) && (
           <Card style={styles.imageCard}>
-            <Image source={{ uri: draft.imageUri }} style={styles.image} />
+            <Image
+              source={{ uri: draft?.imageUris?.[0] || draft?.imageUri || '' }}
+              style={styles.image}
+            />
+            {draft?.imageUris && draft.imageUris.length > 1 && (
+              <View style={styles.imageCount}>
+                <Text variant="bodyMedium" size="sm" style={styles.imageCountText}>
+                  +{draft.imageUris.length - 1} more
+                </Text>
+              </View>
+            )}
           </Card>
         )}
 
@@ -196,10 +223,10 @@ export default function PriceReviewScreen({ navigation }: Props) {
         <Card style={styles.priceCard}>
           <View style={styles.estimatedSection}>
             <Text variant="body" size="sm" color="muted" style={styles.priceLabel}>
-              ESTIMATED VALUE
+              ESTIMATED VALUE RANGE
             </Text>
             <Text variant="heading" size="display" style={styles.priceValue}>
-              ${estimatedPrice}
+              ${priceRange.min} – ${priceRange.max}
             </Text>
             <Text variant="body" size="xs" color="muted" style={styles.priceHint}>
               Based on condition and market data
@@ -259,11 +286,24 @@ const styles = StyleSheet.create({
     padding: 0,
     overflow: 'hidden',
     marginBottom: spacing.xl,
+    position: 'relative',
   },
   image: {
     width: '100%',
     aspectRatio: 1,
     backgroundColor: colors.accentSoft,
+  },
+  imageCount: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.sm,
+  },
+  imageCountText: {
+    color: '#FFFFFF',
   },
   summaryCard: {
     marginBottom: spacing.xl,

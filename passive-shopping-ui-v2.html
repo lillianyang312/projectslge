@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Passive Shopping — UI Draft v2</title>
+  <title>Passive Shopping — UI Draft v3</title>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Fraunces:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     :root {
@@ -141,6 +141,7 @@
     .btn-primary:hover { background: #3D3A36; }
     .btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--text-primary); }
     .btn-secondary:hover { border-color: var(--accent); }
+    .btn-success { background: var(--success); color: white; }
     .btn-sm { padding: 10px 16px; font-size: 14px; }
     .btn-icon { width: auto; padding: 10px; }
 
@@ -193,11 +194,36 @@
     }
     .input:focus { outline: none; border-color: var(--accent); }
     .input::placeholder { color: var(--text-muted); }
+    .textarea { min-height: 80px; resize: vertical; }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 20px;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      background: transparent;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      color: var(--text-muted);
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      font-family: inherit;
+    }
+    .tab-btn.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
 
     /* Toggle */
     .toggle-group {
       display: flex; background: var(--accent-soft);
-      border-radius: var(--radius-pill); padding: 4px; margin-bottom: 24px;
+      border-radius: var(--radius-pill); padding: 4px; margin-bottom: 20px;
     }
     .toggle-btn {
       flex: 1; padding: 12px; border: none; background: transparent;
@@ -205,8 +231,6 @@
       cursor: pointer; transition: all 0.2s; font-family: inherit;
     }
     .toggle-btn.active { background: var(--card); box-shadow: var(--shadow); }
-
-    .divider { height: 1px; background: var(--border); margin: 24px 0; }
 
     /* FAB */
     .fab {
@@ -235,6 +259,17 @@
     }
     .tab.active { color: var(--accent); }
     .tab-icon { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+    .tab-badge {
+      position: absolute;
+      top: -4px; right: -4px;
+      width: 16px; height: 16px;
+      background: var(--danger);
+      color: white;
+      border-radius: 50%;
+      font-size: 10px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .tab-icon-wrap { position: relative; }
 
     /* Home */
     .home-content {
@@ -245,6 +280,22 @@
     .home-headline { font-family: 'Fraunces', Georgia, serif; font-size: 36px; line-height: 1.15; margin-bottom: 16px; }
     .home-subtext { font-size: 16px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 48px; }
     .home-buttons { display: flex; flex-direction: column; gap: 12px; }
+
+    /* List items */
+    .list-header { padding: 8px 0 8px; }
+    .list-header h2 { font-size: 24px; margin-bottom: 4px; }
+    .list-header p { font-size: 14px; color: var(--text-secondary); }
+    .item-card { display: flex; align-items: center; gap: 14px; }
+    .item-thumb { width: 56px; height: 56px; background: var(--accent-soft); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0; }
+    .item-info { flex: 1; min-width: 0; }
+    .item-name { font-weight: 500; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .item-meta { font-size: 13px; color: var(--text-secondary); }
+    .item-bid { text-align: right; }
+    .item-bid-label { font-size: 11px; color: var(--text-muted); margin-bottom: 2px; }
+    .item-bid-value { font-family: 'Fraunces', Georgia, serif; font-size: 18px; }
+    .item-bid-value.accept { color: var(--success); }
+    .item-bid-value.consider { color: var(--warning); }
+    .item-bid-value.low { color: var(--danger); }
 
     /* Upload */
     .upload-zone {
@@ -258,89 +309,74 @@
     .upload-icon { width: 48px; height: 48px; background: var(--accent-soft); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; }
     .upload-text { color: var(--text-secondary); font-size: 15px; }
 
-    /* AI Clarification */
-    .ai-clarify-card {
-      background: var(--warning-soft); border: 1px solid #E8D5C0;
-      border-radius: var(--radius); padding: 16px; margin-bottom: 20px;
-    }
-    .ai-clarify-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-    .ai-clarify-icon { font-size: 16px; }
-    .ai-clarify-title { font-weight: 500; font-size: 14px; color: var(--warning); }
-    .ai-clarify-message { font-size: 14px; color: var(--text-primary); line-height: 1.5; margin-bottom: 12px; }
-    .ai-clarify-options { display: flex; flex-wrap: wrap; gap: 8px; }
-    .ai-clarify-options .pill { background: white; font-size: 13px; padding: 8px 12px; }
-    .ai-clarify-options .pill.active { background: var(--warning); border-color: var(--warning); }
-
-    .dual-btn { display: flex; gap: 12px; }
-    .dual-btn .btn { flex: 1; }
-
-    /* List cards */
-    .list-header { padding: 8px 0 8px; }
-    .list-header h2 { font-size: 24px; margin-bottom: 4px; }
-    .list-header p { font-size: 14px; color: var(--text-secondary); }
-    .item-card { display: flex; align-items: center; gap: 14px; }
-    .item-thumb { width: 56px; height: 56px; background: var(--accent-soft); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 24px; }
-    .item-info { flex: 1; }
-    .item-name { font-weight: 500; margin-bottom: 4px; }
-    .item-meta { font-size: 13px; color: var(--text-secondary); }
-
     /* Item detail */
-    .detail-image { width: 100%; aspect-ratio: 4/3; background: var(--accent-soft); border-radius: var(--radius); margin-bottom: 24px; display: flex; align-items: center; justify-content: center; font-size: 48px; }
+    .detail-image { width: 100%; aspect-ratio: 4/3; background: var(--accent-soft); border-radius: var(--radius); margin-bottom: 20px; display: flex; align-items: center; justify-content: center; font-size: 48px; }
     .detail-title { font-size: 22px; margin-bottom: 4px; }
-    .detail-category { font-size: 14px; color: var(--text-secondary); margin-bottom: 24px; }
-    .estimate-box { background: var(--accent-soft); border-radius: var(--radius); padding: 16px; margin-bottom: 20px; }
-    .estimate-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
-    .estimate-value { font-family: 'Fraunces', Georgia, serif; font-size: 28px; }
-    .estimate-range { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
+    .detail-category { font-size: 14px; color: var(--text-secondary); margin-bottom: 20px; }
 
-    /* Swipe */
-    .swipe-card { background: var(--card); border: 1px solid var(--border); border-radius: 20px; overflow: hidden; box-shadow: var(--shadow-lg); margin-bottom: 24px; }
-    .swipe-image { width: 100%; aspect-ratio: 1; background: linear-gradient(135deg, var(--accent-soft) 0%, #E8E5E0 100%); display: flex; align-items: center; justify-content: center; font-size: 64px; }
-    .swipe-content { padding: 20px; }
-    .swipe-title { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
-    .swipe-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
-    .swipe-prices { display: flex; justify-content: space-between; padding-top: 16px; border-top: 1px solid var(--border); }
-    .price-col { text-align: center; }
-    .price-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
-    .price-value { font-family: 'Fraunces', Georgia, serif; font-size: 20px; }
-    .swipe-actions { display: flex; justify-content: center; gap: 20px; }
-    .swipe-btn { width: 64px; height: 64px; border-radius: 50%; border: none; display: flex; align-items: center; justify-content: center; font-size: 24px; cursor: pointer; transition: transform 0.2s; }
-    .swipe-btn:hover { transform: scale(1.1); }
-    .swipe-btn.reject { background: var(--danger-soft); color: var(--danger); }
-    .swipe-btn.save { background: var(--warning-soft); color: var(--warning); }
-    .swipe-btn.accept { background: var(--success-soft); color: var(--success); }
+    /* Bid card */
+    .bid-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .bid-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .bid-amount { font-family: 'Fraunces', Georgia, serif; font-size: 24px; }
+    .bid-user { font-size: 13px; color: var(--text-secondary); }
+    .bid-details { font-size: 13px; color: var(--text-secondary); margin-bottom: 12px; }
+    .bid-actions { display: flex; gap: 8px; }
 
-    /* Matches */
-    .match-section { margin-bottom: 24px; }
-    .match-section h3 { font-size: 14px; color: var(--text-secondary); font-family: 'DM Sans', sans-serif; font-weight: 500; margin-bottom: 12px; }
-    .match-card { display: flex; gap: 14px; }
-    .match-prices { display: flex; gap: 16px; margin: 12px 0; }
-    .match-price { font-size: 13px; }
-    .match-price span { display: block; font-family: 'Fraunces', Georgia, serif; font-size: 18px; margin-top: 2px; }
+    /* Browse / Search */
+    .search-bar {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .search-input {
+      flex: 1;
+      padding: 14px 16px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-pill);
+      font-size: 15px;
+      font-family: inherit;
+    }
+    .search-input:focus { outline: none; border-color: var(--accent); }
 
-    /* Agent */
-    .agent-summary { background: var(--accent-soft); border-radius: var(--radius); padding: 20px; margin-bottom: 24px; }
+    /* Interest form */
+    .interest-card {
+      background: var(--purple-soft);
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .interest-title { font-size: 14px; color: var(--purple); margin-bottom: 16px; font-weight: 500; }
+
+    /* Agent summary */
+    .agent-summary {
+      background: var(--accent-soft);
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-bottom: 20px;
+    }
     .agent-row { display: flex; justify-content: space-between; padding: 8px 0; }
     .agent-row:not(:last-child) { border-bottom: 1px solid var(--border); }
     .agent-label { font-size: 14px; color: var(--text-secondary); }
     .agent-value { font-weight: 500; }
-    .agent-suggestion { background: var(--purple-soft); border-radius: var(--radius); padding: 16px; margin-bottom: 20px; }
-    .agent-suggestion-label { font-size: 12px; color: var(--purple); margin-bottom: 4px; }
-    .agent-suggestion-value { font-family: 'Fraunces', Georgia, serif; font-size: 24px; color: var(--purple); }
-
-    /* Offer */
-    .offer-amount { text-align: center; padding: 32px 0; }
-    .offer-label { font-size: 14px; color: var(--text-secondary); margin-bottom: 8px; }
-    .offer-value { font-family: 'Fraunces', Georgia, serif; font-size: 48px; }
-    .offer-actions { display: flex; flex-direction: column; gap: 12px; }
-    .counter-btns { display: flex; gap: 8px; margin-top: 12px; }
-    .counter-btn { flex: 1; padding: 12px; border: 1px solid var(--border); background: var(--card); border-radius: var(--radius); font-size: 14px; cursor: pointer; font-family: inherit; }
-
-    /* Profile */
-    .profile-avatar { width: 80px; height: 80px; background: var(--accent-soft); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 32px; margin: 0 auto 24px; }
-    .privacy-note { background: var(--success-soft); border-radius: var(--radius); padding: 14px 16px; font-size: 13px; color: var(--success); margin: 24px 0; display: flex; align-items: center; gap: 10px; }
-    .demo-section { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--border); }
-    .demo-section h3 { font-size: 14px; color: var(--text-secondary); margin-bottom: 12px; font-family: 'DM Sans', sans-serif; font-weight: 500; }
+    .agent-recommendation {
+      background: var(--success-soft);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+    .agent-recommendation.warning { background: var(--warning-soft); }
+    .agent-recommendation.danger { background: var(--danger-soft); }
+    .agent-rec-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+    .agent-rec-value { font-family: 'Fraunces', Georgia, serif; font-size: 20px; color: var(--success); }
+    .agent-recommendation.warning .agent-rec-value { color: var(--warning); }
+    .agent-recommendation.danger .agent-rec-value { color: var(--danger); }
 
     /* Chat */
     .chat-context { background: var(--accent-soft); border-radius: var(--radius); padding: 12px 16px; margin-bottom: 16px; }
@@ -356,152 +392,194 @@
     .message-text { font-size: 14px; line-height: 1.4; }
     .message-time { font-size: 11px; opacity: 0.5; margin-top: 6px; }
     .chat-input-area { position: absolute; bottom: 0; left: 0; right: 0; background: var(--bg); padding: 12px 24px 32px; border-top: 1px solid var(--border); }
-    .chat-quick-actions { display: flex; gap: 8px; margin-bottom: 10px; overflow-x: auto; padding-bottom: 4px; }
-    .quick-action { padding: 6px 12px; background: var(--accent-soft); border: none; border-radius: var(--radius-pill); font-size: 12px; cursor: pointer; white-space: nowrap; font-family: inherit; }
     .chat-input-row { display: flex; gap: 8px; }
     .chat-input { flex: 1; padding: 12px 16px; }
     .send-btn { width: 44px; height: 44px; background: var(--accent); color: white; border: none; border-radius: 50%; font-size: 18px; cursor: pointer; }
 
-    /* Logistics */
-    .logistics-status { background: var(--success-soft); border-radius: var(--radius); padding: 20px; margin-bottom: 20px; text-align: center; }
-    .logistics-status-icon { font-size: 32px; margin-bottom: 8px; }
-    .logistics-status-text { font-weight: 500; color: var(--success); }
-    .logistics-detail { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; }
-    .logistics-detail-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-    .logistics-detail-title { font-weight: 500; }
-    .logistics-timeline { display: flex; flex-direction: column; gap: 12px; }
-    .timeline-item { display: flex; gap: 12px; align-items: flex-start; }
-    .timeline-dot { width: 12px; height: 12px; background: var(--border); border-radius: 50%; margin-top: 4px; flex-shrink: 0; }
-    .timeline-dot.active { background: var(--success); }
-    .timeline-dot.current { background: var(--warning); box-shadow: 0 0 0 4px var(--warning-soft); }
-    .timeline-content { flex: 1; }
-    .timeline-title { font-size: 14px; font-weight: 500; }
-    .timeline-subtitle { font-size: 13px; color: var(--text-secondary); }
-
-    /* Shipping */
-    .tracking-card { background: var(--blue-soft); border-radius: var(--radius); padding: 20px; margin-bottom: 20px; }
-    .tracking-number { font-size: 12px; color: var(--blue); margin-bottom: 4px; }
-    .tracking-status { font-family: 'Fraunces', Georgia, serif; font-size: 20px; color: var(--text-primary); margin-bottom: 8px; }
-    .tracking-eta { font-size: 14px; color: var(--text-secondary); }
-    .shipping-map { width: 100%; height: 120px; background: linear-gradient(135deg, var(--accent-soft) 0%, #E8E5E0 100%); border-radius: var(--radius); margin-bottom: 20px; display: flex; align-items: center; justify-content: center; font-size: 32px; }
-
-    /* Deals */
-    .deals-tabs { display: flex; gap: 8px; margin-bottom: 20px; }
-    .deals-tab { flex: 1; padding: 10px; border: 1px solid var(--border); background: var(--card); border-radius: var(--radius); font-size: 13px; cursor: pointer; text-align: center; font-family: inherit; }
-    .deals-tab.active { background: var(--accent); color: white; border-color: var(--accent); }
-    .deal-status-bar { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 13px; color: var(--text-secondary); }
-
-    /* Conversations list */
-    .convo-card { display: flex; gap: 14px; align-items: center; }
-    .convo-avatar { width: 48px; height: 48px; background: var(--accent-soft); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; }
-    .convo-info { flex: 1; }
-    .convo-name { font-weight: 500; margin-bottom: 2px; }
-    .convo-preview { font-size: 13px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
-    .convo-meta { text-align: right; }
-    .convo-time { font-size: 12px; color: var(--text-muted); }
-    .convo-badge { width: 8px; height: 8px; background: var(--purple); border-radius: 50%; margin-left: auto; margin-top: 4px; }
-
-    /* Suggestions */
-    .suggestions-panel { margin-top: 60px; max-width: 800px; background: var(--card); border-radius: var(--radius); padding: 32px; box-shadow: var(--shadow); }
-    .suggestions-panel h2 { margin-bottom: 24px; }
-    .suggestion { margin-bottom: 24px; padding-bottom: 24px; border-bottom: 1px solid var(--border); }
-    .suggestion:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
-    .suggestion h3 { font-size: 16px; margin-bottom: 8px; color: var(--accent); }
-    .suggestion p { font-size: 14px; color: var(--text-secondary); line-height: 1.6; }
-    .suggestion-badge { display: inline-block; margin-bottom: 8px; }
-
-    /* Auth screens */
-    .auth-divider {
+    /* Inbox list */
+    .inbox-filters {
       display: flex;
-      align-items: center;
-      margin: 24px 0;
-      color: var(--text-muted);
+      gap: 8px;
+      margin-bottom: 16px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+    .inbox-filter {
+      padding: 8px 14px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      border-radius: var(--radius-pill);
       font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+      font-family: inherit;
     }
-    .auth-divider::before,
-    .auth-divider::after {
-      content: '';
-      flex: 1;
-      height: 1px;
-      background: var(--border);
+    .inbox-filter:hover { border-color: var(--accent); }
+    .inbox-filter.active { background: var(--accent); color: white; border-color: var(--accent); }
+    .inbox-section-header {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin: 24px 0 12px;
     }
-    .auth-divider span {
-      padding: 0 16px;
+    .inbox-section-header:first-child { margin-top: 8px; }
+    .inbox-card { display: flex; gap: 14px; align-items: center; }
+    .inbox-card.unread { background: var(--blue-soft); }
+    .inbox-avatar { width: 48px; height: 48px; background: var(--accent-soft); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
+    .inbox-avatar.agent { background: var(--purple-soft); }
+    .inbox-avatar.buyer { background: var(--blue-soft); }
+    .inbox-avatar.seller { background: var(--warning-soft); }
+    .inbox-info { flex: 1; min-width: 0; }
+    .inbox-name { font-weight: 500; margin-bottom: 2px; display: flex; align-items: center; gap: 6px; }
+    .inbox-name-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .inbox-preview { font-size: 13px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .inbox-preview.agent-message { color: var(--purple); }
+    .inbox-meta { text-align: right; flex-shrink: 0; }
+    .inbox-time { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+    .inbox-unread { width: 8px; height: 8px; background: var(--purple); border-radius: 50%; margin-left: auto; }
+    .inbox-empty {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--text-muted);
     }
-    .social-buttons {
-      display: flex;
+    .inbox-empty-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+      opacity: 0.5;
+    }
+    .inbox-empty-text {
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* Auth */
+    .auth-divider {
+      display: flex; align-items: center; margin: 24px 0;
+      color: var(--text-muted); font-size: 13px;
+    }
+    .auth-divider::before, .auth-divider::after {
+      content: ''; flex: 1; height: 1px; background: var(--border);
+    }
+    .auth-divider span { padding: 0 16px; }
+    .social-buttons { display: flex; gap: 12px; }
+    .social-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; }
+    .social-icon { font-size: 16px; font-weight: 600; }
+    .auth-footer { text-align: center; font-size: 13px; color: var(--text-secondary); margin-top: 24px; }
+    .auth-footer a { color: var(--accent); text-decoration: none; font-weight: 500; }
+    .forgot-link { display: block; text-align: right; font-size: 13px; color: var(--text-secondary); margin-top: 8px; text-decoration: none; }
+
+    /* Profile */
+    .profile-avatar { width: 80px; height: 80px; background: var(--accent-soft); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 32px; margin: 0 auto 24px; }
+    .privacy-note { background: var(--success-soft); border-radius: var(--radius); padding: 14px 16px; font-size: 13px; color: var(--success); margin: 24px 0; display: flex; align-items: center; gap: 10px; }
+
+    /* Swipe card for browse */
+    .browse-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: var(--shadow-lg);
+      margin-bottom: 20px;
+    }
+    .browse-image {
+      width: 100%;
+      aspect-ratio: 1;
+      background: linear-gradient(135deg, var(--accent-soft) 0%, #E8E5E0 100%);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 64px;
+    }
+    .browse-content { padding: 20px; }
+    .browse-title { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+    .browse-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .browse-price { font-family: 'Fraunces', Georgia, serif; font-size: 24px; }
+    .browse-actions { display: flex; gap: 12px; margin-top: 16px; }
+    .browse-btn {
+      flex: 1; padding: 14px;
+      border-radius: var(--radius);
+      font-size: 15px; font-weight: 500;
+      cursor: pointer; border: none;
+      font-family: inherit;
+    }
+    .browse-btn.skip { background: var(--accent-soft); color: var(--text-primary); }
+    .browse-btn.interested { background: var(--success); color: white; }
+
+    /* Gallery grid */
+    .browse-gallery {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
       gap: 12px;
     }
-    .social-btn {
-      flex: 1;
+    .gallery-item {
+      aspect-ratio: 1;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      cursor: pointer;
+      transition: transform 0.2s;
+      position: relative;
+    }
+    .gallery-item:hover { transform: scale(1.02); }
+    .gallery-thumb {
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(135deg, var(--accent-soft) 0%, #E8E5E0 100%);
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 8px;
+      font-size: 32px;
     }
-    .social-icon {
-      font-size: 16px;
+    .gallery-price {
+      position: absolute;
+      bottom: 8px;
+      left: 8px;
+      background: rgba(255,255,255,0.95);
+      padding: 4px 8px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
       font-weight: 600;
     }
-    .auth-footer {
+
+    /* Swipe hint */
+    .swipe-hint {
       text-align: center;
-      font-size: 13px;
-      color: var(--text-secondary);
-      margin-top: 24px;
+      padding: 16px;
+      margin-bottom: 16px;
+      color: var(--text-muted);
+      font-size: 14px;
     }
-    .auth-footer a {
-      color: var(--accent);
-      text-decoration: none;
-      font-weight: 500;
-    }
-    .auth-footer a:hover {
-      text-decoration: underline;
-    }
-    .forgot-link {
-      display: block;
-      text-align: right;
-      font-size: 13px;
-      color: var(--text-secondary);
-      margin-top: 8px;
-      text-decoration: none;
-    }
-    .forgot-link:hover {
-      color: var(--accent);
-    }
-    .success-icon {
-      font-size: 48px;
-      margin-bottom: 24px;
+    .swipe-hint span {
+      background: var(--accent-soft);
+      padding: 8px 16px;
+      border-radius: var(--radius-pill);
     }
   </style>
 </head>
 <body>
   <div class="page-title">
     <h1>Passive Shopping</h1>
-    <p>Interactive UI Draft v2 — Click frames to navigate</p>
+    <p>UI Draft v3 — Simplified</p>
   </div>
 
   <div class="frame-nav">
-    <button class="active" onclick="showScreen('welcome')">Welcome</button>
+    <button onclick="showScreen('welcome')">Welcome</button>
     <button onclick="showScreen('signup')">Sign Up</button>
     <button onclick="showScreen('login')">Login</button>
-    <button onclick="showScreen('forgot')">Forgot</button>
-    <button onclick="showScreen('home')">Home</button>
+    <button class="active" onclick="showScreen('list')">List</button>
     <button onclick="showScreen('upload')">Upload</button>
-    <button onclick="showScreen('upload-clarify')">Upload (Clarify)</button>
-    <button onclick="showScreen('mylist')">My List</button>
-    <button onclick="showScreen('detail')">Item Detail</button>
-    <button onclick="showScreen('mywants')">My Wants</button>
-    <button onclick="showScreen('addwant')">Add Want</button>
-    <button onclick="showScreen('swipe-buy')">Swipe (Buy)</button>
-    <button onclick="showScreen('swipe-sell')">Swipe (Sell)</button>
-    <button onclick="showScreen('matches')">Matches</button>
-    <button onclick="showScreen('agent')">Agent</button>
-    <button onclick="showScreen('offer')">Offer</button>
-    <button onclick="showScreen('logistics')">Pickup</button>
-    <button onclick="showScreen('shipping')">Shipping</button>
-    <button onclick="showScreen('conversations')">Conversations</button>
+    <button onclick="showScreen('item-detail')">Item Detail</button>
+    <button onclick="showScreen('item-interest')">Item Interest</button>
+    <button onclick="showScreen('browse')">Browse</button>
+    <button onclick="showScreen('browse-interest')">Browse Item</button>
+    <button onclick="showScreen('browse-form')">Send Interest</button>
+    <button onclick="showScreen('deals')">Deals (Selling)</button>
+    <button onclick="showScreen('deals-buying')">Deals (Buying)</button>
+    <button onclick="showScreen('deal-detail')">Deal Detail</button>
+    <button onclick="showScreen('inbox')">Inbox</button>
     <button onclick="showScreen('chat')">Chat</button>
-    <button onclick="showScreen('deals')">Deals</button>
     <button onclick="showScreen('profile')">Profile</button>
   </div>
 
@@ -511,12 +589,12 @@
       <span class="icons">⦿ ⦿ ⦿</span>
     </div>
 
-    <!-- Frame 0: Welcome/Login -->
-    <div id="welcome" class="screen active">
+    <!-- Welcome -->
+    <div id="welcome" class="screen">
       <div class="home-content">
         <div class="home-logo">passive</div>
         <h1 class="home-headline">Passive<br>shopping</h1>
-        <p class="home-subtext">List what you own. Share what you want. We'll handle the rest.</p>
+        <p class="home-subtext">List what you own. Browse what others have. We'll handle the rest.</p>
         <div class="home-buttons">
           <button class="btn btn-primary" onclick="showScreen('signup')">Get started</button>
           <button class="btn btn-secondary" onclick="showScreen('login')">I have an account</button>
@@ -524,855 +602,695 @@
       </div>
     </div>
 
-    <!-- Frame 0a: Sign Up -->
+    <!-- Sign Up -->
     <div id="signup" class="screen">
       <div class="header">
         <button class="back-btn" onclick="showScreen('welcome')">←</button>
         <h2>Create account</h2>
       </div>
-
-      <div style="margin-bottom: 32px;">
-        <p style="color: var(--text-secondary); font-size: 15px; line-height: 1.5;">Join thousands of people passively buying and selling in their neighborhood.</p>
-      </div>
-
       <div class="input-group">
         <label>Email</label>
         <input type="email" class="input" placeholder="you@email.com">
       </div>
-
       <div class="input-group">
         <label>Password</label>
         <input type="password" class="input" placeholder="At least 8 characters">
       </div>
-
       <div class="input-group">
         <label>Display name</label>
         <input type="text" class="input" placeholder="How others will see you">
       </div>
-
       <div class="input-group">
         <label>Your neighborhood</label>
-        <div class="location-input-row">
-          <input type="text" class="input" placeholder="ZIP code or neighborhood" style="flex: 1;">
-        </div>
-        <div style="font-size: 12px; color: var(--text-muted); margin-top: 6px;">We'll show you items nearby. Your exact location is never shared.</div>
+        <input type="text" class="input" placeholder="ZIP code or neighborhood">
       </div>
-
-      <button class="btn btn-primary" style="margin-top: 24px;" onclick="showScreen('home')">Create account</button>
-
-      <div class="auth-divider">
-        <span>or continue with</span>
-      </div>
-
+      <button class="btn btn-primary" style="margin-top: 24px;" onclick="showScreen('list')">Create account</button>
+      <div class="auth-divider"><span>or continue with</span></div>
       <div class="social-buttons">
-        <button class="btn btn-secondary social-btn">
-          <span class="social-icon">G</span>
-          Google
-        </button>
-        <button class="btn btn-secondary social-btn">
-          <span class="social-icon">🍎</span>
-          Apple
-        </button>
+        <button class="btn btn-secondary social-btn"><span class="social-icon">G</span>Google</button>
+        <button class="btn btn-secondary social-btn"><span class="social-icon">🍎</span>Apple</button>
       </div>
-
-      <p class="auth-footer">
-        By creating an account, you agree to our <a href="#">Terms</a> and <a href="#">Privacy Policy</a>
-      </p>
+      <p class="auth-footer">By creating an account, you agree to our <a href="#">Terms</a> and <a href="#">Privacy Policy</a></p>
     </div>
 
-    <!-- Frame 0b: Login -->
+    <!-- Login -->
     <div id="login" class="screen">
       <div class="header">
         <button class="back-btn" onclick="showScreen('welcome')">←</button>
         <h2>Welcome back</h2>
       </div>
-
-      <div style="margin-bottom: 32px;">
-        <p style="color: var(--text-secondary); font-size: 15px; line-height: 1.5;">Sign in to see your items, wants, and active deals.</p>
-      </div>
-
       <div class="input-group">
         <label>Email</label>
         <input type="email" class="input" placeholder="you@email.com">
       </div>
-
       <div class="input-group">
         <label>Password</label>
         <input type="password" class="input" placeholder="Your password">
-        <a href="#" class="forgot-link" onclick="showScreen('forgot')">Forgot password?</a>
+        <a href="#" class="forgot-link">Forgot password?</a>
       </div>
-
-      <button class="btn btn-primary" style="margin-top: 24px;" onclick="showScreen('home')">Sign in</button>
-
-      <div class="auth-divider">
-        <span>or continue with</span>
-      </div>
-
+      <button class="btn btn-primary" style="margin-top: 24px;" onclick="showScreen('list')">Sign in</button>
+      <div class="auth-divider"><span>or continue with</span></div>
       <div class="social-buttons">
-        <button class="btn btn-secondary social-btn">
-          <span class="social-icon">G</span>
-          Google
-        </button>
-        <button class="btn btn-secondary social-btn">
-          <span class="social-icon">🍎</span>
-          Apple
-        </button>
+        <button class="btn btn-secondary social-btn"><span class="social-icon">G</span>Google</button>
+        <button class="btn btn-secondary social-btn"><span class="social-icon">🍎</span>Apple</button>
       </div>
-
-      <p class="auth-footer">
-        Don't have an account? <a href="#" onclick="showScreen('signup')">Sign up</a>
-      </p>
+      <p class="auth-footer">Don't have an account? <a href="#" onclick="showScreen('signup')">Sign up</a></p>
     </div>
 
-    <!-- Frame 0c: Forgot Password -->
-    <div id="forgot" class="screen">
-      <div class="header">
-        <button class="back-btn" onclick="showScreen('login')">←</button>
-        <h2>Reset password</h2>
-      </div>
-
-      <div style="margin-bottom: 32px;">
-        <p style="color: var(--text-secondary); font-size: 15px; line-height: 1.5;">Enter your email and we'll send you a link to reset your password.</p>
-      </div>
-
-      <div class="input-group">
-        <label>Email</label>
-        <input type="email" class="input" placeholder="you@email.com">
-      </div>
-
-      <button class="btn btn-primary" style="margin-top: 24px;" onclick="showScreen('reset-sent')">Send reset link</button>
-
-      <p class="auth-footer">
-        Remember your password? <a href="#" onclick="showScreen('login')">Sign in</a>
-      </p>
-    </div>
-
-    <!-- Frame 0d: Reset Email Sent -->
-    <div id="reset-sent" class="screen">
-      <div class="home-content" style="text-align: center;">
-        <div class="success-icon">✉️</div>
-        <h2 style="margin-bottom: 12px;">Check your email</h2>
-        <p style="color: var(--text-secondary); font-size: 15px; line-height: 1.5; margin-bottom: 32px;">We've sent a password reset link to your email address. It may take a few minutes to arrive.</p>
-        <button class="btn btn-secondary" onclick="showScreen('login')">Back to sign in</button>
-      </div>
-    </div>
-
-    <!-- Frame 1: Home (logged in) -->
-    <div id="home" class="screen">
-      <div class="home-content">
-        <div class="home-logo">passive</div>
-        <h1 class="home-headline">Passive<br>shopping</h1>
-        <p class="home-subtext">List what you own. Share what you want. We'll handle the rest.</p>
-        <div class="home-buttons">
-          <button class="btn btn-primary" onclick="showScreen('upload')">Upload an item</button>
-          <button class="btn btn-secondary" onclick="showScreen('swipe-buy')">Swipe nearby</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Frame 2: Upload (clean recognition) -->
-    <div id="upload" class="screen">
-      <div class="header">
-        <button class="back-btn" onclick="showScreen('home')">←</button>
-        <h2>Upload</h2>
-      </div>
-      <div class="upload-zone has-image" style="font-size: 64px;">🪑</div>
-      <div class="input-group">
-        <label>Item name</label>
-        <input type="text" class="input" value="Herman Miller Aeron Chair" style="background: var(--success-soft); border-color: var(--success);">
-        <div style="font-size: 12px; color: var(--success); margin-top: 6px;">✓ AI recognized this item</div>
-      </div>
-      <div class="input-group">
-        <label>Category</label>
-        <input type="text" class="input" value="Furniture → Office Chair" readonly style="background: var(--accent-soft);">
-      </div>
-      <div class="input-group">
-        <label>Notes (optional)</label>
-        <input type="text" class="input" placeholder="Anything else about this item...">
-      </div>
-      <div class="dual-btn" style="margin-top: 24px;">
-        <button class="btn btn-primary" onclick="showScreen('mylist')">Add to My List</button>
-        <button class="btn btn-secondary" onclick="showScreen('mywants')">Add to Wants</button>
-      </div>
-    </div>
-
-    <!-- Frame 2b: Upload (needs clarification) -->
-    <div id="upload-clarify" class="screen">
-      <div class="header">
-        <button class="back-btn" onclick="showScreen('home')">←</button>
-        <h2>Upload</h2>
-      </div>
-      <div class="upload-zone has-image" style="font-size: 64px;">📦</div>
-      
-      <div class="ai-clarify-card">
-        <div class="ai-clarify-header">
-          <span class="ai-clarify-icon">🤖</span>
-          <span class="ai-clarify-title">Need a little help</span>
-        </div>
-        <div class="ai-clarify-message">I can see this is furniture, but I'm not sure exactly what. Can you help me identify it?</div>
-        <div class="ai-clarify-options">
-          <span class="pill">Dresser</span>
-          <span class="pill">Nightstand</span>
-          <span class="pill active">Storage bench</span>
-          <span class="pill">Other</span>
-        </div>
-      </div>
-
-      <div class="input-group">
-        <label>Item name</label>
-        <input type="text" class="input" value="Storage bench" placeholder="What is this?">
-      </div>
-      <div class="input-group">
-        <label>Brand (optional)</label>
-        <input type="text" class="input" placeholder="IKEA, West Elm, etc.">
-      </div>
-      <div class="input-group">
-        <label>More details</label>
-        <input type="text" class="input" placeholder="Size, material, color...">
-      </div>
-      <div class="dual-btn" style="margin-top: 24px;">
-        <button class="btn btn-primary" onclick="showScreen('mylist')">Add to My List</button>
-        <button class="btn btn-secondary" onclick="showScreen('mywants')">Add to Wants</button>
-      </div>
-    </div>
-
-    <!-- Frame 3: My List -->
-    <div id="mylist" class="screen">
+    <!-- LIST: My Items -->
+    <div id="list" class="screen active">
       <div class="list-header">
         <h2>My List</h2>
-        <p>Items you own</p>
+        <p>Your items and top bids</p>
       </div>
+
       <div style="margin-top: 20px;">
-        <div class="card" onclick="showScreen('detail')">
+        <div class="card" onclick="showScreen('item-detail')">
           <div class="item-card">
             <div class="item-thumb">🪑</div>
             <div class="item-info">
               <div class="item-name">Herman Miller Aeron</div>
-              <div class="item-meta">Furniture</div>
+              <div class="item-meta">Furniture · 3 interested</div>
             </div>
-            <span class="badge badge-warning">If good offer</span>
+            <div class="item-bid">
+              <div class="item-bid-label">Top bid</div>
+              <div class="item-bid-value accept">$550</div>
+            </div>
           </div>
         </div>
+
         <div class="card">
           <div class="item-card">
             <div class="item-thumb">📱</div>
             <div class="item-info">
               <div class="item-name">iPhone 14 Pro</div>
-              <div class="item-meta">Electronics</div>
+              <div class="item-meta">Electronics · 1 interested</div>
             </div>
-            <span class="badge badge-neutral">Maybe</span>
+            <div class="item-bid">
+              <div class="item-bid-label">Top bid</div>
+              <div class="item-bid-value consider">$420</div>
+            </div>
           </div>
         </div>
+
         <div class="card">
           <div class="item-card">
             <div class="item-thumb">🎸</div>
             <div class="item-info">
               <div class="item-name">Fender Stratocaster</div>
-              <div class="item-meta">Music</div>
+              <div class="item-meta">Music · 2 interested</div>
             </div>
-            <span class="badge badge-success">Want gone</span>
+            <div class="item-bid">
+              <div class="item-bid-label">Top bid</div>
+              <div class="item-bid-value low">$280</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="item-card">
+            <div class="item-thumb">🖥️</div>
+            <div class="item-info">
+              <div class="item-name">Dell Monitor 27"</div>
+              <div class="item-meta">Electronics · No bids yet</div>
+            </div>
+            <div class="item-bid">
+              <div class="item-bid-label">Top bid</div>
+              <div class="item-bid-value" style="color: var(--text-muted);">—</div>
+            </div>
           </div>
         </div>
       </div>
+
       <button class="fab" onclick="showScreen('upload')">+</button>
+
       <div class="tab-bar">
         <button class="tab active"><div class="tab-icon">📦</div>List</button>
-        <button class="tab" onclick="showScreen('mywants')"><div class="tab-icon">💫</div>Wants</button>
-        <button class="tab" onclick="showScreen('swipe-buy')"><div class="tab-icon">👆</div>Swipe</button>
+        <button class="tab" onclick="showScreen('browse')"><div class="tab-icon">🔍</div>Browse</button>
         <button class="tab" onclick="showScreen('deals')"><div class="tab-icon">🤝</div>Deals</button>
+        <button class="tab" onclick="showScreen('inbox')"><div class="tab-icon-wrap"><div class="tab-icon">💬</div><div class="tab-badge">2</div></div>Inbox</button>
         <button class="tab" onclick="showScreen('profile')"><div class="tab-icon">👤</div>Profile</button>
       </div>
     </div>
 
-    <!-- Frame 4: Item Detail -->
-    <div id="detail" class="screen">
+    <!-- Upload -->
+    <div id="upload" class="screen">
       <div class="header">
-        <button class="back-btn" onclick="showScreen('mylist')">←</button>
+        <button class="back-btn" onclick="showScreen('list')">←</button>
+        <h2>Add item</h2>
+      </div>
+      <div class="upload-zone">
+        <div class="upload-icon">📷</div>
+        <span class="upload-text">Tap to upload a photo</span>
+      </div>
+      <div class="input-group">
+        <label>Item name</label>
+        <input type="text" class="input" placeholder="What is this?">
+      </div>
+      <div class="input-group">
+        <label>Description (optional)</label>
+        <textarea class="input textarea" placeholder="Condition, brand, any details..."></textarea>
+      </div>
+      <button class="btn btn-primary" onclick="showScreen('list')">Add to my list</button>
+    </div>
+
+    <!-- Item Detail (with tabs) -->
+    <div id="item-detail" class="screen">
+      <div class="header">
+        <button class="back-btn" onclick="showScreen('list')">←</button>
         <h2>Item</h2>
       </div>
+
+      <div class="tabs">
+        <button class="tab-btn" onclick="showScreen('item-interest')">Buyer Interest</button>
+        <button class="tab-btn active">Item Details</button>
+      </div>
+
       <div class="detail-image">🪑</div>
       <h2 class="detail-title">Herman Miller Aeron</h2>
-      <p class="detail-category">Furniture → Office Chair</p>
-      
-      <div class="input-group">
-        <label>Condition</label>
-        <div class="pills">
-          <span class="pill">New</span>
-          <span class="pill active">Like new</span>
-          <span class="pill">Good</span>
-          <span class="pill">Fair</span>
+      <p class="detail-category">Furniture · Office Chair</p>
+
+      <div class="agent-summary">
+        <div class="agent-row">
+          <span class="agent-label">Market estimate</span>
+          <span class="agent-value">$500–$700</span>
         </div>
-      </div>
-
-      <div class="estimate-box">
-        <div class="estimate-label">Estimated market value</div>
-        <div class="estimate-value">$650</div>
-        <div class="estimate-range">Range: $500 – $800</div>
-      </div>
-
-      <div class="input-group">
-        <label>Would let go for</label>
-        <div style="display: flex; gap: 12px;">
-          <input type="text" class="input" placeholder="$0" style="flex: 1;">
-          <button class="btn btn-secondary btn-sm" style="width: auto; white-space: nowrap;">Not sure</button>
+        <div class="agent-row">
+          <span class="agent-label">Your item condition</span>
+          <span class="agent-value">Like new</span>
+        </div>
+        <div class="agent-row">
+          <span class="agent-label">Interested buyers</span>
+          <span class="agent-value">3</span>
         </div>
       </div>
 
       <div class="input-group">
-        <label>How likely to sell?</label>
-        <div class="pills">
-          <span class="pill">Maybe</span>
-          <span class="pill active">If good offer</span>
-          <span class="pill">Want gone</span>
-        </div>
+        <label>Notes</label>
+        <textarea class="input textarea" placeholder="Any updates about this item...">Size B, all original parts, minor wear on armrests</textarea>
       </div>
 
-      <div class="input-group">
-        <label>Delivery preference</label>
-        <div class="pills">
-          <span class="pill active">Local only</span>
-          <span class="pill">Shipping OK</span>
-        </div>
-      </div>
-
-      <button class="btn btn-primary">Save changes</button>
+      <button class="btn btn-secondary">Edit item</button>
     </div>
 
-    <!-- Frame 5: My Wants -->
-    <div id="mywants" class="screen">
-      <div class="list-header">
-        <h2>My Wants</h2>
-        <p>Things you're looking for</p>
-      </div>
-      <div style="margin-top: 20px;">
-        <div class="card">
-          <div class="item-card">
-            <div class="item-thumb">🖥️</div>
-            <div class="item-info">
-              <div class="item-name">Studio Display</div>
-              <div class="item-meta">Up to $1,200</div>
-            </div>
-            <span class="badge badge-purple">Interested</span>
-          </div>
-        </div>
-        <div class="card">
-          <div class="item-card">
-            <div class="item-thumb">🛋️</div>
-            <div class="item-info">
-              <div class="item-name">Mid-century sofa</div>
-              <div class="item-meta">Up to $800</div>
-            </div>
-            <span class="badge badge-neutral">Casual</span>
-          </div>
-        </div>
-        <div class="card">
-          <div class="item-card">
-            <div class="item-thumb">🚴</div>
-            <div class="item-info">
-              <div class="item-name">Road bike</div>
-              <div class="item-meta">Up to $600</div>
-            </div>
-            <span class="badge badge-danger">Urgent</span>
-          </div>
-        </div>
-      </div>
-      <button class="fab" onclick="showScreen('addwant')">+</button>
-      <div class="tab-bar">
-        <button class="tab" onclick="showScreen('mylist')"><div class="tab-icon">📦</div>List</button>
-        <button class="tab active"><div class="tab-icon">💫</div>Wants</button>
-        <button class="tab" onclick="showScreen('swipe-buy')"><div class="tab-icon">👆</div>Swipe</button>
-        <button class="tab" onclick="showScreen('deals')"><div class="tab-icon">🤝</div>Deals</button>
-        <button class="tab" onclick="showScreen('profile')"><div class="tab-icon">👤</div>Profile</button>
-      </div>
-    </div>
-
-    <!-- Frame 6: Add Want -->
-    <div id="addwant" class="screen">
+    <!-- Item Interest (Buyer tab) -->
+    <div id="item-interest" class="screen">
       <div class="header">
-        <button class="back-btn" onclick="showScreen('mywants')">←</button>
-        <h2>Add want</h2>
+        <button class="back-btn" onclick="showScreen('list')">←</button>
+        <h2>Item</h2>
       </div>
-      <div class="input-group">
-        <label>What are you looking for?</label>
-        <input type="text" class="input" placeholder="e.g. Standing desk, vintage lamp...">
+
+      <div class="tabs">
+        <button class="tab-btn active">Buyer Interest</button>
+        <button class="tab-btn" onclick="showScreen('item-detail')">Item Details</button>
       </div>
-      <div class="input-group">
-        <label>Max price</label>
-        <input type="text" class="input" placeholder="$0">
+
+      <div class="agent-recommendation">
+        <div class="agent-rec-label">Agent recommendation</div>
+        <div class="agent-rec-value">Accept $550 offer</div>
       </div>
-      <div class="input-group">
-        <label>How urgently?</label>
-        <div class="pills">
-          <span class="pill">Casual</span>
-          <span class="pill active">Interested</span>
-          <span class="pill">Urgent</span>
+
+      <div class="bid-card">
+        <div class="bid-header">
+          <div class="bid-amount" style="color: var(--success);">$550</div>
+          <span class="badge badge-success">Recommended</span>
+        </div>
+        <div class="bid-user">Anonymous buyer · 1.2 mi away</div>
+        <div class="bid-details">Local pickup · Available weekends</div>
+        <div class="bid-actions">
+          <button class="btn btn-success btn-sm" onclick="showScreen('deals')">Sell for $550</button>
+          <button class="btn btn-secondary btn-sm" onclick="showScreen('chat')">Chat</button>
         </div>
       </div>
-      <div class="input-group">
-        <label>Delivery preference</label>
-        <div class="pills">
-          <span class="pill active">Local only</span>
-          <span class="pill">Shipping OK</span>
+
+      <div class="bid-card">
+        <div class="bid-header">
+          <div class="bid-amount" style="color: var(--warning);">$480</div>
+          <span class="badge badge-warning">Below market</span>
+        </div>
+        <div class="bid-user">Anonymous buyer · 3.5 mi away</div>
+        <div class="bid-details">Shipping OK · Flexible timing</div>
+        <div class="bid-actions">
+          <button class="btn btn-secondary btn-sm">Sell for $480</button>
+          <button class="btn btn-secondary btn-sm" onclick="showScreen('chat')">Chat</button>
         </div>
       </div>
-      <button class="btn btn-primary" style="margin-top: 24px;">Add want</button>
+
+      <div class="bid-card">
+        <div class="bid-header">
+          <div class="bid-amount" style="color: var(--danger);">$350</div>
+          <span class="badge badge-danger">Too low</span>
+        </div>
+        <div class="bid-user">Anonymous buyer · 0.8 mi away</div>
+        <div class="bid-details">Local pickup · ASAP</div>
+        <div class="bid-actions">
+          <button class="btn btn-secondary btn-sm">Sell for $350</button>
+          <button class="btn btn-secondary btn-sm" onclick="showScreen('chat')">Chat</button>
+        </div>
+      </div>
     </div>
 
-    <!-- Frame 7: Swipe Buying -->
-    <div id="swipe-buy" class="screen">
-      <div class="toggle-group">
-        <button class="toggle-btn" onclick="showScreen('swipe-sell')">Selling</button>
-        <button class="toggle-btn active">Buying</button>
+    <!-- BROWSE -->
+    <div id="browse" class="screen">
+      <div class="list-header">
+        <h2>Browse</h2>
       </div>
-      <div class="swipe-card">
-        <div class="swipe-image">🪴</div>
-        <div class="swipe-content">
-          <div class="swipe-title">Monstera Plant (Large)</div>
-          <div class="swipe-meta">
-            <span class="badge badge-success">Local only</span>
-            <span class="badge badge-neutral">~0.5 mi</span>
-            <span class="badge badge-neutral">Like new</span>
-          </div>
-          <div class="swipe-prices">
-            <div class="price-col" style="text-align: left;">
-              <div class="price-label">Our take</div>
-              <div class="price-value" style="color: var(--success);">Good deal</div>
-              <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Seller likely accepts $50–60</div>
-            </div>
-            <div class="price-col" style="text-align: right;">
-              <div class="price-label">Market estimate</div>
-              <div class="price-value">$70–90</div>
-              <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Asking $60</div>
-            </div>
-          </div>
+
+      <div class="search-bar">
+        <input type="text" class="search-input" placeholder="Search items...">
+      </div>
+
+      <div class="browse-gallery">
+        <div class="gallery-item" onclick="showScreen('browse-interest')">
+          <div class="gallery-thumb">🛋️</div>
+          <div class="gallery-price">$650</div>
+        </div>
+        <div class="gallery-item" onclick="showScreen('browse-interest')">
+          <div class="gallery-thumb">🖥️</div>
+          <div class="gallery-price">$1,100</div>
+        </div>
+        <div class="gallery-item" onclick="showScreen('browse-interest')">
+          <div class="gallery-thumb">🚴</div>
+          <div class="gallery-price">$450</div>
+        </div>
+        <div class="gallery-item" onclick="showScreen('browse-interest')">
+          <div class="gallery-thumb">📷</div>
+          <div class="gallery-price">$320</div>
+        </div>
+        <div class="gallery-item" onclick="showScreen('browse-interest')">
+          <div class="gallery-thumb">🎧</div>
+          <div class="gallery-price">$180</div>
+        </div>
+        <div class="gallery-item" onclick="showScreen('browse-interest')">
+          <div class="gallery-thumb">⌚</div>
+          <div class="gallery-price">$275</div>
+        </div>
+        <div class="gallery-item" onclick="showScreen('browse-interest')">
+          <div class="gallery-thumb">🎸</div>
+          <div class="gallery-price">$520</div>
+        </div>
+        <div class="gallery-item" onclick="showScreen('browse-interest')">
+          <div class="gallery-thumb">🪴</div>
+          <div class="gallery-price">$45</div>
+        </div>
+        <div class="gallery-item" onclick="showScreen('browse-interest')">
+          <div class="gallery-thumb">💡</div>
+          <div class="gallery-price">$90</div>
         </div>
       </div>
-      <div class="swipe-actions">
-        <button class="swipe-btn reject">✕</button>
-        <button class="swipe-btn save">☆</button>
-        <button class="swipe-btn accept" onclick="showScreen('matches')">✓</button>
-      </div>
+
       <div class="tab-bar">
-        <button class="tab" onclick="showScreen('mylist')"><div class="tab-icon">📦</div>List</button>
-        <button class="tab" onclick="showScreen('mywants')"><div class="tab-icon">💫</div>Wants</button>
-        <button class="tab active"><div class="tab-icon">👆</div>Swipe</button>
+        <button class="tab" onclick="showScreen('list')"><div class="tab-icon">📦</div>List</button>
+        <button class="tab active"><div class="tab-icon">🔍</div>Browse</button>
         <button class="tab" onclick="showScreen('deals')"><div class="tab-icon">🤝</div>Deals</button>
+        <button class="tab" onclick="showScreen('inbox')"><div class="tab-icon-wrap"><div class="tab-icon">💬</div><div class="tab-badge">2</div></div>Inbox</button>
         <button class="tab" onclick="showScreen('profile')"><div class="tab-icon">👤</div>Profile</button>
       </div>
     </div>
 
-    <!-- Frame 8: Swipe Selling -->
-    <div id="swipe-sell" class="screen">
+    <!-- Browse Item Detail -->
+    <div id="browse-interest" class="screen">
+      <div class="header">
+        <button class="back-btn" onclick="showScreen('browse')">←</button>
+        <h2>Item</h2>
+      </div>
+
+      <div class="detail-image">🛋️</div>
+      <h2 class="detail-title">Mid-century Modern Sofa</h2>
+      <p class="detail-category">Furniture · ~0.8 mi away</p>
+
+      <div class="agent-summary">
+        <div class="agent-row">
+          <span class="agent-label">Asking price</span>
+          <span class="agent-value">$650</span>
+        </div>
+        <div class="agent-row">
+          <span class="agent-label">Market estimate</span>
+          <span class="agent-value">$600–$750</span>
+        </div>
+        <div class="agent-row">
+          <span class="agent-label">Condition</span>
+          <span class="agent-value">Good</span>
+        </div>
+        <div class="agent-row">
+          <span class="agent-label">Seller preference</span>
+          <span class="agent-value">Local pickup</span>
+        </div>
+      </div>
+
+      <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 16px;">
+        Walnut frame, original cushions, minor wear on armrests. Non-smoking home.
+      </p>
+
+      <div class="swipe-hint">
+        <span>Swipe right to express interest →</span>
+      </div>
+
+      <button class="btn btn-primary" onclick="showScreen('browse-form')">Express Interest</button>
+    </div>
+
+    <!-- Browse Interest Form (after swipe) -->
+    <div id="browse-form" class="screen">
+      <div class="header">
+        <button class="back-btn" onclick="showScreen('browse-interest')">←</button>
+        <h2>Express Interest</h2>
+      </div>
+
+      <div class="card" style="cursor: default; margin-bottom: 20px;">
+        <div class="item-card">
+          <div class="item-thumb">🛋️</div>
+          <div class="item-info">
+            <div class="item-name">Mid-century Modern Sofa</div>
+            <div class="item-meta">Asking $650</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="interest-card">
+        <div class="interest-title">Your offer</div>
+        <div class="input-group" style="margin-bottom: 0;">
+          <label>Max bid</label>
+          <input type="text" class="input" placeholder="$0" style="background: white;">
+        </div>
+      </div>
+
+      <div class="input-group">
+        <label>Shipping preference</label>
+        <div class="pills">
+          <span class="pill active">Local pickup</span>
+          <span class="pill">Shipping OK</span>
+        </div>
+      </div>
+
+      <div class="input-group">
+        <label>Questions for seller (optional)</label>
+        <textarea class="input textarea" placeholder="Any questions about condition, dimensions, etc..."></textarea>
+      </div>
+
+      <button class="btn btn-primary" onclick="showScreen('deals-buying')">Send interest</button>
+    </div>
+
+    <!-- DEALS (Selling view) -->
+    <div id="deals" class="screen">
+      <div class="list-header">
+        <h2>Deals</h2>
+      </div>
+
       <div class="toggle-group">
         <button class="toggle-btn active">Selling</button>
-        <button class="toggle-btn" onclick="showScreen('swipe-buy')">Buying</button>
+        <button class="toggle-btn" onclick="showScreen('deals-buying')">Buying</button>
       </div>
-      <div class="swipe-card">
-        <div class="swipe-image" style="background: linear-gradient(135deg, var(--purple-soft) 0%, #E8E5F5 100%);">🪑</div>
-        <div class="swipe-content">
-          <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">Someone wants your item</div>
-          <div class="swipe-title">Herman Miller Aeron</div>
-          <div class="swipe-meta">
-            <span class="badge badge-success">Local pickup</span>
-            <span class="badge badge-neutral">~1.2 mi</span>
-            <span class="badge badge-warning">If good offer</span>
+
+      <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">Pending sales</p>
+
+      <div class="card" onclick="showScreen('deal-detail')">
+        <div class="item-card">
+          <div class="item-thumb">🪑</div>
+          <div class="item-info">
+            <div class="item-name">Herman Miller Aeron</div>
+            <div class="item-meta">Sold for $550</div>
           </div>
-          <div class="swipe-prices">
-            <div class="price-col" style="text-align: left;">
-              <div class="price-label">Our take</div>
-              <div class="price-value" style="color: var(--success);">Sell now</div>
-              <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Est. drops to $500 in 3 wks</div>
-            </div>
-            <div class="price-col" style="text-align: right;">
-              <div class="price-label">Current max offer</div>
-              <div class="price-value">$550</div>
-              <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Market est. $520–$600</div>
-            </div>
-          </div>
+          <span class="badge badge-warning">Scheduling</span>
         </div>
       </div>
-      <div class="swipe-actions">
-        <button class="swipe-btn reject">✕</button>
-        <button class="swipe-btn save">☆</button>
-        <button class="swipe-btn accept" onclick="showScreen('offer')">✓</button>
+
+      <div class="card">
+        <div class="item-card">
+          <div class="item-thumb">🎸</div>
+          <div class="item-info">
+            <div class="item-name">Fender Stratocaster</div>
+            <div class="item-meta">Sold for $425</div>
+          </div>
+          <span class="badge badge-success">Complete</span>
+        </div>
       </div>
+
       <div class="tab-bar">
-        <button class="tab" onclick="showScreen('mylist')"><div class="tab-icon">📦</div>List</button>
-        <button class="tab" onclick="showScreen('mywants')"><div class="tab-icon">💫</div>Wants</button>
-        <button class="tab active"><div class="tab-icon">👆</div>Swipe</button>
-        <button class="tab" onclick="showScreen('deals')"><div class="tab-icon">🤝</div>Deals</button>
+        <button class="tab" onclick="showScreen('list')"><div class="tab-icon">📦</div>List</button>
+        <button class="tab" onclick="showScreen('browse')"><div class="tab-icon">🔍</div>Browse</button>
+        <button class="tab active"><div class="tab-icon">🤝</div>Deals</button>
+        <button class="tab" onclick="showScreen('inbox')"><div class="tab-icon-wrap"><div class="tab-icon">💬</div><div class="tab-badge">2</div></div>Inbox</button>
         <button class="tab" onclick="showScreen('profile')"><div class="tab-icon">👤</div>Profile</button>
       </div>
     </div>
 
-    <!-- Frame 9: Matches -->
-    <div id="matches" class="screen">
+    <!-- DEALS (Buying view) -->
+    <div id="deals-buying" class="screen">
       <div class="list-header">
-        <h2>Matches</h2>
-        <p>Mutual interest from swipes</p>
+        <h2>Deals</h2>
       </div>
-      
-      <div class="match-section">
-        <h3>Ready to negotiate</h3>
-        <div class="card" onclick="showScreen('agent')">
-          <div class="match-card">
-            <div class="item-thumb">🖥️</div>
-            <div class="item-info">
-              <div class="item-name">Apple Studio Display</div>
-              <div style="display: flex; gap: 6px; margin-top: 6px;">
-                <span class="badge badge-success">Local</span>
-                <span class="badge badge-neutral">~0.8 mi</span>
-              </div>
-            </div>
+
+      <div class="toggle-group">
+        <button class="toggle-btn" onclick="showScreen('deals')">Selling</button>
+        <button class="toggle-btn active">Buying</button>
+      </div>
+
+      <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">Bids you've sent</p>
+
+      <div class="card" onclick="showScreen('deal-detail')">
+        <div class="item-card">
+          <div class="item-thumb">🛋️</div>
+          <div class="item-info">
+            <div class="item-name">Mid-century Sofa</div>
+            <div class="item-meta">Your bid: $580</div>
           </div>
-          <div class="match-prices">
-            <div class="match-price">
-              <span style="color: var(--text-secondary);">Your max</span>
-              <span>$1,200</span>
-            </div>
-            <div class="match-price">
-              <span style="color: var(--text-secondary);">Their ask</span>
-              <span>$1,100</span>
-            </div>
-          </div>
-          <button class="btn btn-primary btn-sm">Start negotiation →</button>
+          <span class="badge badge-purple">Pending</span>
         </div>
       </div>
 
-      <div class="match-section">
-        <h3>Someone wants yours</h3>
-        <div class="card" onclick="showScreen('offer')">
-          <div class="match-card">
-            <div class="item-thumb">🪑</div>
-            <div class="item-info">
-              <div class="item-name">Herman Miller Aeron</div>
-              <div style="display: flex; gap: 6px; margin-top: 6px;">
-                <span class="badge badge-success">Local</span>
-              </div>
-            </div>
-          </div>
-          <div class="match-prices">
-            <div class="match-price">
-              <span style="color: var(--text-secondary);">Their max</span>
-              <span>$550</span>
-            </div>
-            <div class="match-price">
-              <span style="color: var(--text-secondary);">Your ask</span>
-              <span>Not set</span>
-            </div>
-          </div>
-          <button class="btn btn-secondary btn-sm">View offer →</button>
-        </div>
-      </div>
-
-      <div class="tab-bar">
-        <button class="tab" onclick="showScreen('mylist')"><div class="tab-icon">📦</div>List</button>
-        <button class="tab" onclick="showScreen('mywants')"><div class="tab-icon">💫</div>Wants</button>
-        <button class="tab" onclick="showScreen('swipe-buy')"><div class="tab-icon">👆</div>Swipe</button>
-        <button class="tab" onclick="showScreen('deals')"><div class="tab-icon">🤝</div>Deals</button>
-        <button class="tab" onclick="showScreen('profile')"><div class="tab-icon">👤</div>Profile</button>
-      </div>
-    </div>
-
-    <!-- Frame 10: Agent Negotiation -->
-    <div id="agent" class="screen">
-      <div class="header">
-        <button class="back-btn" onclick="showScreen('matches')">←</button>
-        <h2>Negotiate</h2>
-      </div>
-      
-      <div class="card" style="margin-bottom: 20px; cursor: default;">
+      <div class="card">
         <div class="item-card">
           <div class="item-thumb">🖥️</div>
           <div class="item-info">
-            <div class="item-name">Apple Studio Display</div>
-            <div class="item-meta">You're buying</div>
+            <div class="item-name">Studio Display</div>
+            <div class="item-meta">Your bid: $1,050</div>
           </div>
+          <span class="badge badge-purple">Pending</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="item-card">
+          <div class="item-thumb">🚴</div>
+          <div class="item-info">
+            <div class="item-name">Road Bike</div>
+            <div class="item-meta">Accepted at $420</div>
+          </div>
+          <span class="badge badge-warning">Scheduling</span>
+        </div>
+      </div>
+
+      <div class="tab-bar">
+        <button class="tab" onclick="showScreen('list')"><div class="tab-icon">📦</div>List</button>
+        <button class="tab" onclick="showScreen('browse')"><div class="tab-icon">🔍</div>Browse</button>
+        <button class="tab active"><div class="tab-icon">🤝</div>Deals</button>
+        <button class="tab" onclick="showScreen('inbox')"><div class="tab-icon-wrap"><div class="tab-icon">💬</div><div class="tab-badge">2</div></div>Inbox</button>
+        <button class="tab" onclick="showScreen('profile')"><div class="tab-icon">👤</div>Profile</button>
+      </div>
+    </div>
+
+    <!-- Deal Detail -->
+    <div id="deal-detail" class="screen">
+      <div class="header">
+        <button class="back-btn" onclick="showScreen('deals')">←</button>
+        <h2>Deal</h2>
+      </div>
+
+      <div class="card" style="cursor: default; margin-bottom: 20px;">
+        <div class="item-card">
+          <div class="item-thumb">🪑</div>
+          <div class="item-info">
+            <div class="item-name">Herman Miller Aeron</div>
+            <div class="item-meta">You're selling</div>
+          </div>
+          <span class="badge badge-warning">Scheduling</span>
         </div>
       </div>
 
       <div class="agent-summary">
         <div class="agent-row">
-          <span class="agent-label">Your max</span>
-          <span class="agent-value">$1,200</span>
+          <span class="agent-label">Agreed price</span>
+          <span class="agent-value">$550</span>
         </div>
         <div class="agent-row">
-          <span class="agent-label">Seller asks</span>
-          <span class="agent-value">$1,100</span>
+          <span class="agent-label">Buyer</span>
+          <span class="agent-value">Anonymous · 1.2 mi</span>
         </div>
         <div class="agent-row">
-          <span class="agent-label">Estimated fair</span>
-          <span class="agent-value">$1,000 – $1,150</span>
+          <span class="agent-label">Delivery</span>
+          <span class="agent-value">Local pickup</span>
+        </div>
+        <div class="agent-row">
+          <span class="agent-label">Status</span>
+          <span class="agent-value">Coordinating time</span>
         </div>
       </div>
 
-      <div class="agent-suggestion">
-        <div class="agent-suggestion-label">Agent suggests</div>
-        <div class="agent-suggestion-value">Offer $1,050</div>
+      <div class="agent-recommendation">
+        <div class="agent-rec-label">Agent status</div>
+        <div class="agent-rec-value">Finding a time that works</div>
       </div>
 
-      <div class="input-group">
-        <label>Your offer</label>
-        <input type="text" class="input" value="$1,050">
-      </div>
-
-      <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
-        If accepted, the agent will coordinate pickup or shipping with both parties.
-      </p>
-
-      <button class="btn btn-primary" onclick="showScreen('logistics')">Send offer</button>
-      <button class="btn btn-secondary" style="margin-top: 12px;" onclick="showScreen('conversations')">Message seller</button>
+      <button class="btn btn-primary" onclick="showScreen('chat')">Chat with buyer</button>
+      <button class="btn btn-secondary" style="margin-top: 12px;">Cancel deal</button>
     </div>
 
-    <!-- Frame 11: Offer Decision (Seller) -->
-    <div id="offer" class="screen">
-      <div class="header">
-        <button class="back-btn" onclick="showScreen('matches')">←</button>
-        <h2>Incoming offer</h2>
+    <!-- INBOX -->
+    <div id="inbox" class="screen">
+      <div class="list-header">
+        <h2>Inbox</h2>
+        <p>Messages and updates</p>
       </div>
 
-      <div class="card" style="cursor: default;">
-        <div class="item-card">
-          <div class="item-thumb">🪑</div>
-          <div class="item-info">
-            <div class="item-name">Herman Miller Aeron</div>
-            <div class="item-meta">Your item</div>
-          </div>
-        </div>
+      <!-- Filter tabs -->
+      <div class="inbox-filters">
+        <button class="inbox-filter active" onclick="filterInbox('all')">All</button>
+        <button class="inbox-filter" onclick="filterInbox('unread')">Unread</button>
+        <button class="inbox-filter" onclick="filterInbox('selling')">Selling</button>
+        <button class="inbox-filter" onclick="filterInbox('buying')">Buying</button>
       </div>
 
-      <div class="offer-amount">
-        <div class="offer-label">They're offering</div>
-        <div class="offer-value">$550</div>
-        <div style="margin-top: 8px;">
-          <span class="badge badge-success">Local pickup</span>
-        </div>
-      </div>
+      <!-- Urgent / Needs Response -->
+      <div class="inbox-section-header">⏰ Needs Response</div>
 
-      <div class="offer-actions">
-        <button class="btn btn-primary" style="background: var(--success);" onclick="showScreen('logistics')">Accept $550</button>
-        <div>
-          <button class="btn btn-secondary">Counter</button>
-          <div class="counter-btns">
-            <button class="counter-btn">$600</button>
-            <button class="counter-btn">$625</button>
-            <button class="counter-btn">$650</button>
-          </div>
-        </div>
-        <button class="btn btn-secondary" style="color: var(--danger);">Decline</button>
-      </div>
-
-      <button class="btn btn-secondary" style="margin-top: 20px;" onclick="showScreen('conversations')">Message buyer</button>
-    </div>
-
-    <!-- Frame 12: Logistics (Local Pickup) -->
-    <div id="logistics" class="screen">
-      <div class="header">
-        <button class="back-btn" onclick="showScreen('deals')">←</button>
-        <h2>Pickup details</h2>
-      </div>
-
-      <div class="logistics-status">
-        <div class="logistics-status-icon">🤝</div>
-        <div class="logistics-status-text">Deal confirmed at $550</div>
-      </div>
-
-      <div class="card" style="cursor: default;">
-        <div class="item-card">
-          <div class="item-thumb">🪑</div>
-          <div class="item-info">
-            <div class="item-name">Herman Miller Aeron</div>
-            <div class="item-meta">Selling to nearby buyer</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="logistics-detail">
-        <div class="logistics-detail-header">
-          <span class="logistics-detail-title">Pickup timeline</span>
-          <span class="badge badge-warning">Scheduling</span>
-        </div>
-        <div class="logistics-timeline">
-          <div class="timeline-item">
-            <div class="timeline-dot active"></div>
-            <div class="timeline-content">
-              <div class="timeline-title">Deal accepted</div>
-              <div class="timeline-subtitle">Today, 2:30 PM</div>
+      <div class="card" onclick="showScreen('chat')">
+        <div class="inbox-card unread">
+          <div class="inbox-avatar agent">🤖</div>
+          <div class="inbox-info">
+            <div class="inbox-name">
+              <span class="inbox-name-text">Herman Miller Aeron</span>
+              <span class="badge badge-warning" style="font-size: 10px; padding: 2px 6px;">Action needed</span>
             </div>
+            <div class="inbox-preview agent-message">Agent: Does Saturday at 3pm work for pickup?</div>
           </div>
-          <div class="timeline-item">
-            <div class="timeline-dot current"></div>
-            <div class="timeline-content">
-              <div class="timeline-title">Finding a time</div>
-              <div class="timeline-subtitle">Agent coordinating availability</div>
-            </div>
-          </div>
-          <div class="timeline-item">
-            <div class="timeline-dot"></div>
-            <div class="timeline-content">
-              <div class="timeline-title">Pickup confirmed</div>
-              <div class="timeline-subtitle">Waiting...</div>
-            </div>
-          </div>
-          <div class="timeline-item">
-            <div class="timeline-dot"></div>
-            <div class="timeline-content">
-              <div class="timeline-title">Complete</div>
-              <div class="timeline-subtitle">Waiting...</div>
-            </div>
+          <div class="inbox-meta">
+            <div class="inbox-time">2m</div>
+            <div class="inbox-unread"></div>
           </div>
         </div>
-      </div>
-
-      <div class="input-group">
-        <label>Your availability</label>
-        <div class="pills">
-          <span class="pill active">Weekdays</span>
-          <span class="pill active">Weekends</span>
-          <span class="pill">Evenings</span>
-        </div>
-      </div>
-
-      <div class="input-group">
-        <label>Preferred meeting spot</label>
-        <div class="pills">
-          <span class="pill active">Near my place</span>
-          <span class="pill">Public spot</span>
-          <span class="pill">Their place</span>
-        </div>
-      </div>
-
-      <button class="btn btn-primary" onclick="showScreen('chat')">Open chat</button>
-      <button class="btn btn-secondary" style="margin-top: 12px;">Need to reschedule</button>
-    </div>
-
-    <!-- Frame 13: Shipping -->
-    <div id="shipping" class="screen">
-      <div class="header">
-        <button class="back-btn" onclick="showScreen('deals')">←</button>
-        <h2>Shipping</h2>
-      </div>
-
-      <div class="tracking-card">
-        <div class="tracking-number">UPS · 1Z999AA10123456784</div>
-        <div class="tracking-status">In Transit</div>
-        <div class="tracking-eta">Est. delivery: Jan 15–17</div>
-      </div>
-
-      <div class="shipping-map">🗺️</div>
-
-      <div class="card" style="cursor: default;">
-        <div class="item-card">
-          <div class="item-thumb">🖥️</div>
-          <div class="item-info">
-            <div class="item-name">Apple Studio Display</div>
-            <div class="item-meta">Buying · $1,050</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="logistics-detail">
-        <div class="logistics-detail-header">
-          <span class="logistics-detail-title">Shipping timeline</span>
-          <span class="badge badge-blue">In transit</span>
-        </div>
-        <div class="logistics-timeline">
-          <div class="timeline-item">
-            <div class="timeline-dot active"></div>
-            <div class="timeline-content">
-              <div class="timeline-title">Label created</div>
-              <div class="timeline-subtitle">Jan 10, 3:15 PM</div>
-            </div>
-          </div>
-          <div class="timeline-item">
-            <div class="timeline-dot active"></div>
-            <div class="timeline-content">
-              <div class="timeline-title">Picked up</div>
-              <div class="timeline-subtitle">Jan 11, 10:22 AM</div>
-            </div>
-          </div>
-          <div class="timeline-item">
-            <div class="timeline-dot current"></div>
-            <div class="timeline-content">
-              <div class="timeline-title">In transit</div>
-              <div class="timeline-subtitle">Oakland, CA</div>
-            </div>
-          </div>
-          <div class="timeline-item">
-            <div class="timeline-dot"></div>
-            <div class="timeline-content">
-              <div class="timeline-title">Delivered</div>
-              <div class="timeline-subtitle">Est. Jan 15–17</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <button class="btn btn-secondary" onclick="showScreen('chat')">Message seller</button>
-    </div>
-
-    <!-- Frame 14: Conversations List -->
-    <div id="conversations" class="screen">
-      <div class="header">
-        <button class="back-btn" onclick="showScreen('deals')">←</button>
-        <h2>Messages</h2>
       </div>
 
       <div class="card" onclick="showScreen('chat')">
-        <div class="convo-card">
-          <div class="convo-avatar">🪑</div>
-          <div class="convo-info">
-            <div class="convo-name">Herman Miller Aeron</div>
-            <div class="convo-preview">Saturday works! Can we do closer to 3pm?</div>
+        <div class="inbox-card unread">
+          <div class="inbox-avatar buyer">👤</div>
+          <div class="inbox-info">
+            <div class="inbox-name">
+              <span class="inbox-name-text">Mid-century Sofa</span>
+              <span class="badge badge-purple" style="font-size: 10px; padding: 2px 6px;">Buying</span>
+            </div>
+            <div class="inbox-preview">Seller: Available for pickup this weekend</div>
           </div>
-          <div class="convo-meta">
-            <div class="convo-time">2:47 PM</div>
-            <div class="convo-badge"></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="convo-card">
-          <div class="convo-avatar">🖥️</div>
-          <div class="convo-info">
-            <div class="convo-name">Apple Studio Display</div>
-            <div class="convo-preview">Agent: Shipping label has been created</div>
-          </div>
-          <div class="convo-meta">
-            <div class="convo-time">Yesterday</div>
+          <div class="inbox-meta">
+            <div class="inbox-time">15m</div>
+            <div class="inbox-unread"></div>
           </div>
         </div>
       </div>
 
-      <div class="card">
-        <div class="convo-card">
-          <div class="convo-avatar">🎸</div>
-          <div class="convo-info">
-            <div class="convo-name">Fender Stratocaster</div>
-            <div class="convo-preview">Thanks! Great doing business</div>
+      <!-- Recent Messages -->
+      <div class="inbox-section-header">💬 Recent</div>
+
+      <div class="card" onclick="showScreen('chat')">
+        <div class="inbox-card">
+          <div class="inbox-avatar agent">🤖</div>
+          <div class="inbox-info">
+            <div class="inbox-name">
+              <span class="inbox-name-text">Studio Display</span>
+              <span class="badge badge-blue" style="font-size: 10px; padding: 2px 6px;">Buying</span>
+            </div>
+            <div class="inbox-preview agent-message">Agent: What's your shipping address?</div>
           </div>
-          <div class="convo-meta">
-            <div class="convo-time">Jan 5</div>
+          <div class="inbox-meta">
+            <div class="inbox-time">1h</div>
           </div>
         </div>
+      </div>
+
+      <div class="card" onclick="showScreen('chat')">
+        <div class="inbox-card">
+          <div class="inbox-avatar seller">👤</div>
+          <div class="inbox-info">
+            <div class="inbox-name">
+              <span class="inbox-name-text">iPhone 14 Pro</span>
+              <span class="badge badge-success" style="font-size: 10px; padding: 2px 6px;">Selling</span>
+            </div>
+            <div class="inbox-preview">Buyer: Can you meet at 5pm instead?</div>
+          </div>
+          <div class="inbox-meta">
+            <div class="inbox-time">3h</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" onclick="showScreen('chat')">
+        <div class="inbox-card">
+          <div class="inbox-avatar agent">🤖</div>
+          <div class="inbox-info">
+            <div class="inbox-name">
+              <span class="inbox-name-text">Fender Stratocaster</span>
+              <span class="badge badge-success" style="font-size: 10px; padding: 2px 6px;">Selling</span>
+            </div>
+            <div class="inbox-preview agent-message">Agent: Deal completed! Payment confirmed.</div>
+          </div>
+          <div class="inbox-meta">
+            <div class="inbox-time">1d</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Earlier Messages -->
+      <div class="inbox-section-header">📅 Earlier</div>
+
+      <div class="card" onclick="showScreen('chat')">
+        <div class="inbox-card">
+          <div class="inbox-avatar buyer">👤</div>
+          <div class="inbox-info">
+            <div class="inbox-name">
+              <span class="inbox-name-text">Road Bike</span>
+              <span class="badge badge-purple" style="font-size: 10px; padding: 2px 6px;">Buying</span>
+            </div>
+            <div class="inbox-preview">You: Thanks! Looking forward to it</div>
+          </div>
+          <div class="inbox-meta">
+            <div class="inbox-time">2d</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" onclick="showScreen('chat')">
+        <div class="inbox-card">
+          <div class="inbox-avatar agent">🤖</div>
+          <div class="inbox-info">
+            <div class="inbox-name">
+              <span class="inbox-name-text">Dell Monitor 27"</span>
+              <span class="badge badge-success" style="font-size: 10px; padding: 2px 6px;">Selling</span>
+            </div>
+            <div class="inbox-preview agent-message">Agent: No new interest yet. Try lowering price?</div>
+          </div>
+          <div class="inbox-meta">
+            <div class="inbox-time">3d</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="inbox-empty" style="padding: 20px;">
+        <p style="font-size: 13px; color: var(--text-muted);">You're all caught up!</p>
       </div>
 
       <div class="tab-bar">
-        <button class="tab" onclick="showScreen('mylist')"><div class="tab-icon">📦</div>List</button>
-        <button class="tab" onclick="showScreen('mywants')"><div class="tab-icon">💫</div>Wants</button>
-        <button class="tab" onclick="showScreen('swipe-buy')"><div class="tab-icon">👆</div>Swipe</button>
+        <button class="tab" onclick="showScreen('list')"><div class="tab-icon">📦</div>List</button>
+        <button class="tab" onclick="showScreen('browse')"><div class="tab-icon">🔍</div>Browse</button>
         <button class="tab" onclick="showScreen('deals')"><div class="tab-icon">🤝</div>Deals</button>
+        <button class="tab active"><div class="tab-icon-wrap"><div class="tab-icon">💬</div><div class="tab-badge">2</div></div>Inbox</button>
         <button class="tab" onclick="showScreen('profile')"><div class="tab-icon">👤</div>Profile</button>
       </div>
     </div>
 
-    <!-- Frame 15: Chat -->
+    <!-- Chat -->
     <div id="chat" class="screen">
       <div class="header">
-        <button class="back-btn" onclick="showScreen('conversations')">←</button>
+        <button class="back-btn" onclick="showScreen('inbox')">←</button>
         <h2>Chat</h2>
-        <button class="btn btn-secondary btn-sm btn-icon" onclick="showScreen('logistics')">📍</button>
       </div>
 
       <div class="chat-context">
@@ -1390,8 +1308,8 @@
           <div class="message-avatar">🤖</div>
           <div class="message-content">
             <div class="message-sender">Agent</div>
-            <div class="message-text">Deal confirmed at $550! I'm coordinating pickup based on both your availability.</div>
-            <div class="message-time">2:34 PM</div>
+            <div class="message-text">Great news! The buyer accepted $550. I'm now coordinating pickup times.</div>
+            <div class="message-time">2:30 PM</div>
           </div>
         </div>
 
@@ -1399,24 +1317,15 @@
           <div class="message-avatar">🤖</div>
           <div class="message-content">
             <div class="message-sender">Agent</div>
-            <div class="message-text">Found 3 matching times. The buyer prefers Saturday afternoon—does that work?</div>
-            <div class="message-time">2:36 PM</div>
+            <div class="message-text">I found 3 times that work for both of you. Does Saturday at 3pm work?</div>
+            <div class="message-time">2:32 PM</div>
           </div>
         </div>
 
         <div class="chat-message user">
           <div class="message-content">
-            <div class="message-text">Saturday works! Can we do closer to 3pm?</div>
-            <div class="message-time">2:40 PM</div>
-          </div>
-        </div>
-
-        <div class="chat-message agent">
-          <div class="message-avatar">🤖</div>
-          <div class="message-content">
-            <div class="message-sender">Agent</div>
-            <div class="message-text">Checking with the buyer now.</div>
-            <div class="message-time">2:41 PM</div>
+            <div class="message-text">Saturday 3pm works!</div>
+            <div class="message-time">2:35 PM</div>
           </div>
         </div>
 
@@ -1424,15 +1333,15 @@
           <div class="message-avatar">👤</div>
           <div class="message-content">
             <div class="message-sender">Buyer</div>
-            <div class="message-text">3pm works great! Is there parking nearby?</div>
-            <div class="message-time">2:45 PM</div>
+            <div class="message-text">Perfect! Is there parking nearby?</div>
+            <div class="message-time">2:40 PM</div>
           </div>
         </div>
 
         <div class="chat-message user">
           <div class="message-content">
-            <div class="message-text">Yes, street parking is easy on Saturdays</div>
-            <div class="message-time">2:47 PM</div>
+            <div class="message-text">Yes, street parking is easy on weekends</div>
+            <div class="message-time">2:42 PM</div>
           </div>
         </div>
 
@@ -1440,18 +1349,13 @@
           <div class="message-avatar">🤖</div>
           <div class="message-content">
             <div class="message-sender">Agent</div>
-            <div class="message-text">✓ Pickup confirmed: Saturday Jan 11, 3:00 PM. I'll send reminders to both of you. Meeting point shared 1 hour before.</div>
-            <div class="message-time">2:48 PM</div>
+            <div class="message-text">✓ Pickup confirmed: Saturday 3pm. I'll send reminders to both of you.</div>
+            <div class="message-time">2:43 PM</div>
           </div>
         </div>
       </div>
 
       <div class="chat-input-area">
-        <div class="chat-quick-actions">
-          <button class="quick-action">Running late</button>
-          <button class="quick-action">Need to reschedule</button>
-          <button class="quick-action">Question about item</button>
-        </div>
         <div class="chat-input-row">
           <input type="text" class="input chat-input" placeholder="Type a message...">
           <button class="send-btn">↑</button>
@@ -1459,71 +1363,7 @@
       </div>
     </div>
 
-    <!-- Frame 16: Active Deals -->
-    <div id="deals" class="screen">
-      <div class="list-header">
-        <h2>Deals</h2>
-        <p>Your transactions</p>
-      </div>
-
-      <div class="deals-tabs">
-        <button class="deals-tab active">Active</button>
-        <button class="deals-tab" onclick="showScreen('matches')">Matches</button>
-        <button class="deals-tab">History</button>
-      </div>
-
-      <div class="card" onclick="showScreen('logistics')">
-        <div class="item-card">
-          <div class="item-thumb">🪑</div>
-          <div class="item-info">
-            <div class="item-name">Herman Miller Aeron</div>
-            <div class="item-meta">Selling · $550</div>
-          </div>
-          <span class="badge badge-warning">Pickup</span>
-        </div>
-        <div class="deal-status-bar">
-          📍 Local · Sat Jan 11, 3pm
-        </div>
-      </div>
-
-      <div class="card" onclick="showScreen('shipping')">
-        <div class="item-card">
-          <div class="item-thumb">🖥️</div>
-          <div class="item-info">
-            <div class="item-name">Apple Studio Display</div>
-            <div class="item-meta">Buying · $1,050</div>
-          </div>
-          <span class="badge badge-blue">Shipping</span>
-        </div>
-        <div class="deal-status-bar">
-          📦 UPS · Est. Jan 15–17
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="item-card">
-          <div class="item-thumb">🎸</div>
-          <div class="item-info">
-            <div class="item-name">Fender Stratocaster</div>
-            <div class="item-meta">Sold · $425</div>
-          </div>
-          <span class="badge badge-success">Complete</span>
-        </div>
-        <div class="deal-status-bar">
-          ✓ Completed Jan 5
-        </div>
-      </div>
-
-      <div class="tab-bar">
-        <button class="tab" onclick="showScreen('mylist')"><div class="tab-icon">📦</div>List</button>
-        <button class="tab" onclick="showScreen('mywants')"><div class="tab-icon">💫</div>Wants</button>
-        <button class="tab" onclick="showScreen('swipe-buy')"><div class="tab-icon">👆</div>Swipe</button>
-        <button class="tab active"><div class="tab-icon">🤝</div>Deals</button>
-        <button class="tab" onclick="showScreen('profile')"><div class="tab-icon">👤</div>Profile</button>
-      </div>
-    </div>
-
-    <!-- Frame 17: Profile -->
+    <!-- PROFILE -->
     <div id="profile" class="screen">
       <div class="list-header">
         <h2>Profile</h2>
@@ -1537,12 +1377,8 @@
       </div>
 
       <div class="input-group">
-        <label>Location precision</label>
-        <div class="pills">
-          <span class="pill">Campus</span>
-          <span class="pill active">Neighborhood</span>
-          <span class="pill">Zip-ish</span>
-        </div>
+        <label>Location</label>
+        <input type="text" class="input" value="San Francisco, CA">
       </div>
 
       <div class="input-group">
@@ -1556,63 +1392,20 @@
 
       <div class="privacy-note">
         <span>🔒</span>
-        Your exact location is never shared. Meeting points are suggested by the agent.
+        Your exact location is never shared.
       </div>
 
-      <div style="margin-top: 24px;">
-        <button class="btn btn-secondary" onclick="showScreen('conversations')">Messages</button>
-      </div>
-
-      <div class="demo-section">
-        <h3>Demo controls</h3>
-        <div style="display: flex; gap: 12px;">
-          <button class="btn btn-secondary btn-sm">Load demo</button>
-          <button class="btn btn-secondary btn-sm">Reset</button>
-        </div>
-      </div>
+      <button class="btn btn-secondary">Sign out</button>
 
       <div class="tab-bar">
-        <button class="tab" onclick="showScreen('mylist')"><div class="tab-icon">📦</div>List</button>
-        <button class="tab" onclick="showScreen('mywants')"><div class="tab-icon">💫</div>Wants</button>
-        <button class="tab" onclick="showScreen('swipe-buy')"><div class="tab-icon">👆</div>Swipe</button>
+        <button class="tab" onclick="showScreen('list')"><div class="tab-icon">📦</div>List</button>
+        <button class="tab" onclick="showScreen('browse')"><div class="tab-icon">🔍</div>Browse</button>
         <button class="tab" onclick="showScreen('deals')"><div class="tab-icon">🤝</div>Deals</button>
+        <button class="tab" onclick="showScreen('inbox')"><div class="tab-icon-wrap"><div class="tab-icon">💬</div><div class="tab-badge">2</div></div>Inbox</button>
         <button class="tab active"><div class="tab-icon">👤</div>Profile</button>
       </div>
     </div>
-  </div>
 
-  <div class="suggestions-panel">
-    <h2>What's New in v2</h2>
-
-    <div class="suggestion">
-      <span class="badge badge-warning suggestion-badge">Upload</span>
-      <h3>AI Clarification Flow</h3>
-      <p>When the AI can't confidently identify an item, it shows a friendly clarification card with suggested options. Users can tap a suggestion or type their own. This reduces bad categorization without adding friction to clear uploads.</p>
-    </div>
-
-    <div class="suggestion">
-      <span class="badge badge-purple suggestion-badge">Agent</span>
-      <h3>Agent-Managed Logistics</h3>
-      <p>After a deal is confirmed, the agent coordinates pickup times or shipping labels. New screens for Pickup (local) and Shipping with timelines, tracking, and status updates. The agent suggests meeting spots based on both parties' preferences.</p>
-    </div>
-
-    <div class="suggestion">
-      <span class="badge badge-blue suggestion-badge">Chat</span>
-      <h3>Conversations from Matches</h3>
-      <p>Chat is now accessible from the Matches and Deals flow. The agent participates in the chat to coordinate logistics, but buyer/seller can also message directly. Quick actions for common situations (running late, reschedule, question).</p>
-    </div>
-
-    <div class="suggestion">
-      <span class="badge badge-success suggestion-badge">Navigation</span>
-      <h3>Deals Tab Replaces Matches</h3>
-      <p>The bottom nav now has "Deals" instead of separate Matches. Deals tab shows Active transactions, Matches (mutual interest), and History. This consolidates all transaction states in one place.</p>
-    </div>
-
-    <div class="suggestion">
-      <span class="badge badge-neutral suggestion-badge">Swipe (Sell)</span>
-      <h3>Smart Sell Recommendation</h3>
-      <p>Left side now shows "Our take" (Sell now / Wait / Counter) based on market trajectory and the seller's indicated urgency. Right side shows the current max offer with market estimate context. Much clearer decision-making for sellers.</p>
-    </div>
   </div>
 
   <script>
@@ -1622,32 +1415,80 @@
       document.querySelectorAll('.frame-nav button').forEach(btn => {
         btn.classList.remove('active');
         const btnText = btn.textContent.toLowerCase();
-        const screenId = id.toLowerCase();
         if ((id === 'welcome' && btnText === 'welcome') ||
             (id === 'signup' && btnText === 'sign up') ||
             (id === 'login' && btnText === 'login') ||
-            (id === 'forgot' && btnText === 'forgot') ||
-            (id === 'reset-sent' && btnText === 'forgot') ||
-            (id === 'home' && btnText === 'home') ||
+            (id === 'list' && btnText === 'list') ||
             (id === 'upload' && btnText === 'upload') ||
-            (id === 'upload-clarify' && btnText === 'upload (clarify)') ||
-            (id === 'mylist' && btnText === 'my list') ||
-            (id === 'detail' && btnText === 'item detail') ||
-            (id === 'mywants' && btnText === 'my wants') ||
-            (id === 'addwant' && btnText === 'add want') ||
-            (id === 'swipe-buy' && btnText === 'swipe (buy)') ||
-            (id === 'swipe-sell' && btnText === 'swipe (sell)') ||
-            (id === 'matches' && btnText === 'matches') ||
-            (id === 'agent' && btnText === 'agent') ||
-            (id === 'offer' && btnText === 'offer') ||
-            (id === 'logistics' && btnText === 'pickup') ||
-            (id === 'shipping' && btnText === 'shipping') ||
-            (id === 'conversations' && btnText === 'conversations') ||
+            (id === 'item-detail' && btnText === 'item detail') ||
+            (id === 'item-interest' && btnText === 'item interest') ||
+            (id === 'browse' && btnText === 'browse') ||
+            (id === 'browse-interest' && btnText === 'browse item') ||
+            (id === 'browse-form' && btnText === 'send interest') ||
+            (id === 'deals' && btnText === 'deals (selling)') ||
+            (id === 'deals-buying' && btnText === 'deals (buying)') ||
+            (id === 'deal-detail' && btnText === 'deal detail') ||
+            (id === 'inbox' && btnText === 'inbox') ||
             (id === 'chat' && btnText === 'chat') ||
-            (id === 'deals' && btnText === 'deals') ||
             (id === 'profile' && btnText === 'profile')) {
           btn.classList.add('active');
         }
+      });
+    }
+
+    function filterInbox(filter) {
+      // Update active filter button
+      document.querySelectorAll('.inbox-filter').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.textContent.toLowerCase() === filter) {
+          btn.classList.add('active');
+        }
+      });
+
+      // Get all inbox cards
+      const inboxScreen = document.getElementById('inbox');
+      const cards = inboxScreen.querySelectorAll('.card');
+      const sections = inboxScreen.querySelectorAll('.inbox-section-header');
+
+      // Show/hide cards based on filter
+      cards.forEach(card => {
+        const badges = card.querySelectorAll('.badge');
+        const isUnread = card.querySelector('.inbox-unread') !== null;
+        let isSelling = false;
+        let isBuying = false;
+
+        badges.forEach(badge => {
+          const badgeText = badge.textContent.toLowerCase();
+          if (badgeText.includes('selling')) isSelling = true;
+          if (badgeText.includes('buying')) isBuying = true;
+        });
+
+        let shouldShow = true;
+
+        if (filter === 'unread') {
+          shouldShow = isUnread;
+        } else if (filter === 'selling') {
+          shouldShow = isSelling;
+        } else if (filter === 'buying') {
+          shouldShow = isBuying;
+        }
+
+        card.style.display = shouldShow ? 'block' : 'none';
+      });
+
+      // Handle section headers visibility
+      sections.forEach(section => {
+        const nextElements = [];
+        let elem = section.nextElementSibling;
+        while (elem && !elem.classList.contains('inbox-section-header')) {
+          if (elem.classList.contains('card')) {
+            nextElements.push(elem);
+          }
+          elem = elem.nextElementSibling;
+        }
+
+        const hasVisibleCards = nextElements.some(el => el.style.display !== 'none');
+        section.style.display = hasVisibleCards ? 'block' : 'none';
       });
     }
   </script>

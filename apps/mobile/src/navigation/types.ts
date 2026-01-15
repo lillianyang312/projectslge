@@ -26,7 +26,8 @@ export type AppTabsParamList = {
   List: undefined;     // My List tab
   Wants: undefined;    // My Wants tab
   Swipe: undefined;    // Swipe tab (Buy/Sell toggle inside)
-  Deals: undefined;    // Deals tab
+  Deals: { initialMode?: 'selling' | 'buying' } | undefined;    // Deals tab
+  Inbox: undefined;    // Inbox tab
   Profile: undefined;  // Profile tab
 };
 
@@ -37,6 +38,7 @@ export type ListStackParamList = {
   Upload: undefined;
   ItemDetails: undefined;  // New screen for condition, intent, price, delivery, notes
   PriceReview: undefined;  // Shows estimated price and min price with add button
+  ChatThread: { conversationId: string };  // Chat with buyers
 };
 
 // Home tab stack (alias for backward compatibility)
@@ -59,7 +61,9 @@ export type UploadStackParamList = {
 // Swipe stack (single screen with internal toggle)
 export type SwipeStackParamList = {
   SwipeMain: undefined;
+  BrowseItemDetail: { itemId: string };  // Item detail with swipe-to-bid
   MatchDetail: { matchId: string };
+  ChatThread: { conversationId: string };  // Chat with sellers
 };
 
 // Matches stack
@@ -70,13 +74,19 @@ export type MatchesStackParamList = {
 
 // Deals stack
 export type DealsStackParamList = {
-  DealsHome: undefined;
+  DealsHome: { initialMode?: 'selling' | 'buying' } | undefined;
   DealDetail: { dealId: string };
   Offer: { dealId: string };
   DealChat: { dealId: string; deliveryMethod?: string };
   PickupDetails: { dealId: string };
   Shipping: { dealId: string };
   Conversations: undefined;
+  ChatThread: { conversationId: string };
+};
+
+// Inbox stack
+export type InboxStackParamList = {
+  InboxHome: undefined;
   ChatThread: { conversationId: string };
 };
 

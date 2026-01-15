@@ -204,7 +204,7 @@ export default function ItemDetailsScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.screen}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <Header title="Item details" showBack={true} />
+        <Header title="Item details" onBack={() => navigation.goBack()} />
 
         {/* Main Image Preview with Navigation */}
         {images.length > 0 && (

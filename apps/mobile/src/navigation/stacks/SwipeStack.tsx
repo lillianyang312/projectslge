@@ -3,7 +3,9 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SwipeStackParamList } from '../types';
 
 // Import screens
-import SwipeMainScreen from '../../screens/swipe/SwipeMain';
+import BrowseGridScreen from '../../screens/browse/BrowseGrid';
+import BrowseItemDetailScreen from '../../screens/browse/BrowseItemDetail';
+import ChatThreadScreen from '../../screens/inbox/ChatThread';
 
 const Stack = createNativeStackNavigator<SwipeStackParamList>();
 
@@ -16,7 +18,9 @@ export default function SwipeStack() {
         headerShown: false,
       }}
     >
-      <Stack.Screen name="SwipeMain" component={SwipeMainScreen} />
+      <Stack.Screen name="SwipeMain" component={BrowseGridScreen} />
+      <Stack.Screen name="BrowseItemDetail" component={BrowseItemDetailScreen} />
+      <Stack.Screen name="ChatThread" component={ChatThreadScreen} />
     </Stack.Navigator>
   );
 }

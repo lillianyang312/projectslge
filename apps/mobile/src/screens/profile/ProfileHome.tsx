@@ -21,19 +21,11 @@ export default function ProfileHomeScreen({ navigation }: Props) {
   const user = useAuthStore((state) => state.user);
   const signOut = useAuthStore((state) => state.signOut);
 
-  const [displayName, setDisplayName] = useState(
-    user?.email?.split('@')[0] || 'Lillian'
-  );
-  const [locationPrecision, setLocationPrecision] = useState<LocationPrecision>('neighborhood');
+  const [displayName, setDisplayName] = useState('Lillian');
+  const [location, setLocation] = useState('San Francisco, CA');
   const [availability, setAvailability] = useState<Set<Availability>>(
     new Set(['weekdays', 'weekends'])
   );
-
-  const locationOptions: { value: LocationPrecision; label: string }[] = [
-    { value: 'campus', label: 'Campus' },
-    { value: 'neighborhood', label: 'Neighborhood' },
-    { value: 'zip', label: 'Zip-ish' },
-  ];
 
   const availabilityOptions: { value: Availability; label: string }[] = [
     { value: 'weekdays', label: 'Weekdays' },
@@ -70,7 +62,7 @@ export default function ProfileHomeScreen({ navigation }: Props) {
           <Text style={styles.avatarIcon}>👤</Text>
         </View>
 
-        {/* Display name */}
+        {/* Display name - matching HTML spec line 1225 */}
         <Input
           label="Display name"
           value={displayName}
@@ -78,22 +70,13 @@ export default function ProfileHomeScreen({ navigation }: Props) {
           placeholder="How others will see you"
         />
 
-        {/* Location precision */}
-        <View style={styles.inputGroup}>
-          <Text variant="body" size="sm" color="secondary" style={styles.label}>
-            Location precision
-          </Text>
-          <View style={styles.pills}>
-            {locationOptions.map((option) => (
-              <Pill
-                key={option.value}
-                label={option.label}
-                selected={locationPrecision === option.value}
-                onPress={() => setLocationPrecision(option.value)}
-              />
-            ))}
-          </View>
-        </View>
+        {/* Location - matching HTML spec line 1230 */}
+        <Input
+          label="Location"
+          value={location}
+          onChangeText={setLocation}
+          placeholder="City or neighborhood"
+        />
 
         {/* Pickup availability */}
         <View style={styles.inputGroup}>
@@ -112,45 +95,18 @@ export default function ProfileHomeScreen({ navigation }: Props) {
           </View>
         </View>
 
-        {/* Privacy note */}
+        {/* Privacy note - matching HTML spec lines 1243-1246 */}
         <View style={styles.privacyNote}>
           <Text style={styles.privacyIcon}>🔒</Text>
           <Text variant="body" size="sm" style={styles.privacyText}>
-            Your exact location is never shared. Meeting points are suggested by the agent.
+            Your exact location is never shared.
           </Text>
         </View>
 
-        {/* Messages button */}
-        <View style={styles.buttonGroup}>
-          <Button
-            variant="secondary"
-            onPress={() => navigation.navigate('Conversations')}
-          >
-            Messages
-          </Button>
-        </View>
-
-        {/* Demo controls section */}
-        <View style={styles.demoSection}>
-          <Text variant="bodyMedium" size="sm" color="secondary" style={styles.demoTitle}>
-            Demo controls
-          </Text>
-          <View style={styles.demoButtons}>
-            <Pressable style={styles.demoBtn}>
-              <Text variant="bodyMedium" size="sm">Load demo</Text>
-            </Pressable>
-            <Pressable style={styles.demoBtn}>
-              <Text variant="bodyMedium" size="sm">Reset</Text>
-            </Pressable>
-          </View>
-        </View>
-
-        {/* Sign out */}
-        <View style={styles.signOutSection}>
-          <Button variant="secondary" onPress={handleSignOut}>
-            Sign out
-          </Button>
-        </View>
+        {/* Sign out - matching HTML spec line 1248 */}
+        <Button variant="secondary" onPress={handleSignOut}>
+          Sign out
+        </Button>
       </ScrollView>
     </SafeAreaView>
   );
@@ -209,35 +165,6 @@ const styles = StyleSheet.create({
   privacyText: {
     flex: 1,
     color: colors.success,
-  },
-  buttonGroup: {
-    marginTop: spacing.xl,
-  },
-  demoSection: {
-    marginTop: spacing.xxl,
-    paddingTop: spacing.xxl,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  demoTitle: {
-    marginBottom: spacing.md,
-  },
-  demoButtons: {
-    flexDirection: 'row',
-    gap: spacing.md,
-  },
-  demoBtn: {
-    flex: 1,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    backgroundColor: colors.card,
-    alignItems: 'center',
-  },
-  signOutSection: {
-    marginTop: spacing.xxl,
   },
 });
 

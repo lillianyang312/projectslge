@@ -8,6 +8,7 @@ import ItemDetailScreen from '../../screens/home/ItemDetail';
 import UploadScreen from '../../screens/upload/Upload';
 import ItemDetailsScreen from '../../screens/upload/ItemDetails';
 import PriceReviewScreen from '../../screens/upload/PriceReview';
+import ChatThreadScreen from '../../screens/inbox/ChatThread';
 
 const Stack = createNativeStackNavigator<ListStackParamList>();
 
@@ -32,6 +33,7 @@ export default function HomeStack() {
       <Stack.Screen name="Upload" component={UploadScreen} />
       <Stack.Screen name="ItemDetails" component={ItemDetailsScreen} />
       <Stack.Screen name="PriceReview" component={PriceReviewScreen} />
+      <Stack.Screen name="ChatThread" component={ChatThreadScreen} />
     </Stack.Navigator>
   );
 }

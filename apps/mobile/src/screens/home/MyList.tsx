@@ -21,24 +21,44 @@ import { getMyItems, deleteItem, Item } from '../../services/itemsService';
 
 type Props = NativeStackScreenProps<ListStackParamList, 'MyList'>;
 
-// Map sell intent to badge styling matching HTML spec
-function getSellIntentBadge(condition?: string): { label: string; variant: 'neutral' | 'warning' | 'success' } {
-  switch (condition?.toLowerCase()) {
-    case 'want gone':
-      return { label: 'Want gone', variant: 'success' };
-    case 'if good offer':
-      return { label: 'If good offer', variant: 'warning' };
-    case 'maybe':
-    default:
-      return { label: 'Maybe', variant: 'neutral' };
-  }
-}
-
-// Demo data matching HTML spec exactly
+// Demo data matching HTML spec exactly - line 611-674 in HTML
 const initialDemoItems = [
-  { id: '1', emoji: '🪑', title: 'Herman Miller Aeron', category: 'Furniture', sellIntent: 'If good offer' },
-  { id: '2', emoji: '📱', title: 'iPhone 14 Pro', category: 'Electronics', sellIntent: 'Maybe' },
-  { id: '3', emoji: '🎸', title: 'Fender Stratocaster', category: 'Music', sellIntent: 'Want gone' },
+  {
+    id: '1',
+    emoji: '🪑',
+    title: 'Herman Miller Aeron',
+    category: 'Furniture',
+    interestedCount: 3,
+    topBid: 550,
+    bidStatus: 'accept' as const,
+  },
+  {
+    id: '2',
+    emoji: '📱',
+    title: 'iPhone 14 Pro',
+    category: 'Electronics',
+    interestedCount: 1,
+    topBid: 420,
+    bidStatus: 'consider' as const,
+  },
+  {
+    id: '3',
+    emoji: '🎸',
+    title: 'Fender Stratocaster',
+    category: 'Music',
+    interestedCount: 2,
+    topBid: 280,
+    bidStatus: 'low' as const,
+  },
+  {
+    id: '4',
+    emoji: '🖥️',
+    title: 'Dell Monitor 27"',
+    category: 'Electronics',
+    interestedCount: 0,
+    topBid: undefined,
+    bidStatus: undefined,
+  },
 ];
 
 export default function MyListScreen({ navigation }: Props) {
@@ -56,10 +76,16 @@ export default function MyListScreen({ navigation }: Props) {
   // Fetch items from Supabase
   const fetchItems = useCallback(async () => {
     if (user) {
+      console.log('[MyList] Fetching items from Supabase...');
       const { data, error } = await getMyItems();
       if (!error && data) {
+        console.log('[MyList] Successfully fetched items:', data.length, data);
         setSupabaseItems(data);
+      } else if (error) {
+        console.error('[MyList] Error fetching items:', error);
       }
+    } else {
+      console.log('[MyList] No user, skipping fetch');
     }
   }, [user]);
 
@@ -94,7 +120,9 @@ export default function MyListScreen({ navigation }: Props) {
       emoji: '📦',
       title: l.original.title,
       category: l.original.category,
-      sellIntent: l.original.condition || 'Maybe',
+      interestedCount: 0,
+      topBid: undefined,
+      bidStatus: undefined,
       imageUri: l.original.imageUris?.[0],
       isLocal: true,
     }));
@@ -105,13 +133,19 @@ export default function MyListScreen({ navigation }: Props) {
     emoji: '📦',
     title: item.title,
     category: item.category,
-    sellIntent: item.condition || 'Maybe',
+    interestedCount: 0,
+    topBid: undefined,
+    bidStatus: undefined,
     imageUri: item.photos?.[0],
     isLocal: false,
   }));
 
-  // Combine all items: Supabase items first, then local items, then demo items
-  const displayItems = [...supabaseDisplayItems, ...localListings, ...demoItems];
+  // Combine all items: Supabase items first, then local items
+  // Only show demo items if user has no real items
+  const hasRealItems = supabaseDisplayItems.length > 0 || localListings.length > 0;
+  const displayItems = hasRealItems
+    ? [...supabaseDisplayItems, ...localListings]
+    : [...supabaseDisplayItems, ...localListings, ...demoItems];
 
   const toggleSelection = (id: string) => {
     const newSelected = new Set(selectedIds);
@@ -171,7 +205,7 @@ export default function MyListScreen({ navigation }: Props) {
             My List
           </Text>
           <Text variant="body" size="md" color="secondary">
-            Items you own
+            Your items and top bids
           </Text>
         </View>
         
@@ -257,9 +291,8 @@ export default function MyListScreen({ navigation }: Props) {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
           renderItem={({ item }) => {
-            const badge = getSellIntentBadge(item.sellIntent);
             const isSelected = selectedIds.has(item.id);
-            
+
             return (
               <Pressable
                 onPress={() => {
@@ -301,13 +334,28 @@ export default function MyListScreen({ navigation }: Props) {
                         {item.title}
                       </Text>
                       <Text variant="body" size="base" color="secondary">
-                        {item.category}
+                        {item.category} · {item.interestedCount} interested
                       </Text>
                     </View>
                     {!isEditMode && (
-                      <Badge variant={badge.variant}>
-                        {badge.label}
-                      </Badge>
+                      <View style={styles.itemBid}>
+                        <Text variant="body" size="xs" color="muted" style={styles.itemBidLabel}>
+                          Top bid
+                        </Text>
+                        <Text
+                          variant="heading"
+                          size="xxl"
+                          color={
+                            item.bidStatus === 'accept' ? 'success' :
+                            item.bidStatus === 'consider' ? 'warning' :
+                            item.bidStatus === 'low' ? 'danger' :
+                            'muted'
+                          }
+                          style={styles.itemBidValue}
+                        >
+                          {item.topBid ? `$${item.topBid}` : '—'}
+                        </Text>
+                      </View>
                     )}
                   </View>
                 </Card>
@@ -467,5 +515,14 @@ const styles = StyleSheet.create({
   },
   itemName: {
     marginBottom: 4,
+  },
+  itemBid: {
+    alignItems: 'flex-end',
+  },
+  itemBidLabel: {
+    marginBottom: 2,
+  },
+  itemBidValue: {
+    // Font size handled by variant="heading" size="xxl"
   },
 });

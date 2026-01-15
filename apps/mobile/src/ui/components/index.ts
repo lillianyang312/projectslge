@@ -9,3 +9,4 @@ export { Pill } from './Pill';
 export { Header } from './Header';
 export { SwipeCard } from './SwipeCard';
 export { SwipeActions } from './SwipeActions';
+export { Tabs } from './Tabs';
