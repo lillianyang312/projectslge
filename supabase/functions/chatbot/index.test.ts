@@ -8,7 +8,7 @@ import {
   assertEquals,
   assertExists,
   assert,
-} from 'std/assert';
+} from 'https://deno.land/std@0.208.0/assert/mod.ts';
 import {
   buildDbContextSummary,
   extractPriceReferencesFromOutput,
@@ -319,11 +319,22 @@ Deno.test('handleChatbotRequest - Invalid JSON body returns 400', async () => {
     headers: { 'Content-Type': 'application/json' },
   });
   
-  const response = await handleChatbotRequest(req);
-  assertEquals(response.status, 400);
+  // Mock OpenAI API key to avoid 500 error
+  const originalEnv = Deno.env.get;
+  Deno.env.get = (key: string) => {
+    if (key === 'OPENAI_API_KEY') return 'test-key';
+    return originalEnv(key);
+  };
   
-  const body = await response.json();
-  assert(body.error.includes('Invalid JSON'));
+  try {
+    const response = await handleChatbotRequest(req);
+    assertEquals(response.status, 400);
+    
+    const body = await response.json();
+    assert(body.error.includes('Invalid JSON'));
+  } finally {
+    Deno.env.get = originalEnv;
+  }
 });
 
 Deno.test('handleChatbotRequest - Missing userMessage returns 400', async () => {

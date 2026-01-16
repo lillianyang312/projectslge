@@ -259,7 +259,14 @@ export function extractPriceReferencesFromOutput(
  * Exported for testing
  */
 export async function handleChatbotRequest(req: Request): Promise<Response> {
+  console.log("🌐 [chatbot] Request received:", {
+    method: req.method,
+    url: req.url,
+    headers: Object.fromEntries(req.headers.entries()),
+  });
+
   if (req.method === "OPTIONS") {
+    console.log("✅ [chatbot] OPTIONS request - returning CORS headers");
     return new Response("ok", {
       headers: {
         "Access-Control-Allow-Origin": "*",
@@ -271,6 +278,7 @@ export async function handleChatbotRequest(req: Request): Promise<Response> {
   }
 
   if (req.method !== "POST") {
+    console.warn("⚠️ [chatbot] Invalid method:", req.method);
     return new Response(
       JSON.stringify({ error: "Method not allowed. Use POST." }),
       {
@@ -286,6 +294,7 @@ export async function handleChatbotRequest(req: Request): Promise<Response> {
   try {
     const apiKey = Deno.env.get("OPENAI_API_KEY");
     if (!apiKey) {
+      console.error("❌ [chatbot] OPENAI_API_KEY not set");
       return new Response(
         JSON.stringify({
           error:
@@ -304,7 +313,18 @@ export async function handleChatbotRequest(req: Request): Promise<Response> {
     let body: unknown;
     try {
       body = await req.json();
+      const requestBody = body as Partial<ChatbotRequest>;
+      console.log("📥 [chatbot] Request body parsed:", {
+        hasUserMessage: !!requestBody?.userMessage,
+        userMessageLength: requestBody?.userMessage?.length || 0,
+        hasConversationHistory: !!requestBody?.conversationHistory,
+        conversationHistoryLength: requestBody?.conversationHistory?.length || 0,
+        hasSystemPrompt: !!requestBody?.systemPrompt,
+        hasContext: !!requestBody?.context,
+        context: requestBody?.context,
+      });
     } catch {
+      console.error("❌ [chatbot] Failed to parse JSON body");
       return new Response(
         JSON.stringify({ error: "Invalid JSON body in request." }),
         {
@@ -322,6 +342,10 @@ export async function handleChatbotRequest(req: Request): Promise<Response> {
     >;
 
     if (!userMessage || typeof userMessage !== "string") {
+      console.error("❌ [chatbot] Missing or invalid userMessage:", {
+        hasUserMessage: !!userMessage,
+        userMessageType: typeof userMessage,
+      });
       return new Response(
         JSON.stringify({
           error: "userMessage is required and must be a string.",
@@ -340,8 +364,21 @@ export async function handleChatbotRequest(req: Request): Promise<Response> {
 
     // Fetch any referenced Supabase objects (items, deals) so we can
     // provide grounded numeric context to the LLM.
+    console.log("🔍 [chatbot] Fetching database context:", context);
     const { item, deal } = await fetchDbContext(context);
+    console.log("📊 [chatbot] Database context fetched:", {
+      hasItem: !!item,
+      itemId: item?.id,
+      itemLabel: item?.label,
+      hasDeal: !!deal,
+      dealId: deal?.id,
+    });
+
     const dbContextSummary = buildDbContextSummary(item, deal);
+    console.log("📝 [chatbot] Database context summary:", {
+      summaryLength: dbContextSummary.length,
+      summary: dbContextSummary.substring(0, 200) + (dbContextSummary.length > 200 ? "..." : ""),
+    });
 
     const baseSystemPrompt =
       systemPrompt && typeof systemPrompt === "string"
@@ -376,6 +413,10 @@ export async function handleChatbotRequest(req: Request): Promise<Response> {
         (msg) => msg.role !== "system"
       );
       messages.push(...historyMessages);
+      console.log("💭 [chatbot] Added conversation history:", {
+        originalLength: conversationHistory.length,
+        filteredLength: historyMessages.length,
+      });
     }
 
     // Add the current user message
@@ -384,14 +425,30 @@ export async function handleChatbotRequest(req: Request): Promise<Response> {
       content: userMessage,
     });
 
+    console.log("🤖 [chatbot] Calling OpenAI API:", {
+      model: "gpt-4o-mini",
+      messagesCount: messages.length,
+      systemPromptLength: finalSystemPrompt.length,
+      userMessageLength: userMessage.length,
+    });
+
+    const startTime = Date.now();
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
       messages: messages,
       temperature: 0.7,
     });
+    const openaiDuration = Date.now() - startTime;
 
     const output =
       completion.choices[0]?.message?.content?.toString().trim() ?? "";
+
+    console.log("✨ [chatbot] OpenAI response received:", {
+      outputLength: output.length,
+      outputPreview: output.substring(0, 200) + (output.length > 200 ? "..." : ""),
+      choicesCount: completion.choices.length,
+      duration: `${openaiDuration}ms`,
+    });
 
     const priceReferences = extractPriceReferencesFromOutput(
       output,
@@ -399,11 +456,23 @@ export async function handleChatbotRequest(req: Request): Promise<Response> {
       deal,
     );
 
+    console.log("💰 [chatbot] Price references extracted:", {
+      count: priceReferences.length,
+      references: priceReferences,
+    });
+
     const responseBody: ChatbotResponse = {
       output,
       // Only include if non-empty to keep payload lean and backwards compatible.
       ...(priceReferences.length > 0 ? { priceReferences } : {}),
     };
+
+    console.log("✅ [chatbot] Sending response:", {
+      status: 200,
+      outputLength: responseBody.output.length,
+      hasPriceReferences: !!responseBody.priceReferences,
+      priceReferencesCount: responseBody.priceReferences?.length || 0,
+    });
 
     return new Response(JSON.stringify(responseBody), {
       status: 200,
@@ -413,7 +482,12 @@ export async function handleChatbotRequest(req: Request): Promise<Response> {
       },
     });
   } catch (error) {
-    console.error("Error in chatbot function:", error);
+    console.error("❌ [chatbot] Error in chatbot function:", {
+      error,
+      errorMessage: error instanceof Error ? error.message : String(error),
+      errorStack: error instanceof Error ? error.stack : undefined,
+      errorName: error instanceof Error ? error.name : undefined,
+    });
     const message = error instanceof Error ? error.message : String(error);
 
     return new Response(

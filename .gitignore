@@ -13,3 +13,6 @@
 *.swp
 *.swo
 
+node_modules/
+.expo/
+

@@ -69,21 +69,65 @@ export async function sendChatMessage(
       ...(context && { context }),
     };
 
+    console.log('🔵 [chatService] Calling chatbot endpoint:', {
+      endpoint: 'chatbot',
+      userMessage: userMessage.substring(0, 100) + (userMessage.length > 100 ? '...' : ''),
+      conversationHistoryLength: chatbotHistory.length,
+      hasSystemPrompt: !!systemPrompt,
+      context,
+      requestBodyKeys: Object.keys(requestBody),
+    });
+
+    const startTime = Date.now();
     const { data, error } = await supabase.functions.invoke<ChatbotResponse>(
       'chatbot',
       {
         body: requestBody,
       }
     );
+    const duration = Date.now() - startTime;
 
     if (error) {
-      console.error('Error calling chatbot:', error);
+      const errorStatus = error.context?.status;
+      const errorMessage = error.message;
+      
+      console.error('❌ [chatService] Error calling chatbot:', {
+        error,
+        errorMessage,
+        errorStatus,
+        errorContext: error.context,
+        duration: `${duration}ms`,
+      });
+
+      // Provide helpful error messages based on status code
+      if (errorStatus === 404) {
+        console.error('⚠️ [chatService] Chatbot function not found (404). The function may not be deployed.');
+        console.error('💡 [chatService] To deploy: supabase functions deploy chatbot');
+      } else if (errorStatus === 500) {
+        console.error('⚠️ [chatService] Chatbot function error (500). Check OPENAI_API_KEY secret.');
+        console.error('💡 [chatService] To set secret: supabase secrets set OPENAI_API_KEY=your_key');
+      }
+      
       return null;
     }
 
+    console.log('✅ [chatService] Chatbot response received:', {
+      hasData: !!data,
+      outputLength: data?.output?.length || 0,
+      outputPreview: data?.output?.substring(0, 100) + (data?.output && data.output.length > 100 ? '...' : ''),
+      priceReferencesCount: data?.priceReferences?.length || 0,
+      priceReferences: data?.priceReferences,
+      duration: `${duration}ms`,
+    });
+
     return data || null;
   } catch (error) {
-    console.error('Error sending chat message:', error);
+    console.error('❌ [chatService] Exception sending chat message:', {
+      error,
+      errorMessage: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      userMessage: userMessage.substring(0, 50),
+    });
     return null;
   }
 }

@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
-import { Text, RichPriceText } from '../ui/components';
+import { Text, RichPriceText, PendingMessage } from '../ui/components';
 import { colors, spacing, radius, typography } from '../ui/tokens';
 import {
   sendChatMessage,
@@ -30,16 +30,46 @@ export default function ChatScreen({ navigation }: Props) {
   const [sending, setSending] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
 
-  // Scroll to bottom when new messages arrive
+  // Log component mount and state changes
+  useEffect(() => {
+    console.log('🟡 [ChatScreen] Component mounted/updated:', {
+      message,
+      messageLength: message.length,
+      messagesCount: messages.length,
+      sending,
+    });
+  }, [message, messages.length, sending]);
+
+  // Scroll to bottom when new messages arrive or when sending state changes
   useEffect(() => {
     setTimeout(() => {
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }, 100);
-  }, [messages]);
+  }, [messages, sending]);
 
   const handleSend = async () => {
+    console.log('🔵 [ChatScreen] handleSend called!', {
+      message: message,
+      messageTrimmed: message.trim(),
+      messageLength: message.length,
+      sending,
+      timestamp: new Date().toISOString(),
+    });
+
     const messageText = message.trim();
-    if (!messageText || sending) return;
+    if (!messageText || sending) {
+      console.log('⏸️ [ChatScreen] Skipping send - empty message or already sending:', {
+        hasMessage: !!messageText,
+        messageText,
+        sending,
+      });
+      return;
+    }
+
+    console.log('📝 [ChatScreen] User sending message:', {
+      text: messageText,
+      currentMessagesCount: messages.length,
+    });
 
     // Create user message
     const userMessage: ChatMessage = {
@@ -49,18 +79,51 @@ export default function ChatScreen({ navigation }: Props) {
       time: formatMessageTime(),
     };
 
-    // Add user message immediately
-    setMessages((prev) => [...prev, userMessage]);
+    // Add user message immediately and create updated messages array
+    // This ensures the new message is included in conversation history
+    const updatedMessages = [...messages, userMessage];
+    setMessages(updatedMessages);
     setMessage('');
     setSending(true);
 
+    console.log('🚀 [ChatScreen] Triggering chatbot call:', {
+      messageId: userMessage.id,
+      messageText,
+      previousMessagesCount: messages.length,
+      updatedMessagesCount: updatedMessages.length,
+    });
+
     try {
+      // Build conversation history including the new user message
+      const conversationHistory = updatedMessages.filter(
+        (msg) => msg.sender === 'user' || msg.sender === 'agent'
+      );
+
+      console.log('📤 [ChatScreen] Sending to chatbot:', {
+        userMessage: messageText,
+        conversationHistoryLength: conversationHistory.length,
+        conversationHistory: conversationHistory.map((msg) => ({
+          id: msg.id,
+          sender: msg.sender,
+          text: msg.text.substring(0, 50) + (msg.text.length > 50 ? '...' : ''),
+          time: msg.time,
+        })),
+        systemPrompt: GENERAL_PERSONALITY_SYSTEM_PROMPT.substring(0, 100) + '...',
+      });
+
       // Send to chatbot
       const response = await sendChatMessage(
         messageText,
-        messages.filter((msg) => msg.sender === 'user' || msg.sender === 'agent'),
+        conversationHistory,
         GENERAL_PERSONALITY_SYSTEM_PROMPT
       );
+
+      console.log('📥 [ChatScreen] Chatbot response received:', {
+        hasResponse: !!response,
+        outputLength: response?.output?.length || 0,
+        outputPreview: response?.output?.substring(0, 100) + (response?.output && response.output.length > 100 ? '...' : '') || 'null',
+        priceReferencesCount: response?.priceReferences?.length || 0,
+      });
 
       if (response) {
         // Add agent response
@@ -72,9 +135,17 @@ export default function ChatScreen({ navigation }: Props) {
           time: formatMessageTime(),
           priceReferences: response.priceReferences,
         };
+        
+        console.log('💬 [ChatScreen] Adding agent response to messages:', {
+          messageId: agentMessage.id,
+          textPreview: agentMessage.text.substring(0, 100) + (agentMessage.text.length > 100 ? '...' : ''),
+          priceReferencesCount: agentMessage.priceReferences?.length || 0,
+        });
+        
         setMessages((prev) => [...prev, agentMessage]);
       } else {
         // Show error message
+        console.warn('⚠️ [ChatScreen] No response from chatbot, showing error message');
         const errorMessage: ChatMessage = {
           id: generateMessageId(),
           sender: 'agent',
@@ -85,7 +156,12 @@ export default function ChatScreen({ navigation }: Props) {
         setMessages((prev) => [...prev, errorMessage]);
       }
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error('❌ [ChatScreen] Error sending message:', {
+        error,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        errorStack: error instanceof Error ? error.stack : undefined,
+        messageText: messageText.substring(0, 50),
+      });
       const errorMessage: ChatMessage = {
         id: generateMessageId(),
         sender: 'agent',
@@ -95,6 +171,7 @@ export default function ChatScreen({ navigation }: Props) {
       };
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
+      console.log('✅ [ChatScreen] Message send completed, setting sending to false');
       setSending(false);
     }
   };
@@ -179,6 +256,8 @@ export default function ChatScreen({ navigation }: Props) {
             </View>
           )}
           {messages.map(renderMessage)}
+          {/* Show pending message animation when agent is responding */}
+          {sending && <PendingMessage senderName="Agent" />}
         </ScrollView>
 
         {/* Input area */}
@@ -189,11 +268,32 @@ export default function ChatScreen({ navigation }: Props) {
               placeholder="Type a message..."
               placeholderTextColor={colors.textMuted}
               value={message}
-              onChangeText={setMessage}
+              onChangeText={(text) => {
+                console.log('⌨️ [ChatScreen] Text input changed:', {
+                  text,
+                  textLength: text.length,
+                  trimmed: text.trim(),
+                });
+                setMessage(text);
+              }}
+              onSubmitEditing={() => {
+                console.log('↩️ [ChatScreen] Text input submitted (Enter pressed)');
+                if (message.trim() && !sending) {
+                  handleSend();
+                }
+              }}
             />
             <Pressable
               style={[styles.sendBtn, sending && styles.sendBtnDisabled]}
-              onPress={handleSend}
+              onPress={() => {
+                console.log('🟢 [ChatScreen] Send button pressed!', {
+                  message: message,
+                  messageTrimmed: message.trim(),
+                  sending,
+                  disabled: sending || !message.trim(),
+                });
+                handleSend();
+              }}
               disabled={sending || !message.trim()}
             >
               {sending ? (

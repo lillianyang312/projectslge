@@ -11,4 +11,7 @@ export { SwipeCard } from './SwipeCard';
 export { SwipeActions } from './SwipeActions';
 export { Tabs } from './Tabs';
 export { RichPriceText } from './RichPriceText';
+export { PendingMessage } from './PendingMessage';
+export { default as ChatThread } from './ChatThread';
 export type { PriceReference } from './RichPriceText';
+export type { ChatThreadProps, ChatThreadContext } from './ChatThread';

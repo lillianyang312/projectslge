@@ -14,9 +14,11 @@ import { DealsStackParamList } from '../../navigation/types';
 import { Text, Button, Card, RichPriceText, type PriceReference } from '../../ui/components';
 import { colors, spacing, radius, typography } from '../../ui/tokens';
 import { Message } from '../../types/models';
-import { getMessages, sendMessage } from '../../services/dealsService';
+import { getMessages, sendMessage, sendAgentMessage } from '../../services/dealsService';
 import { getQuickActionMessages } from '../../services/agentService';
 import { useAuthStore } from '../../state/authStore';
+import { useChatLLM } from '../../hooks/useChatLLM';
+import { type ChatMessage, formatMessageTime } from '../../services/chatService';
 
 type Props = NativeStackScreenProps<DealsStackParamList, 'DealChat'>;
 
@@ -69,6 +71,41 @@ const demoMessagesWithPrices: (Message & { priceReferences?: PriceReference[] })
   },
 ];
 
+/**
+ * Convert Message[] (from database) to ChatMessage[] (for useChatLLM)
+ */
+function convertMessagesToChatMessages(messages: Message[]): ChatMessage[] {
+  return messages.map((msg) => ({
+    id: msg.id,
+    sender: msg.is_agent ? 'agent' : 'user',
+    senderName: msg.is_agent ? 'Agent' : undefined,
+    text: msg.content,
+    time: formatMessageTime(new Date(msg.created_at)),
+    priceReferences: msg.metadata?.priceReferences as PriceReference[] | undefined,
+  }));
+}
+
+/**
+ * Convert ChatMessage[] back to Message[] format (for display)
+ * This is mainly for agent responses that need to be saved to the database
+ */
+function convertChatMessageToMessage(
+  chatMessage: ChatMessage,
+  dealId: string
+): Omit<Message, 'created_at'> {
+  return {
+    id: chatMessage.id,
+    deal_id: dealId,
+    sender_id: null, // Agent messages have null sender_id
+    is_agent: chatMessage.sender === 'agent',
+    content: chatMessage.text,
+    message_type: 'system',
+    metadata: chatMessage.priceReferences
+      ? { priceReferences: chatMessage.priceReferences }
+      : undefined,
+  };
+}
+
 export default function DealChatScreen({ navigation, route }: Props) {
   const { dealId, deliveryMethod } = route.params;
   const [messages, setMessages] = useState<Message[]>([]);
@@ -76,6 +113,17 @@ export default function DealChatScreen({ navigation, route }: Props) {
   const [loading, setLoading] = useState(true);
   const user = useAuthStore((state) => state.user);
   const scrollViewRef = useRef<ScrollView>(null);
+
+  // Convert messages to ChatMessage format for useChatLLM
+  const chatMessages = convertMessagesToChatMessages(messages);
+
+  // Use the chat LLM hook with dealId context
+  // The hook will automatically send new user messages to the LLM
+  // with the full conversation history (including demo messages)
+  const { agentResponse, isLoading: isLLMLoading } = useChatLLM(chatMessages, {
+    context: { dealId },
+    autoSend: true, // Automatically send new user messages to LLM
+  });
 
   useEffect(() => {
     loadMessages();
@@ -92,14 +140,58 @@ export default function DealChatScreen({ navigation, route }: Props) {
     setLoading(false);
   }
 
+  // Handle agent responses from LLM
+  useEffect(() => {
+    if (agentResponse) {
+      // Check if this response is already in messages
+      const exists = messages.some((msg) => msg.id === agentResponse.id);
+      if (!exists) {
+        console.log('💬 [DealChat] Adding agent response to messages:', {
+          messageId: agentResponse.id,
+          textPreview: agentResponse.text.substring(0, 100) + (agentResponse.text.length > 100 ? '...' : ''),
+          priceReferencesCount: agentResponse.priceReferences?.length || 0,
+        });
+
+        // Convert ChatMessage to Message format
+        const agentMessage = convertChatMessageToMessage(agentResponse, dealId);
+        
+        // Save to database
+        sendAgentMessage(
+          dealId,
+          agentResponse.text,
+          agentResponse.priceReferences ? { priceReferences: agentResponse.priceReferences } : undefined
+        ).then((savedMessage) => {
+          if (savedMessage) {
+            // Use the saved message from DB (has proper created_at, etc.)
+            setMessages((prev) => [...prev, savedMessage]);
+          } else {
+            // Fallback: add to local state if save fails
+            setMessages((prev) => [
+              ...prev,
+              {
+                ...agentMessage,
+                created_at: new Date().toISOString(),
+              } as Message,
+            ]);
+          }
+        });
+      }
+    }
+  }, [agentResponse, dealId, messages]);
+
   async function handleSend() {
     if (!inputText.trim() || !user) return;
 
-    const newMessage = await sendMessage(dealId, user.id, inputText.trim());
+    const messageText = inputText.trim();
+    setInputText('');
+
+    // Save user message to database
+    const newMessage = await sendMessage(dealId, user.id, messageText);
 
     if (newMessage) {
       setMessages([...messages, newMessage]);
-      setInputText('');
+      // The useChatLLM hook will automatically detect the new user message
+      // and send it to the LLM with the full conversation history (including demo messages)
       setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
     }
   }
@@ -111,6 +203,8 @@ export default function DealChatScreen({ navigation, route }: Props) {
 
     if (newMessage) {
       setMessages([...messages, newMessage]);
+      // The useChatLLM hook will automatically detect the new user message
+      // and send it to the LLM with the full conversation history (including demo messages)
       setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
     }
   }
@@ -149,6 +243,16 @@ export default function DealChatScreen({ navigation, route }: Props) {
               isOwn={msg.sender_id === user?.id}
             />
           ))}
+          {isLLMLoading && (
+            <View style={[styles.messageBubble, styles.messageBubbleAgent]}>
+              <Text variant="bodyMedium" size="xs" color="accent" style={styles.agentLabel}>
+                AGENT
+              </Text>
+              <Text variant="body" size="base" color="muted">
+                Thinking...
+              </Text>
+            </View>
+          )}
         </ScrollView>
 
         {/* Quick Actions */}
@@ -185,9 +289,9 @@ export default function DealChatScreen({ navigation, route }: Props) {
             maxLength={500}
           />
           <Pressable
-            style={[styles.sendBtn, !inputText.trim() && styles.sendBtnDisabled]}
+            style={[styles.sendBtn, (!inputText.trim() || isLLMLoading) && styles.sendBtnDisabled]}
             onPress={handleSend}
-            disabled={!inputText.trim()}
+            disabled={!inputText.trim() || isLLMLoading}
           >
             <Text variant="bodyMedium" size="lg" color="white">
               →
