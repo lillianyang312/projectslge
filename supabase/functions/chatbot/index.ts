@@ -18,6 +18,11 @@ export interface ChatbotContext {
   dealId?: string;
 }
 
+export interface ChatMessage {
+  role: "user" | "assistant" | "system";
+  content: string;
+}
+
 export interface ChatbotRequest {
   /**
    * Optional system prompt that sets behavior / context.
@@ -27,8 +32,15 @@ export interface ChatbotRequest {
 
   /**
    * The current user message to send to the LLM.
+   * If conversationHistory is provided, this will be appended to it.
    */
   userMessage: string;
+
+  /**
+   * Optional conversation history as an array of messages.
+   * If provided, the full conversation will be sent to the LLM.
+   */
+  conversationHistory?: ChatMessage[];
 
   /**
    * Optional context identifiers for pulling structured data
@@ -305,7 +317,7 @@ export async function handleChatbotRequest(req: Request): Promise<Response> {
       );
     }
 
-    const { systemPrompt, userMessage, context } = body as Partial<
+    const { systemPrompt, userMessage, conversationHistory, context } = body as Partial<
       ChatbotRequest
     >;
 
@@ -349,18 +361,32 @@ export async function handleChatbotRequest(req: Request): Promise<Response> {
 
     const finalSystemPrompt = baseSystemPrompt + pillTagGuidance;
 
+    // Build messages array for OpenAI
+    const messages: ChatMessage[] = [
+      {
+        role: "system",
+        content: finalSystemPrompt,
+      },
+    ];
+
+    // Add conversation history if provided
+    if (conversationHistory && Array.isArray(conversationHistory)) {
+      // Filter out system messages from history (we already have one)
+      const historyMessages = conversationHistory.filter(
+        (msg) => msg.role !== "system"
+      );
+      messages.push(...historyMessages);
+    }
+
+    // Add the current user message
+    messages.push({
+      role: "user",
+      content: userMessage,
+    });
+
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: finalSystemPrompt,
-        },
-        {
-          role: "user",
-          content: userMessage,
-        },
-      ],
+      messages: messages,
       temperature: 0.7,
     });
 

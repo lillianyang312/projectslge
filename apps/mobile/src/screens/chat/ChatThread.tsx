@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -8,27 +8,24 @@ import {
   Pressable,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ProfileStackParamList } from '../../navigation/types';
 import { Text, Card, RichPriceText, type PriceReference } from '../../ui/components';
 import { colors, spacing, radius, typography, shadows } from '../../ui/tokens';
+import {
+  sendChatMessage,
+  formatMessageTime,
+  generateMessageId,
+  type ChatMessage,
+} from '../../services/chatService';
+import { GENERAL_PERSONALITY_SYSTEM_PROMPT } from '../../services/chatPrompts';
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'ChatThread'>;
 
-type MessageSender = 'user' | 'agent' | 'other';
-
-interface Message {
-  id: string;
-  sender: MessageSender;
-  senderName?: string;
-  text: string;
-  time: string;
-  priceReferences?: PriceReference[];
-}
-
-// Demo messages matching HTML spec exactly
-const demoMessages: Message[] = [
+// Demo messages matching HTML spec exactly - kept as initial state
+const initialDemoMessages: ChatMessage[] = [
   {
     id: '1',
     sender: 'agent',
@@ -93,15 +90,90 @@ const quickActions = [
 export default function ChatThreadScreen({ navigation, route }: Props) {
   const { conversationId } = route.params;
   const [message, setMessage] = useState('');
+  const [messages, setMessages] = useState<ChatMessage[]>(initialDemoMessages);
+  const [sending, setSending] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
 
-  const handleSend = () => {
-    if (message.trim()) {
-      // Would send message here
-      setMessage('');
+  // Scroll to bottom when new messages arrive
+  useEffect(() => {
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+  }, [messages]);
+
+  const handleSend = async () => {
+    const messageText = message.trim();
+    if (!messageText || sending) return;
+
+    // Create user message
+    const userMessage: ChatMessage = {
+      id: generateMessageId(),
+      sender: 'user',
+      text: messageText,
+      time: formatMessageTime(),
+    };
+
+    // Add user message immediately
+    setMessages((prev) => [...prev, userMessage]);
+    setMessage('');
+    setSending(true);
+
+    try {
+      // Filter out demo messages that aren't user/agent for context
+      // Only include user and agent messages in conversation history
+      const conversationHistory = messages.filter(
+        (msg) => msg.sender === 'user' || msg.sender === 'agent'
+      );
+
+      // Send to chatbot
+      const response = await sendChatMessage(
+        messageText,
+        conversationHistory,
+        GENERAL_PERSONALITY_SYSTEM_PROMPT
+      );
+
+      if (response) {
+        // Add agent response
+        const agentMessage: ChatMessage = {
+          id: generateMessageId(),
+          sender: 'agent',
+          senderName: 'Agent',
+          text: response.output,
+          time: formatMessageTime(),
+          priceReferences: response.priceReferences,
+        };
+        setMessages((prev) => [...prev, agentMessage]);
+      } else {
+        // Show error message
+        const errorMessage: ChatMessage = {
+          id: generateMessageId(),
+          sender: 'agent',
+          senderName: 'Agent',
+          text: "I'm having trouble responding right now. Please try again.",
+          time: formatMessageTime(),
+        };
+        setMessages((prev) => [...prev, errorMessage]);
+      }
+    } catch (error) {
+      console.error('Error sending message:', error);
+      const errorMessage: ChatMessage = {
+        id: generateMessageId(),
+        sender: 'agent',
+        senderName: 'Agent',
+        text: "I'm having trouble responding right now. Please try again.",
+        time: formatMessageTime(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setSending(false);
     }
   };
 
-  const renderMessage = (msg: Message) => {
+  const handleQuickAction = (action: string) => {
+    setMessage(action);
+  };
+
+  const renderMessage = (msg: ChatMessage) => {
     const isUser = msg.sender === 'user';
     const isAgent = msg.sender === 'agent';
 
@@ -188,10 +260,11 @@ export default function ChatThreadScreen({ navigation, route }: Props) {
 
         {/* Messages */}
         <ScrollView
+          ref={scrollViewRef}
           style={styles.messagesContainer}
           contentContainerStyle={styles.messagesContent}
         >
-          {demoMessages.map(renderMessage)}
+          {messages.map(renderMessage)}
         </ScrollView>
 
         {/* Input area */}
@@ -203,7 +276,11 @@ export default function ChatThreadScreen({ navigation, route }: Props) {
             contentContainerStyle={styles.quickActions}
           >
             {quickActions.map((action) => (
-              <Pressable key={action} style={styles.quickAction}>
+              <Pressable
+                key={action}
+                style={styles.quickAction}
+                onPress={() => handleQuickAction(action)}
+              >
                 <Text variant="body" size="xs">
                   {action}
                 </Text>
@@ -218,8 +295,16 @@ export default function ChatThreadScreen({ navigation, route }: Props) {
               value={message}
               onChangeText={setMessage}
             />
-            <Pressable style={styles.sendBtn} onPress={handleSend}>
-              <Text style={styles.sendBtnText}>↑</Text>
+            <Pressable
+              style={[styles.sendBtn, sending && styles.sendBtnDisabled]}
+              onPress={handleSend}
+              disabled={sending || !message.trim()}
+            >
+              {sending ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.sendBtnText}>↑</Text>
+              )}
             </Pressable>
           </View>
         </View>
@@ -399,6 +484,9 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 18,
     fontWeight: '600',
+  },
+  sendBtnDisabled: {
+    opacity: 0.5,
   },
 });
 

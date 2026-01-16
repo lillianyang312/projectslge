@@ -8,7 +8,7 @@
  * - Low confidence: Ask targeted follow-up question, then repeat computation loop
  */
 
-import { CONFIDENCE_THRESHOLDS } from '../../../../supabase/functions/shared/constants';
+import { CONFIDENCE_THRESHOLDS } from '../lib/constants';
 
 /**
  * Re-export confidence thresholds for convenience

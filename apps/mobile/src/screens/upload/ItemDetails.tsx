@@ -19,6 +19,7 @@ import { useItemsStore, SellIntent, ListingDeliveryPref } from '../../state/item
 import { useAuthStore } from '../../state/authStore';
 import { uploadImage, analyzeImage, getSignedUrl } from '../../services/imageService';
 import type { AnalyzeImageResponse } from '../../types/analyzeImage';
+import { isNeedsClarificationResponse } from '../../schemas/clarification_schema';
 
 type Props = NativeStackScreenProps<ListStackParamList, 'ItemDetails'>;
 
@@ -177,6 +178,17 @@ export default function ItemDetailsScreen({ navigation }: Props) {
     setCurrentImageIndex((prev) => (prev < images.length - 1 ? prev + 1 : 0));
   };
 
+  const handleClarificationOptionSelect = (optionLabel: string) => {
+    // When user selects a clarification option, update the category
+    // The option label is typically the category name
+    setCategory(optionLabel);
+    
+    // Clear the clarification response since user has made a selection
+    updateDraft({
+      clarificationResponse: undefined,
+    });
+  };
+
   const handleContinue = () => {
     // Map condition to string format
     const conditionMap: Record<Condition, string> = {
@@ -291,6 +303,44 @@ export default function ItemDetailsScreen({ navigation }: Props) {
             )}
           </ScrollView>
         </View>
+
+        {/* Clarification Section - Show when needs_clarification */}
+        {draft?.clarificationResponse && isNeedsClarificationResponse(draft.clarificationResponse) && (
+          <Card style={styles.clarificationCard}>
+            <View style={styles.clarificationHeader}>
+              <Text variant="bodyMedium" size="md" style={styles.clarificationTitle}>
+                {draft.clarificationResponse.question}
+              </Text>
+              <Badge 
+                variant="neutral" 
+                text={`${Math.round(draft.clarificationResponse.confidence * 100)}% confidence`}
+              />
+            </View>
+            
+            {draft.clarificationResponse.options.length > 0 ? (
+              <View style={styles.clarificationOptions}>
+                {draft.clarificationResponse.options.map((option) => (
+                  <Pressable
+                    key={option.id}
+                    style={styles.clarificationOption}
+                    onPress={() => handleClarificationOptionSelect(option.label)}
+                  >
+                    <Text variant="bodyMedium" size="base" style={styles.optionLabel}>
+                      {option.label}
+                    </Text>
+                    <Text variant="body" size="sm" color="muted" style={styles.optionDescriptor}>
+                      {option.descriptor}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : (
+              <Text variant="body" size="sm" color="muted" style={styles.noOptionsText}>
+                Please enter the item details manually below.
+              </Text>
+            )}
+          </Card>
+        )}
 
         {/* Item name */}
         <Input
@@ -619,5 +669,44 @@ const styles = StyleSheet.create({
   },
   editBtn: {},
   continueBtn: {},
+  clarificationCard: {
+    marginBottom: spacing.xl,
+    backgroundColor: colors.accentSoft,
+    borderWidth: 1,
+    borderColor: colors.accent,
+  },
+  clarificationHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: spacing.md,
+    gap: spacing.sm,
+  },
+  clarificationTitle: {
+    flex: 1,
+    marginBottom: spacing.sm,
+  },
+  clarificationOptions: {
+    gap: spacing.sm,
+  },
+  clarificationOption: {
+    backgroundColor: colors.card,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  optionLabel: {
+    marginBottom: spacing.xs,
+    fontWeight: '600',
+  },
+  optionDescriptor: {
+    lineHeight: 20,
+  },
+  noOptionsText: {
+    fontStyle: 'italic',
+    textAlign: 'center',
+    paddingVertical: spacing.md,
+  },
 });
 
