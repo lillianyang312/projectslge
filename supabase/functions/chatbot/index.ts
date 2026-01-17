@@ -1,3 +1,4 @@
+// @deno-types="npm:@anthropic-ai/sdk"
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
 
