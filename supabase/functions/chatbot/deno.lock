@@ -1,10 +1,23 @@
 {
   "version": "5",
   "specifiers": {
-    "npm:@supabase/supabase-js@^2.48.0": "2.90.1",
-    "npm:openai@4": "4.104.0"
+    "npm:@anthropic-ai/sdk@0.24": "0.24.3",
+    "npm:@supabase/supabase-js@^2.48.0": "2.90.1"
   },
   "npm": {
+    "@anthropic-ai/sdk@0.24.3": {
+      "integrity": "sha512-916wJXO6T6k8R6BAAcLhLPv/pnLGy7YSEBZXZ1XTFbLcTZE8oTy3oDW9WJf9KKZwMvVcePIfoTSvzXHRcGxkQQ==",
+      "dependencies": [
+        "@types/node",
+        "@types/node-fetch",
+        "abort-controller",
+        "agentkeepalive",
+        "form-data-encoder",
+        "formdata-node",
+        "node-fetch",
+        "web-streams-polyfill@3.3.3"
+      ]
+    },
     "@supabase/auth-js@2.90.1": {
       "integrity": "sha512-vxb66dgo6h3yyPbR06735Ps+dK3hj0JwS8w9fdQPVZQmocSTlKUW5MfxSy99mN0XqCCuLMQ3jCEiIIUU23e9ng==",
       "dependencies": [
@@ -151,7 +164,7 @@
       "integrity": "sha512-0iirZp3uVDjVGt9p49aTaqjk84TrglENEDuqfdlZQ1roC9CWlPk6Avf8EEnZNcAqPonwkG35x4n3ww/1THYAeQ==",
       "dependencies": [
         "node-domexception",
-        "web-streams-polyfill"
+        "web-streams-polyfill@4.0.0-beta.3"
       ]
     },
     "function-bind@1.1.2": {
@@ -231,19 +244,6 @@
         "whatwg-url"
       ]
     },
-    "openai@4.104.0": {
-      "integrity": "sha512-p99EFNsA/yX6UhVO93f5kJsDRLAg+CTA2RBqdHK4RtK8u5IJw32Hyb2dTGKbnnFmnuoBv5r7Z2CURI9sGZpSuA==",
-      "dependencies": [
-        "@types/node",
-        "@types/node-fetch",
-        "abort-controller",
-        "agentkeepalive",
-        "form-data-encoder",
-        "formdata-node",
-        "node-fetch"
-      ],
-      "bin": true
-    },
     "tr46@0.0.3": {
       "integrity": "sha512-N3WMsuqV66lT30CrXNbEjx4GEwlow3v6rr4mCcv6prnfwhS01rkgyFdjPNBYd9br7LpXV1+Emh01fHnq2Gdgrw=="
     },
@@ -252,6 +252,9 @@
     },
     "undici-types@5.26.5": {
       "integrity": "sha512-JlCMO+ehdEIKqlFxk6IfVoAUVmgz7cU7zD/h9XZ0qzeosSHmUJVOzSQvvYSYWXkFXC+IfLKSIffhv0sVZup6pA=="
+    },
+    "web-streams-polyfill@3.3.3": {
+      "integrity": "sha512-d2JWLCivmZYTSIoge9MsgFCZrt571BikcWGYkjC1khllbTeDlGqZ2D8vD8E/lJa8WGWbb7Plm8/XJYV7IJHZZw=="
     },
     "web-streams-polyfill@4.0.0-beta.3": {
       "integrity": "sha512-QW95TCTaHmsYfHDybGMwO5IJIM93I/6vTRk+daHTWFPhwh+C8Cg7j7XyKrwrj8Ib6vYXe0ocYNrmzY4xAAN6ug=="
@@ -306,8 +309,8 @@
   },
   "workspace": {
     "dependencies": [
-      "npm:@supabase/supabase-js@^2.48.0",
-      "npm:openai@4"
+      "npm:@anthropic-ai/sdk@0.24",
+      "npm:@supabase/supabase-js@^2.48.0"
     ]
   }
 }
