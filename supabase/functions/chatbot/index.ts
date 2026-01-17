@@ -292,13 +292,13 @@ export async function handleChatbotRequest(req: Request): Promise<Response> {
   }
 
   try {
-    const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
+    const apiKey = Deno.env.get("CLAUDE_API_KEY");
     if (!apiKey) {
-      console.error("❌ [chatbot] ANTHROPIC_API_KEY not set");
+      console.error("❌ [chatbot] CLAUDE_API_KEY not set");
       return new Response(
         JSON.stringify({
           error:
-            "ANTHROPIC_API_KEY is not set. Configure this secret in Supabase.",
+            "CLAUDE_API_KEY is not set. Configure this secret in Supabase.",
         }),
         {
           status: 500,

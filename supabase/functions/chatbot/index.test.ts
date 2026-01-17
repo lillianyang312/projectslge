@@ -322,7 +322,7 @@ Deno.test('handleChatbotRequest - Invalid JSON body returns 400', async () => {
   // Mock OpenAI API key to avoid 500 error
   const originalEnv = Deno.env.get;
   Deno.env.get = (key: string) => {
-    if (key === 'ANTHROPIC_API_KEY') return 'test-key';
+    if (key === 'CLAUDE_API_KEY') return 'test-key';
     return originalEnv(key);
   };
   
@@ -347,7 +347,7 @@ Deno.test('handleChatbotRequest - Missing userMessage returns 400', async () => 
   // Mock OpenAI API key to avoid 500 error
   const originalEnv = Deno.env.get;
   Deno.env.get = (key: string) => {
-    if (key === 'ANTHROPIC_API_KEY') return 'test-key';
+    if (key === 'CLAUDE_API_KEY') return 'test-key';
     return originalEnv(key);
   };
   
@@ -362,17 +362,17 @@ Deno.test('handleChatbotRequest - Missing userMessage returns 400', async () => 
   }
 });
 
-Deno.test('handleChatbotRequest - Missing ANTHROPIC_API_KEY returns 500', async () => {
+Deno.test('handleChatbotRequest - Missing CLAUDE_API_KEY returns 500', async () => {
   const req = new Request('http://localhost', {
     method: 'POST',
     body: JSON.stringify({ userMessage: 'Hello' }),
     headers: { 'Content-Type': 'application/json' },
   });
   
-  // Ensure ANTHROPIC_API_KEY is not set
+  // Ensure CLAUDE_API_KEY is not set
   const originalEnv = Deno.env.get;
   Deno.env.get = (key: string) => {
-    if (key === 'ANTHROPIC_API_KEY') return undefined;
+    if (key === 'CLAUDE_API_KEY') return undefined;
     return originalEnv(key);
   };
   
@@ -381,7 +381,7 @@ Deno.test('handleChatbotRequest - Missing ANTHROPIC_API_KEY returns 500', async 
     assertEquals(response.status, 500);
     
     const body = await response.json();
-    assert(body.error.includes('ANTHROPIC_API_KEY'));
+    assert(body.error.includes('CLAUDE_API_KEY'));
   } finally {
     Deno.env.get = originalEnv;
   }
@@ -397,7 +397,7 @@ Deno.test('handleChatbotRequest - Valid request uses default system prompt', asy
   // Mock OpenAI API key
   const originalEnv = Deno.env.get;
   Deno.env.get = (key: string) => {
-    if (key === 'ANTHROPIC_API_KEY') return 'test-key';
+    if (key === 'CLAUDE_API_KEY') return 'test-key';
     return originalEnv(key);
   };
   
@@ -425,7 +425,7 @@ Deno.test('handleChatbotRequest - Custom system prompt is used', async () => {
   // Mock OpenAI API key
   const originalEnv = Deno.env.get;
   Deno.env.get = (key: string) => {
-    if (key === 'ANTHROPIC_API_KEY') return 'test-key';
+    if (key === 'CLAUDE_API_KEY') return 'test-key';
     return originalEnv(key);
   };
   
@@ -448,7 +448,7 @@ Deno.test('handleChatbotRequest - Response includes CORS headers', async () => {
   // Mock OpenAI API key
   const originalEnv = Deno.env.get;
   Deno.env.get = (key: string) => {
-    if (key === 'ANTHROPIC_API_KEY') return 'test-key';
+    if (key === 'CLAUDE_API_KEY') return 'test-key';
     return originalEnv(key);
   };
   
