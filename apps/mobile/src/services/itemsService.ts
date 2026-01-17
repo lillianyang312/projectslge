@@ -8,8 +8,9 @@ export interface Item {
   category: string;
   condition: string;
   photos: string[];
-  delivery_pref: string;
-  asking_price?: number;
+  estimated_value_min?: number;
+  estimated_value_max?: number;
+  min_price?: number;
   created_at: string;
 }
 
@@ -18,8 +19,9 @@ export interface CreateItemInput {
   category: string;
   condition: string;
   photos: string[];
-  delivery_pref: string;
-  asking_price?: number;
+  estimated_value_min?: number;
+  estimated_value_max?: number;
+  min_price?: number;
 }
 
 export interface UpdateItemInput {
@@ -27,8 +29,9 @@ export interface UpdateItemInput {
   category?: string;
   condition?: string;
   photos?: string[];
-  delivery_pref?: string;
-  asking_price?: number;
+  estimated_value_min?: number;
+  estimated_value_max?: number;
+  min_price?: number;
 }
 
 /**
@@ -50,8 +53,11 @@ export async function createItem(input: CreateItemInput): Promise<{ data: Item |
         category: input.category,
         condition: input.condition,
         photos: input.photos,
-        delivery_pref: input.delivery_pref,
-        asking_price: input.asking_price,
+        // Set image_path to first photo or empty string (legacy field, still required)
+        image_path: input.photos[0] || '',
+        estimated_value_min: input.estimated_value_min,
+        estimated_value_max: input.estimated_value_max,
+        min_price: input.min_price,
       })
       .select()
       .single();

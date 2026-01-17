@@ -1,11 +1,19 @@
 /**
  * Shared ChatThread Component
- * 
+ *
  * A reusable chat thread UI component with integrated chatbot middleware.
  * Supports both inbox and profile chat contexts.
+ *
+ * Features:
+ * - Auto-expanding multiline input (up to 140px max height)
+ * - Proper keyboard avoidance on iOS and Android
+ * - Interactive keyboard dismiss on scroll
+ * - Visible typed text with correct colors
+ * - Messages pinned to bottom - most recent message right above input
+ * - No empty scroll space below messages for maximum chat visibility
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -16,6 +24,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Keyboard,
+  NativeSyntheticEvent,
+  TextInputContentSizeChangeEventData,
+  Dimensions,
 } from 'react-native';
 import { Text } from './Text';
 import { Card } from './Card';
@@ -29,10 +41,20 @@ import {
 } from '../../services/chatService';
 import { useChatLLM } from '../../hooks/useChatLLM';
 
+// Constants for input sizing
+const MIN_INPUT_HEIGHT = 44;
+const MAX_INPUT_HEIGHT = 140;
+
 export interface ChatThreadContext {
   itemId?: string;
   dealId?: string;
 }
+
+export type ChatType = 'buying' | 'selling';
+
+export type DealStatus = 'negotiating' | 'agreed' | 'logistics' | 'completed' | 'cancelled';
+
+export type ActionNeededType = 'accept_offer' | 'counter_offer' | 'confirm_pickup' | 'finalize' | 'provide_payment' | 'suggest_times';
 
 export interface ChatThreadProps {
   /**
@@ -51,6 +73,11 @@ export interface ChatThreadProps {
    * Optional header right button (e.g., location button)
    */
   headerRight?: React.ReactNode;
+  /**
+   * Chat type - 'buying' (blue) or 'selling' (green)
+   * Displayed as a badge next to the header title
+   */
+  chatType?: ChatType;
   /**
    * Optional context card to display above messages
    */
@@ -80,13 +107,33 @@ export interface ChatThreadProps {
    */
   systemPrompt?: string;
   /**
-   * Whether to show dismiss keyboard button (default: false)
-   */
-  showDismissButton?: boolean;
-  /**
    * Navigation go back handler
    */
   onGoBack?: () => void;
+  /**
+   * IDs of messages that are unread (will be highlighted in yellow)
+   */
+  unreadMessageIds?: string[];
+  /**
+   * Current deal status for showing action buttons
+   */
+  dealStatus?: DealStatus;
+  /**
+   * Current offer amount (for display in action bar)
+   */
+  currentOffer?: number;
+  /**
+   * Callback when user finalizes the deal
+   */
+  onFinalizeDeal?: () => void;
+  /**
+   * Callback when user accepts an offer
+   */
+  onAcceptOffer?: (amount: number) => void;
+  /**
+   * Callback when user confirms pickup details
+   */
+  onConfirmPickup?: (date: string, location: string) => void;
 }
 
 export default function ChatThread({
@@ -94,18 +141,28 @@ export default function ChatThread({
   context,
   headerTitle = 'Chat',
   headerRight,
+  chatType,
   contextCard,
   quickActions = [],
   onSendMessage,
   onAgentResponse,
   autoSend = true,
   systemPrompt,
-  showDismissButton = false,
   onGoBack,
+  unreadMessageIds = [],
+  dealStatus,
+  currentOffer,
+  onFinalizeDeal,
+  onAcceptOffer,
+  onConfirmPickup,
 }: ChatThreadProps) {
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
+  const [isContextExpanded, setIsContextExpanded] = useState(true);
+  const [inputHeight, setInputHeight] = useState(MIN_INPUT_HEIGHT);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
+  const inputRef = useRef<TextInput>(null);
 
   // Use the custom hook for LLM calls
   const { isLoading, error, agentResponse, sendMessage } = useChatLLM(messages, {
@@ -113,6 +170,33 @@ export default function ChatThread({
     autoSend,
     systemPrompt,
   });
+
+  // Track keyboard visibility
+  useEffect(() => {
+    const keyboardWillShow = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        setIsKeyboardVisible(true);
+        setIsContextExpanded(false);
+        // Scroll to end when keyboard appears
+        setTimeout(() => {
+          scrollViewRef.current?.scrollToEnd({ animated: true });
+        }, 100);
+      }
+    );
+
+    const keyboardWillHide = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setIsKeyboardVisible(false);
+      }
+    );
+
+    return () => {
+      keyboardWillShow.remove();
+      keyboardWillHide.remove();
+    };
+  }, []);
 
   // Update messages when initialMessages change
   useEffect(() => {
@@ -176,6 +260,19 @@ export default function ChatThread({
     }
   }, [error, messages.length]);
 
+  // Handle input content size change for auto-expanding
+  const handleContentSizeChange = useCallback(
+    (event: NativeSyntheticEvent<TextInputContentSizeChangeEventData>) => {
+      const { contentSize } = event.nativeEvent;
+      const newHeight = Math.min(
+        Math.max(contentSize.height + 16, MIN_INPUT_HEIGHT), // Add padding
+        MAX_INPUT_HEIGHT
+      );
+      setInputHeight(newHeight);
+    },
+    []
+  );
+
   const handleSend = async () => {
     const messageText = message.trim();
     if (!messageText || isLoading) {
@@ -205,6 +302,7 @@ export default function ChatThread({
     const updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
     setMessage('');
+    setInputHeight(MIN_INPUT_HEIGHT); // Reset input height after send
     onSendMessage?.(userMessage);
 
     // Manually trigger LLM call with the message ID and updated messages
@@ -224,9 +322,11 @@ export default function ChatThread({
     setMessage(action);
   };
 
+
   const renderMessage = (msg: ChatMessage) => {
     const isUser = msg.sender === 'user';
     const isAgent = msg.sender === 'agent';
+    const isUnread = unreadMessageIds.includes(msg.id);
 
     return (
       <View
@@ -234,6 +334,7 @@ export default function ChatThread({
         style={[
           styles.messageRow,
           isUser && styles.messageRowUser,
+          isUnread && styles.messageRowUnread,
         ]}
       >
         {!isUser && (
@@ -247,6 +348,7 @@ export default function ChatThread({
             isUser && styles.messageBubbleUser,
             isAgent && styles.messageBubbleAgent,
             !isUser && !isAgent && styles.messageBubbleOther,
+            isUnread && !isUser && styles.messageBubbleUnread,
           ]}
         >
           {!isUser && msg.senderName && (
@@ -276,8 +378,8 @@ export default function ChatThread({
     <SafeAreaView style={styles.screen}>
       <KeyboardAvoidingView
         style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={90}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
         {/* Header */}
         <View style={styles.header}>
@@ -286,41 +388,127 @@ export default function ChatThread({
               <Text size="xl">←</Text>
             </Pressable>
           )}
-          <Text variant="headingMedium" size="heading3" style={styles.headerTitle}>
-            {headerTitle}
-          </Text>
+          <View style={styles.headerTitleContainer}>
+            <Text variant="headingMedium" size="heading3" style={styles.headerTitle}>
+              {headerTitle}
+            </Text>
+            {chatType && (
+              <View style={[
+                styles.chatTypeBadge,
+                chatType === 'buying' ? styles.chatTypeBuying : styles.chatTypeSelling,
+              ]}>
+                <Text style={[
+                  styles.chatTypeBadgeText,
+                  chatType === 'buying' ? styles.chatTypeBuyingText : styles.chatTypeSellingText,
+                ]}>
+                  {chatType === 'buying' ? 'Buying' : 'Selling'}
+                </Text>
+              </View>
+            )}
+          </View>
           {headerRight || <View style={styles.headerRightPlaceholder} />}
         </View>
 
-        {/* Context card */}
+        {/* Context card - collapsible to show more messages */}
         {contextCard && (
-          <View style={styles.contextCard}>
+          <Pressable
+            style={[styles.contextCard, !isContextExpanded && styles.contextCardCollapsed]}
+            onPress={() => setIsContextExpanded(!isContextExpanded)}
+          >
             <View style={styles.contextContent}>
-              <View style={styles.contextThumb}>
-                <Text style={styles.contextEmoji}>{contextCard.emoji || '📦'}</Text>
+              <View style={[styles.contextThumb, !isContextExpanded && styles.contextThumbSmall]}>
+                <Text style={[styles.contextEmoji, !isContextExpanded && styles.contextEmojiSmall]}>
+                  {contextCard.emoji || '📦'}
+                </Text>
               </View>
               <View style={styles.contextInfo}>
-                <Text variant="bodyMedium" size="md">
+                <Text variant="bodyMedium" size={isContextExpanded ? 'md' : 'sm'} numberOfLines={1}>
                   {contextCard.title}
                 </Text>
-                <Text variant="body" size="sm" color="secondary">
-                  {contextCard.subtitle}
-                </Text>
+                {isContextExpanded && (
+                  <Text variant="body" size="sm" color="secondary">
+                    {contextCard.subtitle}
+                  </Text>
+                )}
               </View>
+              <Text style={styles.expandIcon}>{isContextExpanded ? '▲' : '▼'}</Text>
             </View>
-          </View>
+          </Pressable>
         )}
 
-        {/* Messages */}
+        {/* Messages - pinned to bottom, no empty scroll space below */}
         <ScrollView
           ref={scrollViewRef}
           style={styles.messagesContainer}
           contentContainerStyle={styles.messagesContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+          onScrollBeginDrag={() => {
+            // Dismiss keyboard when user starts scrolling
+            Keyboard.dismiss();
+          }}
+          onContentSizeChange={() => {
+            scrollViewRef.current?.scrollToEnd({ animated: true });
+          }}
+          showsVerticalScrollIndicator={true}
         >
+          {messages.length === 0 && (
+            <View style={styles.emptyState}>
+              <Text variant="body" size="md" color="secondary" style={styles.emptyText}>
+                Start a conversation
+              </Text>
+            </View>
+          )}
           {messages.map(renderMessage)}
           {/* Show pending message animation when agent is responding */}
           {isLoading && <PendingMessage senderName="Agent" />}
         </ScrollView>
+
+        {/* Deal action bar - shown when deal is in agreed status (ready to finalize) */}
+        {dealStatus === 'agreed' && onFinalizeDeal && (
+          <View style={styles.dealActionBar}>
+            <View style={styles.dealActionInfo}>
+              <Text variant="bodyMedium" size="sm" color="success">
+                Price agreed{currentOffer ? `: $${currentOffer}` : ''}
+              </Text>
+              <Text variant="body" size="xs" color="secondary">
+                Ready to finalize the deal
+              </Text>
+            </View>
+            <Pressable style={styles.finalizeBtn} onPress={onFinalizeDeal}>
+              <Text style={styles.finalizeBtnText}>Finalize Deal</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {/* Deal action bar - shown when in negotiating status with an offer */}
+        {dealStatus === 'negotiating' && currentOffer && onAcceptOffer && (
+          <View style={styles.dealActionBar}>
+            <View style={styles.dealActionInfo}>
+              <Text variant="bodyMedium" size="sm" color="blue">
+                Current offer: ${currentOffer}
+              </Text>
+              <Text variant="body" size="xs" color="secondary">
+                Respond in chat or accept below
+              </Text>
+            </View>
+            <Pressable
+              style={[styles.acceptBtn]}
+              onPress={() => onAcceptOffer(currentOffer)}
+            >
+              <Text style={styles.acceptBtnText}>Accept ${currentOffer}</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {/* Deal completed banner */}
+        {dealStatus === 'completed' && (
+          <View style={styles.completedBanner}>
+            <Text variant="bodyMedium" size="md" color="success">
+              ✓ Deal completed!
+            </Text>
+          </View>
+        )}
 
         {/* Input area */}
         <View style={styles.inputArea}>
@@ -330,6 +518,7 @@ export default function ChatThread({
               showsHorizontalScrollIndicator={false}
               style={styles.quickActionsScroll}
               contentContainerStyle={styles.quickActions}
+              keyboardShouldPersistTaps="handled"
             >
               {quickActions.map((action) => (
                 <Pressable
@@ -345,27 +534,37 @@ export default function ChatThread({
             </ScrollView>
           )}
           <View style={styles.inputRow}>
-            <TextInput
-              style={styles.textInput}
-              placeholder="Type a message..."
-              placeholderTextColor={colors.textMuted}
-              value={message}
-              onChangeText={setMessage}
-              multiline
-              maxLength={500}
-            />
-            {showDismissButton && (
-              <Pressable
-                style={styles.dismissBtn}
-                onPress={() => {
-                  // Keyboard.dismiss() would be handled by parent if needed
+            <View style={[styles.textInputWrapper, { minHeight: inputHeight }]}>
+              <TextInput
+                ref={inputRef}
+                style={[
+                  styles.textInput,
+                  { height: Math.max(inputHeight, MIN_INPUT_HEIGHT) },
+                ]}
+                placeholder="Type a message..."
+                placeholderTextColor={colors.textMuted}
+                value={message}
+                onChangeText={setMessage}
+                onContentSizeChange={handleContentSizeChange}
+                multiline
+                maxLength={500}
+                textAlignVertical="center"
+                selectionColor={colors.accent}
+                returnKeyType="default"
+                blurOnSubmit={false}
+                onFocus={() => {
+                  // Scroll to end when input is focused
+                  setTimeout(() => {
+                    scrollViewRef.current?.scrollToEnd({ animated: true });
+                  }, 300);
                 }}
-              >
-                <Text style={styles.dismissBtnText}>↓</Text>
-              </Pressable>
-            )}
+              />
+            </View>
             <Pressable
-              style={[styles.sendBtn, isLoading && styles.sendBtnDisabled]}
+              style={[
+                styles.sendBtn,
+                (isLoading || !message.trim()) && styles.sendBtnDisabled,
+              ]}
               onPress={handleSend}
               disabled={isLoading || !message.trim()}
             >
@@ -393,8 +592,11 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.xxl,
-    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xs,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.bg,
   },
   backBtn: {
     width: 36,
@@ -406,19 +608,50 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerTitle: {
+  headerTitleContainer: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
     marginLeft: spacing.md,
+    gap: spacing.sm,
+  },
+  headerTitle: {
+  },
+  chatTypeBadge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.pill,
+  },
+  chatTypeBuying: {
+    backgroundColor: colors.buyingSoft,
+  },
+  chatTypeSelling: {
+    backgroundColor: colors.sellingSoft,
+  },
+  chatTypeBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  chatTypeBuyingText: {
+    color: colors.buying,
+  },
+  chatTypeSellingText: {
+    color: colors.selling,
   },
   headerRightPlaceholder: {
     width: 36,
   },
   contextCard: {
-    marginHorizontal: spacing.xxl,
-    marginBottom: spacing.lg,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.xs,
+    marginBottom: spacing.xs,
     backgroundColor: colors.accentSoft,
     borderRadius: radius.md,
-    padding: spacing.md,
+    padding: spacing.sm,
+  },
+  contextCardCollapsed: {
+    padding: spacing.xs,
+    marginBottom: spacing.xs,
   },
   contextContent: {
     flexDirection: 'row',
@@ -433,25 +666,59 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  contextThumbSmall: {
+    width: 28,
+    height: 28,
+  },
   contextEmoji: {
     fontSize: 18,
   },
-  contextInfo: {},
+  contextEmojiSmall: {
+    fontSize: 14,
+  },
+  contextInfo: {
+    flex: 1,
+  },
+  expandIcon: {
+    fontSize: 10,
+    color: colors.textMuted,
+    marginLeft: spacing.sm,
+  },
   messagesContainer: {
     flex: 1,
   },
   messagesContent: {
+    // Pin messages to bottom - no empty space below last message
+    flexGrow: 1,
+    justifyContent: 'flex-end',
     paddingHorizontal: spacing.xxl,
-    paddingBottom: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.sm,
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: spacing.lg,
+  },
+  emptyText: {
+    textAlign: 'center',
   },
   messageRow: {
     flexDirection: 'row',
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
     maxWidth: '85%',
   },
   messageRowUser: {
     alignSelf: 'flex-end',
     flexDirection: 'row-reverse',
+  },
+  messageRowUnread: {
+    backgroundColor: colors.unread,
+    marginHorizontal: -spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.sm,
   },
   messageAvatar: {
     width: 32,
@@ -484,6 +751,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  messageBubbleUnread: {
+    // Subtle border highlight for unread messages from others
+    borderWidth: 1,
+    borderColor: colors.unreadBorder,
+  },
   senderName: {
     marginBottom: spacing.xs,
     opacity: 0.7,
@@ -497,9 +769,9 @@ const styles = StyleSheet.create({
   },
   inputArea: {
     backgroundColor: colors.bg,
-    paddingHorizontal: spacing.xxl,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.xxl,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.xs,
+    paddingBottom: Platform.OS === 'ios' ? spacing.sm : spacing.md,
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
@@ -518,33 +790,28 @@ const styles = StyleSheet.create({
   },
   inputRow: {
     flexDirection: 'row',
+    alignItems: 'flex-end',
     gap: spacing.sm,
+  },
+  textInputWrapper: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
   },
   textInput: {
     flex: 1,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    backgroundColor: colors.card,
+    paddingHorizontal: spacing.md,
+    paddingVertical: Platform.OS === 'ios' ? spacing.md : spacing.sm,
     fontFamily: typography?.fonts?.body || 'DMSans_400Regular',
     fontSize: typography?.sizes?.md || 14,
     color: colors.textPrimary,
-    maxHeight: 100,
-  },
-  dismissBtn: {
-    width: 44,
-    height: 44,
     backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dismissBtnText: {
-    fontSize: 18,
-    color: colors.textSecondary,
+    textAlignVertical: 'center',
+    minHeight: MIN_INPUT_HEIGHT,
+    maxHeight: MAX_INPUT_HEIGHT,
   },
   sendBtn: {
     width: 44,
@@ -562,5 +829,49 @@ const styles = StyleSheet.create({
   sendBtnDisabled: {
     opacity: 0.5,
   },
+  // Deal action bar styles
+  dealActionBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.card,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    gap: spacing.md,
+  },
+  dealActionInfo: {
+    flex: 1,
+  },
+  finalizeBtn: {
+    backgroundColor: colors.success,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+  },
+  finalizeBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  acceptBtn: {
+    backgroundColor: colors.buying,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+  },
+  acceptBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  completedBanner: {
+    backgroundColor: colors.successSoft,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: colors.success,
+  },
 });
-

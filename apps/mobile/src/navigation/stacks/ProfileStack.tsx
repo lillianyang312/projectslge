@@ -4,6 +4,7 @@ import { ProfileStackParamList } from '../types';
 
 // Import screens
 import ProfileHomeScreen from '../../screens/profile/ProfileHome';
+import EditProfileScreen from '../../screens/profile/EditProfile';
 import ConversationsListScreen from '../../screens/chat/ConversationsList';
 import ChatThreadScreen from '../../screens/chat/ChatThread';
 
@@ -19,6 +20,7 @@ export default function ProfileStack() {
       }}
     >
       <Stack.Screen name="Profile" component={ProfileHomeScreen} />
+      <Stack.Screen name="EditProfile" component={EditProfileScreen} />
       <Stack.Screen name="Conversations" component={ConversationsListScreen} />
       <Stack.Screen name="ChatThread" component={ChatThreadScreen} />
     </Stack.Navigator>

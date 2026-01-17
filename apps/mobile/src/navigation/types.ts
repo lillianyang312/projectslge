@@ -16,9 +16,27 @@ export type RootStackParamList = {
 // Auth flow
 export type AuthStackParamList = {
   Welcome: undefined;
-  Auth: undefined;           // Combined Login/Signup screen
+  Login: undefined;          // Email + biometric/code login
+  SignupStep1: undefined;    // Name, gender, phone
+  SignupStep2: { fullName: string; gender: string; phone: string };    // Harvard email, year, house, dorm
+  VerifyEmail: { email: string; signupData?: SignupData };  // Email verification code entry
+  // Legacy screens (kept for compatibility)
+  Auth: undefined;
   ForgotPassword: undefined;
   ResetPassword: undefined;
+};
+
+// Signup data passed between screens
+export type SignupData = {
+  fullName: string;
+  gender: string;
+  phone: string;
+  harvardEmail: string;
+  graduationYear: string;
+  house: string;
+  dormBuilding: string;
+  dormRoom: string;
+  loginPreference: 'biometric' | 'email_code';
 };
 
 // Bottom tabs - matches HTML spec exactly
@@ -88,11 +106,13 @@ export type DealsStackParamList = {
 export type InboxStackParamList = {
   InboxHome: undefined;
   ChatThread: { conversationId: string };
+  DealChat: { dealId: string };
 };
 
 // Profile stack
 export type ProfileStackParamList = {
   Profile: undefined;
+  EditProfile: undefined;
   Conversations: undefined;
   ChatThread: { conversationId: string };
 };

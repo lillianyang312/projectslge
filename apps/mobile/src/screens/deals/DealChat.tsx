@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -8,294 +8,502 @@ import {
   Pressable,
   KeyboardAvoidingView,
   Platform,
+  Alert,
+  ActivityIndicator,
+  Image,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { DealsStackParamList } from '../../navigation/types';
-import { Text, Button, Card, RichPriceText, type PriceReference } from '../../ui/components';
+import { Text, Button, Card, Badge, RichPriceText, type PriceReference } from '../../ui/components';
 import { colors, spacing, radius, typography } from '../../ui/tokens';
-import { Message, Deal } from '../../types/models';
-import { getMessages, sendMessage, sendAgentMessage, getDealById } from '../../services/dealsService';
-import { getQuickActionMessages } from '../../services/agentService';
+import { Deal, Message, DealStatus } from '../../types/models';
+import {
+  getDealById,
+  getMessages,
+  sendMessage,
+  sendAgentMessage,
+  acceptOffer,
+  makeOffer,
+  setLogistics,
+  completeDeal,
+} from '../../services/dealsService';
 import { useAuthStore } from '../../state/authStore';
-import { useChatLLM } from '../../hooks/useChatLLM';
-import { type ChatMessage, formatMessageTime } from '../../services/chatService';
+import { getSignedUrl } from '../../services/imageService';
 
 type Props = NativeStackScreenProps<DealsStackParamList, 'DealChat'>;
 
-// Demo messages with price references for showcasing RichPriceText
-const demoMessagesWithPrices: (Message & { priceReferences?: PriceReference[] })[] = [
-  {
-    id: 'demo-1',
-    deal_id: 'demo',
-    sender_id: null,
-    is_agent: true,
-    content: "Great news! I've analyzed the market and found that your Herman Miller Aeron is worth around $500-$650. The current offer of $550 is right in the sweet spot.",
-    message_type: 'system',
-    metadata: {
-      priceReferences: [
-        { kind: 'market_low', amount: 500 },
-        { kind: 'market_high', amount: 650 },
-        { kind: 'buyer_bid', amount: 550 },
-      ],
-    },
-    created_at: new Date(Date.now() - 3600000).toISOString(),
-  },
-  {
-    id: 'demo-2',
-    deal_id: 'demo',
-    sender_id: null,
-    is_agent: true,
-    content: "The buyer has made an offer of $550. Based on your minimum price of $520, this is a good deal! Should I accept?",
-    message_type: 'system',
-    metadata: {
-      priceReferences: [
-        { kind: 'buyer_bid', amount: 550 },
-        { kind: 'listing_price', amount: 520 },
-      ],
-    },
-    created_at: new Date(Date.now() - 1800000).toISOString(),
-  },
-  {
-    id: 'demo-3',
-    deal_id: 'demo',
-    sender_id: null,
-    is_agent: true,
-    content: "Deal confirmed at $550! I'm coordinating pickup based on both your availability.",
-    message_type: 'system',
-    metadata: {
-      priceReferences: [
-        { kind: 'agreed_price', amount: 550 },
-      ],
-    },
-    created_at: new Date(Date.now() - 600000).toISOString(),
-  },
-];
+// Category to emoji mapping
+const CATEGORY_EMOJI: Record<string, string> = {
+  'Electronics': '📱',
+  'Furniture': '🪑',
+  'Clothing': '👕',
+  'Books': '📚',
+  'Sports': '⚽',
+  'Sports & Outdoors': '🚴',
+  'Music': '🎸',
+  'Art': '🎨',
+  'Kitchen': '🍳',
+  'Home': '🏠',
+  'Office': '💼',
+  'Games': '🎮',
+  'Other': '📦',
+};
 
-/**
- * Convert Message[] (from database) to ChatMessage[] (for useChatLLM)
- */
-function convertMessagesToChatMessages(messages: Message[]): ChatMessage[] {
-  return messages.map((msg) => ({
-    id: msg.id,
-    sender: msg.is_agent ? 'agent' : 'user',
-    senderName: msg.is_agent ? 'Agent' : undefined,
-    text: msg.content,
-    time: formatMessageTime(new Date(msg.created_at)),
-    priceReferences: msg.metadata?.priceReferences as PriceReference[] | undefined,
-  }));
+function getEmojiForCategory(category: string): string {
+  return CATEGORY_EMOJI[category] || '📦';
 }
 
-/**
- * Convert ChatMessage[] back to Message[] format (for display)
- * This is mainly for agent responses that need to be saved to the database
- */
-function convertChatMessageToMessage(
-  chatMessage: ChatMessage,
-  dealId: string
-): Omit<Message, 'created_at'> {
-  return {
-    id: chatMessage.id,
-    deal_id: dealId,
-    sender_id: null, // Agent messages have null sender_id
-    is_agent: chatMessage.sender === 'agent',
-    content: chatMessage.text,
-    message_type: 'system',
-    metadata: chatMessage.priceReferences
-      ? { priceReferences: chatMessage.priceReferences }
-      : undefined,
-  };
+function getStatusBadgeVariant(status: DealStatus): 'warning' | 'success' | 'purple' | 'default' {
+  switch (status) {
+    case 'negotiating': return 'purple';
+    case 'agreed': return 'success';
+    case 'logistics': return 'warning';
+    case 'completed': return 'success';
+    case 'cancelled': return 'default';
+    default: return 'default';
+  }
+}
+
+function getStatusLabel(status: DealStatus): string {
+  switch (status) {
+    case 'negotiating': return 'Negotiating';
+    case 'agreed': return 'Agreed';
+    case 'logistics': return 'Scheduling';
+    case 'completed': return 'Complete';
+    case 'cancelled': return 'Cancelled';
+    default: return status;
+  }
 }
 
 export default function DealChatScreen({ navigation, route }: Props) {
-  const { dealId, deliveryMethod } = route.params;
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [inputText, setInputText] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [deal, setDeal] = useState<Deal | null>(null);
+  const { dealId } = route.params;
   const user = useAuthStore((state) => state.user);
   const scrollViewRef = useRef<ScrollView>(null);
 
-  // Convert messages to ChatMessage format for useChatLLM
-  const chatMessages = convertMessagesToChatMessages(messages);
+  const [deal, setDeal] = useState<Deal | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [inputText, setInputText] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
 
-  // Use the chat LLM hook with dealId context
-  // The hook will automatically send new user messages to the LLM
-  // with the full conversation history (including demo messages)
-  const { agentResponse, isLoading: isLLMLoading } = useChatLLM(chatMessages, {
-    context: { dealId },
-    autoSend: true, // Automatically send new user messages to LLM
-  });
+  const isSelling = deal?.seller_id === user?.id;
+  const otherPartyLabel = isSelling ? 'Buyer' : 'Seller';
 
+  // Load deal and messages
   useEffect(() => {
-    loadDeal();
-    loadMessages();
-  }, []);
+    loadDealAndMessages();
+  }, [dealId]);
 
-  async function loadDeal() {
-    const dealData = await getDealById(dealId);
-    setDeal(dealData);
-  }
+  async function loadDealAndMessages() {
+    setLoading(true);
+    try {
+      const [fetchedDeal, fetchedMessages] = await Promise.all([
+        getDealById(dealId),
+        getMessages(dealId),
+      ]);
 
-  async function loadMessages() {
-    const msgs = await getMessages(dealId);
-    // If no messages, show demo messages with price references
-    if (msgs.length === 0) {
-      setMessages(demoMessagesWithPrices as Message[]);
-    } else {
-      setMessages(msgs);
-    }
-    setLoading(false);
-  }
+      setDeal(fetchedDeal);
+      setMessages(fetchedMessages);
 
-  // Handle agent responses from LLM
-  useEffect(() => {
-    if (agentResponse) {
-      // Check if this response is already in messages
-      const exists = messages.some((msg) => msg.id === agentResponse.id);
-      if (!exists) {
-        console.log('💬 [DealChat] Adding agent response to messages:', {
-          messageId: agentResponse.id,
-          textPreview: agentResponse.text.substring(0, 100) + (agentResponse.text.length > 100 ? '...' : ''),
-          priceReferencesCount: agentResponse.priceReferences?.length || 0,
-        });
-
-        // Convert ChatMessage to Message format
-        const agentMessage = convertChatMessageToMessage(agentResponse, dealId);
-        
-        // Save to database
-        sendAgentMessage(
-          dealId,
-          agentResponse.text,
-          agentResponse.priceReferences ? { priceReferences: agentResponse.priceReferences } : undefined
-        ).then((savedMessage) => {
-          if (savedMessage) {
-            // Use the saved message from DB (has proper created_at, etc.)
-            setMessages((prev) => [...prev, savedMessage]);
-          } else {
-            // Fallback: add to local state if save fails
-            setMessages((prev) => [
-              ...prev,
-              {
-                ...agentMessage,
-                created_at: new Date().toISOString(),
-              } as Message,
-            ]);
-          }
-        });
+      // Load item image
+      if (fetchedDeal?.item?.photos?.[0]) {
+        const url = await getSignedUrl(fetchedDeal.item.photos[0]);
+        setImageUrl(url);
       }
+    } catch (error) {
+      console.error('Error loading deal chat:', error);
+    } finally {
+      setLoading(false);
     }
-  }, [agentResponse, dealId, messages]);
+  }
 
-  async function handleSend() {
-    if (!inputText.trim() || !user) return;
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+  }, [messages]);
+
+  const handleSend = async () => {
+    if (!inputText.trim() || !user || sending) return;
 
     const messageText = inputText.trim();
     setInputText('');
+    setSending(true);
 
-    // Save user message to database
-    const newMessage = await sendMessage(dealId, user.id, messageText);
-
-    if (newMessage) {
-      setMessages([...messages, newMessage]);
-      // The useChatLLM hook will automatically detect the new user message
-      // and send it to the LLM with the full conversation history (including demo messages)
-      setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
+    try {
+      const newMessage = await sendMessage(dealId, user.id, messageText);
+      if (newMessage) {
+        setMessages(prev => [...prev, newMessage]);
+      }
+    } catch (error) {
+      console.error('Error sending message:', error);
+      Alert.alert('Error', 'Failed to send message');
+    } finally {
+      setSending(false);
     }
-  }
-
-  async function handleQuickAction(message: string) {
-    if (!user) return;
-
-    const newMessage = await sendMessage(dealId, user.id, message, 'quick_action');
-
-    if (newMessage) {
-      setMessages([...messages, newMessage]);
-      // The useChatLLM hook will automatically detect the new user message
-      // and send it to the LLM with the full conversation history (including demo messages)
-      setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
-    }
-  }
-
-  const quickActions = deliveryMethod
-    ? getQuickActionMessages(deliveryMethod as 'pickup' | 'shipping')
-    : [];
-
-  const isSeller = deal && user && deal.seller_id === user.id;
-
-  const handleBroadcastAnnouncement = () => {
-    navigation.navigate('ChatThread', { conversationId: dealId });
   };
+
+  const handleAcceptOffer = async () => {
+    if (!deal || !user) return;
+
+    Alert.alert(
+      'Accept Offer',
+      `Accept the offer of $${deal.current_offer}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Accept',
+          onPress: async () => {
+            const success = await acceptOffer(deal.id, user.id);
+            if (success) {
+              // Reload deal to get updated status
+              const updatedDeal = await getDealById(dealId);
+              setDeal(updatedDeal);
+
+              // Reload messages to see system message
+              const updatedMessages = await getMessages(dealId);
+              setMessages(updatedMessages);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleFinalizeDeal = async () => {
+    if (!deal) return;
+
+    Alert.alert(
+      'Finalize Deal',
+      `Confirm the deal at $${deal.agreed_price || deal.current_offer}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Finalize',
+          onPress: async () => {
+            // Move to logistics phase
+            await setLogistics(deal.id, { delivery_method: 'pickup' });
+
+            // Reload deal
+            const updatedDeal = await getDealById(dealId);
+            setDeal(updatedDeal);
+
+            // Add agent message about scheduling
+            await sendAgentMessage(
+              dealId,
+              "Great! The deal is finalized. Now let's schedule the pickup. When are you available?"
+            );
+
+            // Reload messages
+            const updatedMessages = await getMessages(dealId);
+            setMessages(updatedMessages);
+          },
+        },
+      ]
+    );
+  };
+
+  const handleSchedulePickup = async (time: string, location: string) => {
+    if (!deal) return;
+
+    await setLogistics(deal.id, {
+      delivery_method: 'pickup',
+      pickup_location: location,
+      pickup_date: time,
+    });
+
+    // Add agent message
+    await sendAgentMessage(
+      dealId,
+      `Pickup scheduled for ${time} at ${location}. Both parties have been notified. See you then!`
+    );
+
+    // Reload
+    const [updatedDeal, updatedMessages] = await Promise.all([
+      getDealById(dealId),
+      getMessages(dealId),
+    ]);
+    setDeal(updatedDeal);
+    setMessages(updatedMessages);
+  };
+
+  const handleMarkComplete = async () => {
+    if (!deal || !user) return;
+
+    Alert.alert(
+      'Mark as Complete',
+      'Confirm that the item has been picked up?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Complete',
+          onPress: async () => {
+            await completeDeal(deal.id, user.id);
+
+            // Reload
+            const [updatedDeal, updatedMessages] = await Promise.all([
+              getDealById(dealId),
+              getMessages(dealId),
+            ]);
+            setDeal(updatedDeal);
+            setMessages(updatedMessages);
+          },
+        },
+      ]
+    );
+  };
+
+  const handleMakeOffer = () => {
+    Alert.prompt(
+      'Make an Offer',
+      'Enter your offer amount:',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Submit',
+          onPress: async (amount) => {
+            if (!amount || !user) return;
+            const numAmount = parseInt(amount.replace(/[^0-9]/g, ''), 10);
+            if (numAmount > 0) {
+              await makeOffer(dealId, numAmount, user.id);
+
+              // Reload
+              const [updatedDeal, updatedMessages] = await Promise.all([
+                getDealById(dealId),
+                getMessages(dealId),
+              ]);
+              setDeal(updatedDeal);
+              setMessages(updatedMessages);
+            }
+          },
+        },
+      ],
+      'plain-text',
+      '',
+      'numeric'
+    );
+  };
+
+  // Render action bar based on deal status
+  const renderActionBar = () => {
+    if (!deal) return null;
+
+    switch (deal.status) {
+      case 'negotiating':
+        if (deal.current_offer) {
+          // Show accept button for the other party
+          if (deal.last_offer_by !== user?.id) {
+            return (
+              <View style={styles.actionBar}>
+                <View style={styles.actionInfo}>
+                  <Text variant="bodyMedium" size="sm" color="purple">
+                    Offer: ${deal.current_offer}
+                  </Text>
+                  <Text variant="body" size="xs" color="secondary">
+                    From {deal.last_offer_by === deal.buyer_id ? 'buyer' : 'seller'}
+                  </Text>
+                </View>
+                <Pressable style={styles.acceptBtn} onPress={handleAcceptOffer}>
+                  <Text style={styles.acceptBtnText}>Accept ${deal.current_offer}</Text>
+                </Pressable>
+              </View>
+            );
+          } else {
+            // Waiting for response
+            return (
+              <View style={styles.actionBar}>
+                <View style={styles.actionInfo}>
+                  <Text variant="bodyMedium" size="sm" color="muted">
+                    Your offer: ${deal.current_offer}
+                  </Text>
+                  <Text variant="body" size="xs" color="secondary">
+                    Waiting for {otherPartyLabel.toLowerCase()} to respond
+                  </Text>
+                </View>
+              </View>
+            );
+          }
+        } else {
+          // No offer yet - show make offer button
+          return (
+            <View style={styles.actionBar}>
+              <View style={styles.actionInfo}>
+                <Text variant="body" size="sm" color="secondary">
+                  No offer yet
+                </Text>
+              </View>
+              <Pressable style={styles.offerBtn} onPress={handleMakeOffer}>
+                <Text style={styles.offerBtnText}>Make Offer</Text>
+              </Pressable>
+            </View>
+          );
+        }
+
+      case 'agreed':
+        return (
+          <View style={styles.actionBar}>
+            <View style={styles.actionInfo}>
+              <Text variant="bodyMedium" size="sm" color="success">
+                Agreed: ${deal.agreed_price}
+              </Text>
+              <Text variant="body" size="xs" color="secondary">
+                Ready to schedule pickup
+              </Text>
+            </View>
+            <Pressable style={styles.finalizeBtn} onPress={handleFinalizeDeal}>
+              <Text style={styles.finalizeBtnText}>Schedule Pickup</Text>
+            </Pressable>
+          </View>
+        );
+
+      case 'logistics':
+        return (
+          <View style={styles.actionBar}>
+            <View style={styles.actionInfo}>
+              <Text variant="bodyMedium" size="sm" color="warning">
+                {deal.pickup_date ? `Pickup: ${deal.pickup_date}` : 'Scheduling pickup...'}
+              </Text>
+              {deal.pickup_location && (
+                <Text variant="body" size="xs" color="secondary">
+                  at {deal.pickup_location}
+                </Text>
+              )}
+            </View>
+            <Pressable style={styles.completeBtn} onPress={handleMarkComplete}>
+              <Text style={styles.completeBtnText}>Mark Complete</Text>
+            </Pressable>
+          </View>
+        );
+
+      case 'completed':
+        return (
+          <View style={styles.completedBar}>
+            <Text variant="bodyMedium" size="md" color="success">
+              ✓ Deal completed!
+            </Text>
+          </View>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.screen}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.accent} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!deal) {
+    return (
+      <SafeAreaView style={styles.screen}>
+        <View style={styles.loadingContainer}>
+          <Text variant="body" color="secondary">Deal not found</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const itemTitle = deal.item?.title || 'Untitled Item';
+  const itemCategory = deal.item?.category || 'Other';
+  const emoji = getEmojiForCategory(itemCategory);
 
   return (
     <SafeAreaView style={styles.screen}>
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={90}
+        keyboardVerticalOffset={0}
       >
         {/* Header */}
         <View style={styles.header}>
           <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <Text size="xxxl">←</Text>
+            <Text size="xl">←</Text>
           </Pressable>
-          <Text variant="headingMedium" size="heading3" style={styles.headerTitle}>
-            Chat
+          <View style={styles.headerInfo}>
+            <Text variant="headingMedium" size="heading3" numberOfLines={1}>
+              {deal.status === 'completed' || deal.status === 'logistics' || deal.status === 'agreed'
+                ? itemTitle
+                : 'Anonymous'}
+            </Text>
+            <Badge variant={isSelling ? 'warning' : 'purple'}>
+              {isSelling ? 'Selling' : 'Buying'}
+            </Badge>
+          </View>
+        </View>
+
+        {/* Timestamp */}
+        <View style={styles.timestampContainer}>
+          <Text variant="body" size="xs" color="muted" style={styles.timestampText}>
+            Started {new Date(deal.created_at).toLocaleDateString([], {
+              month: 'short',
+              day: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            })}
           </Text>
-          {isSeller && (
-            <Pressable onPress={handleBroadcastAnnouncement} style={styles.broadcastBtn}>
-              <Text variant="bodyMedium" size="sm" color="accent">
-                Broadcast announcement
-              </Text>
-            </Pressable>
-          )}
+        </View>
+
+        {/* Item Card */}
+        <View style={styles.contextCard}>
+          <View style={styles.contextThumb}>
+            {imageUrl ? (
+              <Image source={{ uri: imageUrl }} style={styles.contextImage} resizeMode="cover" />
+            ) : (
+              <Text style={styles.contextEmoji}>{emoji}</Text>
+            )}
+          </View>
+          <View style={styles.contextInfo}>
+            <Text variant="bodyMedium" size="md" numberOfLines={1}>
+              {itemTitle}
+            </Text>
+            <Text variant="body" size="sm" color="secondary">
+              {deal.agreed_price
+                ? `Agreed: $${deal.agreed_price}`
+                : deal.current_offer
+                  ? `Current offer: $${deal.current_offer}`
+                  : 'No offer yet'}
+            </Text>
+          </View>
+          <Badge variant={getStatusBadgeVariant(deal.status)}>
+            {getStatusLabel(deal.status)}
+          </Badge>
         </View>
 
         {/* Messages */}
         <ScrollView
           ref={scrollViewRef}
+          style={styles.messagesContainer}
           contentContainerStyle={styles.messagesContent}
-          onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: false })}
+          keyboardShouldPersistTaps="handled"
         >
-          {messages.map((msg) => (
-            <MessageBubble
-              key={msg.id}
-              message={msg}
-              isOwn={msg.sender_id === user?.id}
-            />
-          ))}
-          {isLLMLoading && (
-            <View style={[styles.messageBubble, styles.messageBubbleAgent]}>
-              <Text variant="bodyMedium" size="xs" color="accent" style={styles.agentLabel}>
-                AGENT
-              </Text>
-              <Text variant="body" size="base" color="muted">
-                Thinking...
+          {messages.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text variant="body" size="md" color="secondary" style={styles.emptyText}>
+                Start the conversation
               </Text>
             </View>
+          ) : (
+            messages.map((msg) => (
+              <MessageBubble
+                key={msg.id}
+                message={msg}
+                isOwn={msg.sender_id === user?.id}
+                isSelling={isSelling}
+              />
+            ))
           )}
         </ScrollView>
 
-        {/* Quick Actions */}
-        {quickActions.length > 0 && (
-          <ScrollView
-            horizontal
-            style={styles.quickActionsScroll}
-            contentContainerStyle={styles.quickActionsContent}
-            showsHorizontalScrollIndicator={false}
-          >
-            {quickActions.map((action, idx) => (
-              <Pressable
-                key={idx}
-                style={styles.quickActionBtn}
-                onPress={() => handleQuickAction(action)}
-              >
-                <Text variant="bodyMedium" size="sm">
-                  {action}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        )}
+        {/* Action bar */}
+        {renderActionBar()}
 
         {/* Input */}
         <View style={styles.inputContainer}>
@@ -309,13 +517,15 @@ export default function DealChatScreen({ navigation, route }: Props) {
             maxLength={500}
           />
           <Pressable
-            style={[styles.sendBtn, (!inputText.trim() || isLLMLoading) && styles.sendBtnDisabled]}
+            style={[styles.sendBtn, (!inputText.trim() || sending) && styles.sendBtnDisabled]}
             onPress={handleSend}
-            disabled={!inputText.trim() || isLLMLoading}
+            disabled={!inputText.trim() || sending}
           >
-            <Text variant="bodyMedium" size="lg" color="white">
-              →
-            </Text>
+            {sending ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Text style={styles.sendBtnText}>↑</Text>
+            )}
           </Pressable>
         </View>
       </KeyboardAvoidingView>
@@ -326,43 +536,58 @@ export default function DealChatScreen({ navigation, route }: Props) {
 interface MessageBubbleProps {
   message: Message;
   isOwn: boolean;
+  isSelling: boolean;
 }
 
-function MessageBubble({ message, isOwn }: MessageBubbleProps) {
+function MessageBubble({ message, isOwn, isSelling }: MessageBubbleProps) {
   const isAgent = message.is_agent;
+  const isOther = !isOwn && !isAgent;
+
+  // Determine sender label for other party
+  const otherLabel = isSelling ? 'Buyer' : 'Seller';
 
   return (
     <View
       style={[
-        styles.messageBubble,
-        isAgent && styles.messageBubbleAgent,
-        isOwn && !isAgent && styles.messageBubbleOwn,
+        styles.messageRow,
+        isOwn && styles.messageRowOwn,
       ]}
     >
-      {isAgent && (
-        <Text variant="bodyMedium" size="xs" color="accent" style={styles.agentLabel}>
-          AGENT
-        </Text>
+      {!isOwn && (
+        <View style={[styles.avatar, isAgent && styles.avatarAgent]}>
+          <Text style={styles.avatarText}>{isAgent ? '🤖' : '👤'}</Text>
+        </View>
       )}
-
-      <RichPriceText
-        text={message.content}
-        references={message.metadata?.priceReferences}
-        size="base"
-        color={isOwn && !isAgent ? 'white' : 'primary'}
-      />
-
-      <Text
-        variant="body"
-        size="xs"
-        color={isOwn && !isAgent ? 'white' : 'muted'}
-        style={styles.messageTime}
+      <View
+        style={[
+          styles.messageBubble,
+          isOwn && styles.messageBubbleOwn,
+          isAgent && styles.messageBubbleAgent,
+          isOther && styles.messageBubbleOther,
+        ]}
       >
-        {new Date(message.created_at).toLocaleTimeString([], {
-          hour: '2-digit',
-          minute: '2-digit',
-        })}
-      </Text>
+        {!isOwn && (
+          <Text variant="bodyMedium" size="xs" style={styles.senderName}>
+            {isAgent ? 'Agent' : otherLabel}
+          </Text>
+        )}
+        <RichPriceText
+          text={message.content}
+          references={message.metadata?.priceReferences}
+          size="md"
+          color={isOwn ? 'white' : 'primary'}
+        />
+        <Text
+          variant="body"
+          size="xs"
+          style={[styles.messageTime, isOwn && styles.messageTimeOwn]}
+        >
+          {new Date(message.created_at).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -375,25 +600,19 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.lg,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.lg,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  headerTitle: {
-    flex: 1,
-  },
-  broadcastBtn: {
-    backgroundColor: colors.accentSoft,
-    borderWidth: 1,
-    borderColor: colors.accent,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
   },
   backBtn: {
     width: 36,
@@ -405,61 +624,191 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  messagesContent: {
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.xl,
-  },
-  messageBubble: {
-    maxWidth: '75%',
-    backgroundColor: colors.card,
-    borderRadius: radius.lg,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-    alignSelf: 'flex-start',
-  },
-  messageBubbleOwn: {
-    backgroundColor: colors.accent,
-    alignSelf: 'flex-end',
-  },
-  messageBubbleAgent: {
-    backgroundColor: colors.accentSoft,
-    borderLeftWidth: 3,
-    borderLeftColor: colors.accent,
-    alignSelf: 'stretch',
-    maxWidth: '100%',
-  },
-  agentLabel: {
-    marginBottom: spacing.xs,
-  },
-  messageText: {
-    marginBottom: spacing.xs,
-  },
-  messageTime: {
-    opacity: 0.7,
-  },
-  quickActionsScroll: {
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  quickActionsContent: {
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
+  headerInfo: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing.sm,
   },
-  quickActionBtn: {
+  timestampContainer: {
+    alignItems: 'center',
+    paddingVertical: spacing.xs,
+  },
+  timestampText: {
+    textAlign: 'center',
+  },
+  contextCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginHorizontal: spacing.lg,
+    marginVertical: spacing.sm,
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+  },
+  contextThumb: {
+    width: 40,
+    height: 40,
+    backgroundColor: colors.card,
+    borderRadius: radius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  contextImage: {
+    width: '100%',
+    height: '100%',
+  },
+  contextEmoji: {
+    fontSize: 18,
+  },
+  contextInfo: {
+    flex: 1,
+  },
+  messagesContainer: {
+    flex: 1,
+  },
+  messagesContent: {
+    flexGrow: 1,
+    justifyContent: 'flex-end',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyText: {
+    textAlign: 'center',
+  },
+  messageRow: {
+    flexDirection: 'row',
+    marginBottom: spacing.md,
+    maxWidth: '85%',
+  },
+  messageRowOwn: {
+    alignSelf: 'flex-end',
+    flexDirection: 'row-reverse',
+  },
+  avatar: {
+    width: 32,
+    height: 32,
+    backgroundColor: colors.accentSoft,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.sm,
+  },
+  avatarAgent: {
+    backgroundColor: colors.purpleSoft,
+  },
+  avatarText: {
+    fontSize: 14,
+  },
+  messageBubble: {
+    padding: spacing.md,
+    borderRadius: 16,
+    maxWidth: '100%',
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: radius.pill,
+  },
+  messageBubbleOwn: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  messageBubbleAgent: {
+    backgroundColor: colors.purpleSoft,
+    borderColor: colors.purpleSoft,
+  },
+  messageBubbleOther: {
+    backgroundColor: colors.card,
+  },
+  senderName: {
+    marginBottom: spacing.xs,
+    opacity: 0.7,
+  },
+  messageTime: {
+    marginTop: spacing.xs,
+    opacity: 0.5,
+    color: colors.textMuted,
+  },
+  messageTimeOwn: {
+    color: 'rgba(255,255,255,0.7)',
+  },
+  actionBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.card,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    gap: spacing.md,
+  },
+  actionInfo: {
+    flex: 1,
+  },
+  acceptBtn: {
+    backgroundColor: colors.success,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+  },
+  acceptBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  offerBtn: {
+    backgroundColor: colors.accent,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+  },
+  offerBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  finalizeBtn: {
+    backgroundColor: colors.success,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+  },
+  finalizeBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  completeBtn: {
+    backgroundColor: colors.success,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+  },
+  completeBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  completedBar: {
+    backgroundColor: colors.successSoft,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: colors.success,
   },
   inputContainer: {
     flexDirection: 'row',
-    gap: spacing.md,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.lg,
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
     borderTopWidth: 1,
     borderTopColor: colors.border,
     backgroundColor: colors.bg,
@@ -470,22 +819,27 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.lg,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    fontSize: typography.sizes.base,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    fontSize: typography.sizes.md,
     fontFamily: typography.fonts.body,
     color: colors.textPrimary,
     maxHeight: 100,
   },
   sendBtn: {
-    width: 48,
-    height: 48,
+    width: 44,
+    height: 44,
     backgroundColor: colors.accent,
-    borderRadius: 24,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  sendBtnText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '600',
+  },
   sendBtnDisabled: {
-    backgroundColor: colors.bgAlt,
+    opacity: 0.5,
   },
 });

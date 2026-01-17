@@ -22,10 +22,9 @@ export async function uploadImage(
   userId: string
 ): Promise<UploadImageResult> {
   try {
-    // Get file extension from URI
-    const ext = localUri.split('.').pop()?.toLowerCase() || 'jpg';
     const timestamp = Date.now();
-    const fileName = `${timestamp}.${ext}`;
+    // Always use .jpg since we compress to JPEG format
+    const fileName = `${timestamp}.jpg`;
     const path = `${userId}/${fileName}`;
 
     console.log('Starting image compression...');
@@ -56,7 +55,7 @@ export async function uploadImage(
     const { error: uploadError } = await supabase.storage
       .from(BUCKET_NAME)
       .upload(path, byteArray, {
-        contentType: `image/${ext}`,
+        contentType: 'image/jpeg',
         upsert: false,
       });
 
@@ -84,8 +83,8 @@ export async function getSignedUrl(
   expiresIn: number = 3600
 ): Promise<string | null> {
   try {
-    const maxAttempts = 10;
-    const delayMs = 10000; // 10 seconds between attempts
+    const maxAttempts = 3;
+    const delayMs = 1000; // 1 second between attempts
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       console.log(`Attempt ${attempt}/${maxAttempts}: Creating signed URL for path: ${path}`);
@@ -94,13 +93,13 @@ export async function getSignedUrl(
         .from(BUCKET_NAME)
         .createSignedUrl(path, expiresIn);
 
-      if (!error) {
+      if (!error && data?.signedUrl) {
         console.log('Successfully created signed URL');
         return data.signedUrl;
       }
 
       if (attempt < maxAttempts) {
-        console.log(`Attempt ${attempt} failed: ${error.message}. Waiting 10 seconds before retry...`);
+        console.log(`Attempt ${attempt} failed: ${error?.message || 'No signed URL returned'}. Retrying in 1 second...`);
         await new Promise(resolve => setTimeout(resolve, delayMs));
       } else {
         console.error(`All ${maxAttempts} attempts failed. Last error:`, error);
@@ -115,20 +114,21 @@ export async function getSignedUrl(
 }
 
 /**
- * Call the analyzeImage Edge Function
- * @param imageUrl - The public or signed URL of the image
- * @param imagePath - The storage path
+ * Call the analyzeImage Edge Function with multiple images
+ * @param imageUrls - Array of public or signed URLs of the images
+ * @param imagePaths - Array of storage paths
  * @returns The analysis result
  */
-export async function analyzeImage(
-  imageUrl: string,
-  imagePath: string
+export async function analyzeImages(
+  imageUrls: string[],
+  imagePaths: string[]
 ): Promise<AnalyzeImageResponse | null> {
   try {
+    console.log(`Analyzing ${imageUrls.length} image(s) with Claude Vision...`);
     const { data, error } = await supabase.functions.invoke<AnalyzeImageResponse>(
       'analyzeImage',
       {
-        body: { imageUrl, imagePath } as AnalyzeImageRequest,
+        body: { imageUrls, imagePaths } as AnalyzeImageRequest,
       }
     );
 
@@ -139,9 +139,22 @@ export async function analyzeImage(
 
     return data;
   } catch (error) {
-    console.error('Error analyzing image:', error);
+    console.error('Error analyzing images:', error);
     return null;
   }
+}
+
+/**
+ * Call the analyzeImage Edge Function (legacy single image support)
+ * @param imageUrl - The public or signed URL of the image
+ * @param imagePath - The storage path
+ * @returns The analysis result
+ */
+export async function analyzeImage(
+  imageUrl: string,
+  imagePath: string
+): Promise<AnalyzeImageResponse | null> {
+  return analyzeImages([imageUrl], [imagePath]);
 }
 
 /**

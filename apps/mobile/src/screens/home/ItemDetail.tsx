@@ -12,20 +12,20 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { ListStackParamList, AppTabsParamList } from '../../navigation/types';
-import { Text, Button, Input, Pill, Tabs, Badge, BroadcastAnnouncement } from '../../ui/components';
+import { Text, Button, Input, Pill, Tabs, Badge } from '../../ui/components';
 import { colors, spacing, radius, typography } from '../../ui/tokens';
 import { useItemsStore } from '../../state/itemsStore';
 import { useAuthStore } from '../../state/authStore';
 import { getItemById, updateItem, deleteItem, Item } from '../../services/itemsService';
 import { getSignedUrl } from '../../services/imageService';
-import { broadcastToItemBuyers } from '../../services/broadcastService';
+import { getDealsByItemId } from '../../services/dealsService';
+import { Deal } from '../../types/models';
 
 type Props = NativeStackScreenProps<ListStackParamList, 'ItemDetail'>;
 type TabNavProp = BottomTabNavigationProp<AppTabsParamList>;
 
 type Condition = 'New' | 'Like new' | 'Good' | 'Fair';
 type SellIntent = 'Maybe' | 'If good offer' | 'Want gone';
-type DeliveryPref = 'Local only' | 'Shipping OK';
 
 // Demo data matching HTML spec
 const demoItemsData: Record<string, {
@@ -36,7 +36,6 @@ const demoItemsData: Record<string, {
   estimatedValue: number;
   estimatedRange: string;
   sellIntent: SellIntent;
-  deliveryPref: DeliveryPref;
 }> = {
   '1': {
     emoji: '🪑',
@@ -46,7 +45,6 @@ const demoItemsData: Record<string, {
     estimatedValue: 650,
     estimatedRange: '$500 – $800',
     sellIntent: 'If good offer',
-    deliveryPref: 'Local only',
   },
   '2': {
     emoji: '📱',
@@ -56,7 +54,6 @@ const demoItemsData: Record<string, {
     estimatedValue: 800,
     estimatedRange: '$700 – $900',
     sellIntent: 'Maybe',
-    deliveryPref: 'Shipping OK',
   },
   '3': {
     emoji: '🎸',
@@ -66,7 +63,6 @@ const demoItemsData: Record<string, {
     estimatedValue: 600,
     estimatedRange: '$500 – $750',
     sellIntent: 'Want gone',
-    deliveryPref: 'Local only',
   },
 };
 
@@ -80,10 +76,12 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
   const [supabaseItem, setSupabaseItem] = useState<Item | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  
+  const [deals, setDeals] = useState<Deal[]>([]);
+  const [loadingDeals, setLoadingDeals] = useState(true);
+
   // Try to get listing from store first
   const storedListing = listings.find((l) => l.id === itemId);
-  
+
   // Fetch Supabase item if user is authenticated and item not found locally
   useEffect(() => {
     async function fetchItem() {
@@ -102,6 +100,19 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
     }
     fetchItem();
   }, [itemId, user, storedListing]);
+
+  // Fetch deals/bids for this item
+  useEffect(() => {
+    async function fetchDeals() {
+      if (user) {
+        setLoadingDeals(true);
+        const itemDeals = await getDealsByItemId(itemId);
+        setDeals(itemDeals);
+        setLoadingDeals(false);
+      }
+    }
+    fetchDeals();
+  }, [itemId, user]);
   
   // Get item data from various sources
   const itemData = supabaseItem
@@ -110,10 +121,12 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
         title: supabaseItem.title,
         category: supabaseItem.category,
         condition: (supabaseItem.condition || 'Good') as Condition,
-        estimatedValue: supabaseItem.asking_price || 100,
-        estimatedRange: '$50 – $150',
+        estimatedValue: Math.round(((supabaseItem.estimated_value_min || 50) + (supabaseItem.estimated_value_max || 150)) / 2),
+        estimatedRange: supabaseItem.estimated_value_min && supabaseItem.estimated_value_max
+          ? `$${supabaseItem.estimated_value_min} – $${supabaseItem.estimated_value_max}`
+          : '$50 – $150',
+        minPrice: supabaseItem.min_price,
         sellIntent: 'Maybe' as SellIntent,
-        deliveryPref: (supabaseItem.delivery_pref === 'shipping_ok' ? 'Shipping OK' : 'Local only') as DeliveryPref,
         imageUri: imageUrl,
         isSupabase: true,
       }
@@ -125,24 +138,22 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
         condition: (storedListing.original.condition || 'Good') as Condition,
         estimatedValue: 100,
         estimatedRange: '$50 – $150',
+        minPrice: undefined as number | undefined,
         sellIntent: 'Maybe' as SellIntent,
-        deliveryPref: 'Local only' as DeliveryPref,
         imageUri: storedListing.original.imageUris?.[0],
         isSupabase: false,
       }
-    : { ...demoItemsData[itemId] || demoItemsData['1'], isSupabase: false };
-  
+    : { ...demoItemsData[itemId] || demoItemsData['1'], minPrice: undefined as number | undefined, isSupabase: false };
+
   const [condition, setCondition] = useState<Condition>(itemData.condition);
   const [askingPrice, setAskingPrice] = useState(itemData.estimatedValue?.toString() || '');
   const [sellIntent, setSellIntent] = useState<SellIntent>(itemData.sellIntent);
-  const [deliveryPref, setDeliveryPref] = useState<DeliveryPref>(itemData.deliveryPref);
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState(0); // 0 = Buyer Interest, 1 = Item Details
 
   const conditionOptions: Condition[] = ['New', 'Like new', 'Good', 'Fair'];
   const sellIntentOptions: SellIntent[] = ['Maybe', 'If good offer', 'Want gone'];
-  const deliveryOptions: DeliveryPref[] = ['Local only', 'Shipping OK'];
 
   const handleSave = async () => {
     setSaving(true);
@@ -152,8 +163,7 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
         // Update Supabase item
         const { error } = await updateItem(itemId, {
           condition,
-          delivery_pref: deliveryPref === 'Shipping OK' ? 'shipping_ok' : 'local_only',
-          asking_price: askingPrice ? parseFloat(askingPrice) : undefined,
+          min_price: askingPrice ? parseFloat(askingPrice) : undefined,
         });
         
         if (error) {
@@ -222,8 +232,8 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
           <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
             <Text size="xl">←</Text>
           </Pressable>
-          <Text variant="headingMedium" size="heading3" style={styles.headerTitle}>
-            Item
+          <Text variant="headingMedium" size="heading3" style={styles.headerTitle} numberOfLines={1}>
+            {itemData.title}
           </Text>
         </View>
 
@@ -243,191 +253,146 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
                 Buyer interest
               </Text>
               <Text variant="heading" size="heading3" style={styles.buyerSummaryValue}>
-                3 interested buyers
+                {loadingDeals ? 'Loading...' : `${deals.length} interested buyer${deals.length !== 1 ? 's' : ''}`}
               </Text>
-              <Text variant="body" size="xs" color="secondary" style={styles.buyerSummaryNote}>
-                Answer their questions in your Inbox to see full bid details
-              </Text>
+              {deals.length > 0 && (
+                <Text variant="body" size="xs" color="secondary" style={styles.buyerSummaryNote}>
+                  Review offers and chat with interested buyers
+                </Text>
+              )}
             </View>
 
-            {/* Agent Recommendation */}
-            <View style={styles.agentRecommendation}>
-              <Text variant="body" size="xs" color="secondary" style={styles.agentRecLabel}>
-                Agent recommendation
-              </Text>
-              <Text variant="heading" size="heading3" color="success" style={styles.agentRecValue}>
-                Accept $550 offer
-              </Text>
-            </View>
-
-            {/* Broadcast Announcement */}
-            <BroadcastAnnouncement
-              onSend={async (message) => {
-                if (!user) {
-                  Alert.alert('Error', 'You must be logged in to broadcast messages.');
-                  return;
-                }
-
-                const result = await broadcastToItemBuyers(itemId, user.id, message);
-                
-                if (result.success) {
-                  Alert.alert(
-                    'Message Sent',
-                    `Your announcement has been sent to ${result.recipientsCount} interested buyer${result.recipientsCount !== 1 ? 's' : ''}.`
-                  );
-                } else {
-                  Alert.alert('Error', result.error || 'Failed to send broadcast message.');
-                }
-              }}
-            />
-
-            {/* Bids - Demo data matching HTML spec lines 763-801 */}
-            {/* Bid #1: Answered questions - show full details */}
-            <View style={styles.bidCard}>
-              <View style={styles.bidHeader}>
-                <Text variant="heading" size="heading3" color="success">
-                  $550
+            {/* Agent Recommendation - only show if there are deals with offers */}
+            {deals.some(d => d.current_offer) && (
+              <View style={styles.agentRecommendation}>
+                <Text variant="body" size="xs" color="secondary" style={styles.agentRecLabel}>
+                  Agent recommendation
                 </Text>
-                <Badge variant="success">Recommended</Badge>
-              </View>
-
-              {/* Time indicator */}
-              <View style={styles.timeIndicator}>
-                <Text variant="body" size="xs" color="secondary">
-                  ⏰ 4d left · Active 2h ago
+                <Text variant="heading" size="heading3" color="success" style={styles.agentRecValue}>
+                  {(() => {
+                    const bestOffer = Math.max(...deals.filter(d => d.current_offer).map(d => d.current_offer || 0));
+                    return bestOffer > 0 ? `Accept $${bestOffer} offer` : 'Review incoming offers';
+                  })()}
                 </Text>
               </View>
+            )}
 
-              {/* Buyer Information Section */}
-              <View style={styles.buyerInfo}>
-                <Text variant="bodyMedium" size="sm" style={styles.buyerInfoTitle}>
-                  Buyer Profile
+            {/* Show real deals/bids */}
+            {loadingDeals ? (
+              <View style={styles.loadingContainer}>
+                <Text variant="body" color="secondary">Loading bids...</Text>
+              </View>
+            ) : deals.length === 0 ? (
+              <View style={styles.emptyBidsContainer}>
+                <Text style={styles.emptyBidsEmoji}>💬</Text>
+                <Text variant="bodyMedium" size="md" style={styles.emptyBidsTitle}>
+                  No bids yet
                 </Text>
+                <Text variant="body" size="sm" color="secondary" style={styles.emptyBidsText}>
+                  When buyers express interest in your item, their bids will appear here.
+                </Text>
+              </View>
+            ) : (
+              deals.map((deal, index) => {
+                const hasOffer = deal.current_offer && deal.current_offer > 0;
+                const isAgreed = deal.status === 'agreed' || deal.status === 'logistics' || deal.status === 'completed';
+                const bestOffer = Math.max(...deals.filter(d => d.current_offer).map(d => d.current_offer || 0));
+                const isRecommended = hasOffer && deal.current_offer === bestOffer;
 
-                {/* Reputation Section */}
-                <View style={styles.reputationSection}>
-                  <View style={styles.buyerDetailRow}>
-                    <Text variant="body" size="sm" color="secondary">Name</Text>
-                    <Text variant="bodyMedium" size="sm">Sarah M.</Text>
-                  </View>
-                  <View style={styles.buyerDetailRow}>
-                    <Text variant="body" size="sm" color="secondary">Member since</Text>
-                    <Text variant="bodyMedium" size="sm">Jan 2024</Text>
-                  </View>
-                  <View style={styles.buyerDetailRow}>
-                    <Text variant="body" size="sm" color="secondary">Reputation</Text>
-                    <View style={styles.reputationBadge}>
-                      <Text variant="bodyMedium" size="xs" style={styles.reputationText}>
-                        ⭐ Verified · 12 deals
+                // Get status badge
+                const getStatusBadge = () => {
+                  switch (deal.status) {
+                    case 'negotiating':
+                      return hasOffer ? { label: 'Offer received', variant: 'purple' as const } : { label: 'Interest shown', variant: 'secondary' as const };
+                    case 'agreed':
+                      return { label: 'Deal agreed', variant: 'success' as const };
+                    case 'logistics':
+                      return { label: 'Scheduling', variant: 'warning' as const };
+                    case 'completed':
+                      return { label: 'Completed', variant: 'success' as const };
+                    default:
+                      return { label: 'Active', variant: 'default' as const };
+                  }
+                };
+                const statusBadge = getStatusBadge();
+
+                // Format time ago
+                const timeAgo = () => {
+                  const updated = new Date(deal.updated_at);
+                  const now = new Date();
+                  const diffMs = now.getTime() - updated.getTime();
+                  const diffMins = Math.floor(diffMs / 60000);
+                  if (diffMins < 60) return `${diffMins}m ago`;
+                  const diffHours = Math.floor(diffMins / 60);
+                  if (diffHours < 24) return `${diffHours}h ago`;
+                  const diffDays = Math.floor(diffHours / 24);
+                  return `${diffDays}d ago`;
+                };
+
+                return (
+                  <View key={deal.id} style={[styles.bidCard, !hasOffer && styles.bidCardLocked]}>
+                    <View style={styles.bidHeader}>
+                      <Text variant="heading" size="heading3" color={hasOffer ? 'success' : 'secondary'}>
+                        {hasOffer ? `$${deal.current_offer}` : 'No offer yet'}
+                      </Text>
+                      <View style={styles.bidBadges}>
+                        {isRecommended && <Badge variant="success">Recommended</Badge>}
+                        <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
+                      </View>
+                    </View>
+
+                    {/* Time indicator */}
+                    <View style={styles.timeIndicator}>
+                      <Text variant="body" size="xs" color="secondary">
+                        ⏰ Active {timeAgo()}
                       </Text>
                     </View>
-                  </View>
-                  <View style={styles.buyerDetailRow}>
-                    <Text variant="body" size="sm" color="secondary">Rating</Text>
-                    <Text variant="bodyMedium" size="sm">4.9/5.0 (12 reviews)</Text>
-                  </View>
-                  <View style={styles.buyerDetailRow}>
-                    <Text variant="body" size="sm" color="secondary">Items sold</Text>
-                    <Text variant="bodyMedium" size="sm">8 items</Text>
-                  </View>
-                  <View style={styles.buyerDetailRow}>
-                    <Text variant="body" size="sm" color="secondary">Items purchased</Text>
-                    <Text variant="bodyMedium" size="sm">4 items</Text>
-                  </View>
-                </View>
 
-                {/* Bid Details Section */}
-                <View style={styles.bidDetailsSection}>
-                  <View style={styles.buyerDetailRow}>
-                    <Text variant="body" size="sm" color="secondary">Location</Text>
-                    <Text variant="bodyMedium" size="sm">1.2 mi away</Text>
-                  </View>
-                  <View style={styles.buyerDetailRow}>
-                    <Text variant="body" size="sm" color="secondary">Payment</Text>
-                    <Text variant="bodyMedium" size="sm">Cash on pickup</Text>
-                  </View>
-                  <View style={styles.buyerDetailRow}>
-                    <Text variant="body" size="sm" color="secondary" style={styles.availabilityLabel}>Pickup availability</Text>
-                    <View style={styles.availabilityPills}>
-                      <View style={styles.availabilityPill}>
-                        <Text variant="bodyMedium" size="xs">Weekdays</Text>
+                    {/* Deal info */}
+                    <View style={styles.dealInfoSection}>
+                      <View style={styles.buyerDetailRow}>
+                        <Text variant="body" size="sm" color="secondary">Status</Text>
+                        <Text variant="bodyMedium" size="sm">
+                          {deal.status === 'negotiating' ? 'Negotiating' :
+                           deal.status === 'agreed' ? `Agreed at $${deal.agreed_price}` :
+                           deal.status === 'logistics' ? 'Scheduling pickup' :
+                           deal.status === 'completed' ? 'Completed' : deal.status}
+                        </Text>
                       </View>
-                      <View style={styles.availabilityPill}>
-                        <Text variant="bodyMedium" size="xs">Weekends</Text>
-                      </View>
-                      <View style={styles.availabilityPill}>
-                        <Text variant="bodyMedium" size="xs">Evenings</Text>
-                      </View>
+                      {isAgreed && deal.agreed_price && (
+                        <View style={styles.buyerDetailRow}>
+                          <Text variant="body" size="sm" color="secondary">Final price</Text>
+                          <Text variant="bodyMedium" size="sm" color="success">${deal.agreed_price}</Text>
+                        </View>
+                      )}
+                    </View>
+
+                    <View style={styles.bidActions}>
+                      {deal.status === 'negotiating' && hasOffer && (
+                        <Button
+                          variant="primary"
+                          style={styles.bidActionBtn}
+                          onPress={() => {
+                            tabNavigation.navigate('Deals', { initialMode: 'selling' });
+                          }}
+                        >
+                          Review offer
+                        </Button>
+                      )}
+                      <Button
+                        variant="secondary"
+                        style={styles.bidActionBtn}
+                        onPress={() => {
+                          tabNavigation.navigate('Deals', { initialMode: 'selling' });
+                        }}
+                      >
+                        View deal
+                      </Button>
                     </View>
                   </View>
-                </View>
-              </View>
-
-              <View style={styles.bidActions}>
-                <Button variant="primary" style={styles.bidActionBtn} onPress={() => handleSellItem(550)}>
-                  Sell for $550
-                </Button>
-                <Button
-                  variant="secondary"
-                  style={styles.bidActionBtn}
-                  onPress={() => navigation.navigate('ChatThread', { conversationId: 'buyer-sarah-1' })}
-                >
-                  Chat with Sarah
-                </Button>
-              </View>
-            </View>
-
-            {/* Bid #2: Questions not answered - show limited info */}
-            <View style={[styles.bidCard, styles.bidCardLocked]}>
-              <View style={styles.bidHeader}>
-                <Text variant="heading" size="heading3" color="secondary">
-                  $???
-                </Text>
-                <Badge variant="secondary">Pending questions</Badge>
-              </View>
-
-              <View style={styles.lockedBidInfo}>
-                <Text variant="body" size="sm" color="secondary" style={styles.lockedBidText}>
-                  Asked about shipping options
-                </Text>
-              </View>
-
-              <View style={styles.bidActions}>
-                <Button
-                  variant="secondary"
-                  style={styles.bidActionBtn}
-                  onPress={() => navigation.navigate('ChatThread', { conversationId: 'buyer-question-1' })}
-                >
-                  Answer Mike
-                </Button>
-              </View>
-            </View>
-
-            {/* Bid #3: Questions not answered - show limited info */}
-            <View style={[styles.bidCard, styles.bidCardLocked]}>
-              <View style={styles.bidHeader}>
-                <Text variant="heading" size="heading3" color="secondary">
-                  $???
-                </Text>
-                <Badge variant="secondary">Pending questions</Badge>
-              </View>
-
-              <View style={styles.lockedBidInfo}>
-                <Text variant="body" size="sm" color="secondary" style={styles.lockedBidText}>
-                  Asked about condition details
-                </Text>
-              </View>
-
-              <View style={styles.bidActions}>
-                <Button
-                  variant="secondary"
-                  style={styles.bidActionBtn}
-                  onPress={() => navigation.navigate('ChatThread', { conversationId: 'buyer-question-2' })}
-                >
-                  Answer Alex
-                </Button>
-              </View>
-            </View>
+                );
+              })
+            )}
           </View>
         )}
 
@@ -462,18 +427,14 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
                     <Text variant="bodyMedium" size="md">{condition}</Text>
                   </View>
                   <View style={styles.factRow}>
-                    <Text variant="body" size="md" color="secondary">Would let go for</Text>
+                    <Text variant="body" size="md" color="secondary">Minimum price to sell</Text>
                     <Text variant="bodyMedium" size="md">
-                      {askingPrice ? `$${askingPrice}` : 'Not set'}
+                      {itemData.minPrice ? `$${itemData.minPrice}` : 'Not set'}
                     </Text>
                   </View>
                   <View style={styles.factRow}>
                     <Text variant="body" size="md" color="secondary">How likely to sell</Text>
                     <Text variant="bodyMedium" size="md">{sellIntent}</Text>
-                  </View>
-                  <View style={styles.factRow}>
-                    <Text variant="body" size="md" color="secondary">Delivery preference</Text>
-                    <Text variant="bodyMedium" size="md">{deliveryPref}</Text>
                   </View>
                   <View style={styles.factRow}>
                     <Text variant="body" size="md" color="secondary">Interested buyers</Text>
@@ -533,10 +494,10 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
                   </Text>
                 </View>
 
-                {/* Would let go for */}
+                {/* Minimum price to sell */}
                 <View style={styles.inputGroup}>
                   <Text variant="body" size="base" color="secondary" style={styles.label}>
-                    Would let go for
+                    Minimum price to sell
                   </Text>
                   <View style={styles.priceInputRow}>
                     <Input
@@ -568,23 +529,6 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
                         label={opt}
                         selected={sellIntent === opt}
                         onPress={() => setSellIntent(opt)}
-                      />
-                    ))}
-                  </View>
-                </View>
-
-                {/* Delivery preference */}
-                <View style={styles.inputGroup}>
-                  <Text variant="body" size="base" color="secondary" style={styles.label}>
-                    Delivery preference
-                  </Text>
-                  <View style={styles.pills}>
-                    {deliveryOptions.map((opt) => (
-                      <Pill
-                        key={opt}
-                        label={opt}
-                        selected={deliveryPref === opt}
-                        onPress={() => setDeliveryPref(opt)}
                       />
                     ))}
                   </View>
@@ -904,5 +848,38 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.03)',
     borderRadius: radius.xs,
     marginBottom: spacing.sm,
+  },
+  loadingContainer: {
+    padding: spacing.xl,
+    alignItems: 'center',
+  },
+  emptyBidsContainer: {
+    padding: spacing.xxl,
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    marginTop: spacing.md,
+  },
+  emptyBidsEmoji: {
+    fontSize: 48,
+    marginBottom: spacing.md,
+  },
+  emptyBidsTitle: {
+    marginBottom: spacing.sm,
+  },
+  emptyBidsText: {
+    textAlign: 'center',
+  },
+  dealInfoSection: {
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.sm,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  bidBadges: {
+    flexDirection: 'row',
+    gap: spacing.xs,
   },
 });

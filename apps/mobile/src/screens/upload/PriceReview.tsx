@@ -142,8 +142,9 @@ export default function PriceReviewScreen({ navigation }: Props) {
           category: draft?.category || 'General',
           condition: draft?.condition || 'Good',
           photos: photoPaths,
-          delivery_pref: draft?.deliveryPref || 'local_only',
-          asking_price: minimumPrice ? parseFloat(minimumPrice) : undefined,
+          estimated_value_min: priceRange.min,
+          estimated_value_max: priceRange.max,
+          min_price: minimumPrice ? parseFloat(minimumPrice) : undefined,
         });
 
         const { data, error } = await createItem({
@@ -151,8 +152,9 @@ export default function PriceReviewScreen({ navigation }: Props) {
           category: draft?.category || 'General',
           condition: draft?.condition || 'Good',
           photos: photoPaths,
-          delivery_pref: draft?.deliveryPref || 'local_only',
-          asking_price: minimumPrice ? parseFloat(minimumPrice) : undefined,
+          estimated_value_min: priceRange.min,
+          estimated_value_max: priceRange.max,
+          min_price: minimumPrice ? parseFloat(minimumPrice) : undefined,
         });
 
         if (error) {
@@ -206,15 +208,6 @@ export default function PriceReviewScreen({ navigation }: Props) {
     return labels[draft?.sellIntent || 'might_sell'] || 'Might sell';
   };
 
-  const getDeliveryLabel = () => {
-    const labels: Record<string, string> = {
-      'local_only': 'Local only',
-      'shipping_ok': 'Shipping OK',
-      'both': 'Local & Shipping',
-    };
-    return labels[draft?.deliveryPref || 'local_only'] || 'Local only';
-  };
-
   return (
     <SafeAreaView style={styles.screen}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -246,7 +239,6 @@ export default function PriceReviewScreen({ navigation }: Props) {
           <View style={styles.badges}>
             <Badge variant="neutral" text={draft?.condition || 'Good'} />
             <Badge variant="purple" text={getSellIntentLabel()} />
-            <Badge variant="blue" text={getDeliveryLabel()} />
           </View>
 
           {draft?.pricePurchased && (

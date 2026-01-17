@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text } from 'react-native';
 import { AppTabsParamList } from './types';
 import { colors } from '../ui/tokens';
+import { useAuthStore } from '../state/authStore';
+import { getMyDeals } from '../services/dealsService';
 
 // Import stack navigators
 import HomeStack from './stacks/HomeStack';
@@ -15,6 +17,39 @@ import ProfileStack from './stacks/ProfileStack';
 const Tab = createBottomTabNavigator<AppTabsParamList>();
 
 export default function AppTabs() {
+  const user = useAuthStore((state) => state.user);
+  const [inboxBadgeCount, setInboxBadgeCount] = useState<number | undefined>(undefined);
+
+  // Load inbox badge count - deals needing response
+  const loadInboxBadge = useCallback(async () => {
+    if (!user?.id) {
+      setInboxBadgeCount(undefined);
+      return;
+    }
+
+    try {
+      const deals = await getMyDeals(user.id);
+      // Count deals that need response: negotiating with offer from other party
+      const needsResponse = deals.filter(deal => {
+        return deal.status === 'negotiating' &&
+               deal.current_offer &&
+               deal.last_offer_by !== user.id;
+      });
+      setInboxBadgeCount(needsResponse.length > 0 ? needsResponse.length : undefined);
+    } catch (error) {
+      console.error('Error loading inbox badge:', error);
+      setInboxBadgeCount(undefined);
+    }
+  }, [user?.id]);
+
+  // Load on mount and periodically refresh
+  useEffect(() => {
+    loadInboxBadge();
+    // Refresh every 30 seconds
+    const interval = setInterval(loadInboxBadge, 30000);
+    return () => clearInterval(interval);
+  }, [loadInboxBadge]);
+
   return (
     <Tab.Navigator
       id="app"
@@ -74,7 +109,14 @@ export default function AppTabs() {
           tabBarIcon: ({ focused }) => (
             <Text style={{ fontSize: 18 }}>💬</Text>
           ),
-          tabBarBadge: 2,
+          tabBarBadge: inboxBadgeCount,
+          tabBarBadgeStyle: {
+            backgroundColor: colors.danger || '#E53935',
+            fontSize: 10,
+            minWidth: 18,
+            height: 18,
+            borderRadius: 9,
+          },
         }}
       />
       <Tab.Screen

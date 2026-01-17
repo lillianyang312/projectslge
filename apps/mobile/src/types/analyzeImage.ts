@@ -4,8 +4,11 @@
  */
 
 export interface AnalyzeImageRequest {
-  imageUrl: string;
-  imagePath: string;
+  imageUrls: string[];
+  imagePaths: string[];
+  // Legacy single-image support
+  imageUrl?: string;
+  imagePath?: string;
 }
 
 export interface ClarificationOption {

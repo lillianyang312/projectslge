@@ -1,23 +1,28 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   Image,
   TextInput,
   ActivityIndicator,
   Pressable,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Keyboard,
+  findNodeHandle,
+  ActionSheetIOS,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
 import { ListStackParamList } from '../../navigation/types';
 import { Text, Button, Input, Card, Header, Pill } from '../../ui/components';
 import { colors, spacing, radius, typography } from '../../ui/tokens';
-import { useItemsStore, SellIntent, ListingDeliveryPref } from '../../state/itemsStore';
+import { useItemsStore, SellIntent } from '../../state/itemsStore';
 import { useAuthStore } from '../../state/authStore';
-import { uploadImage, analyzeImage, getSignedUrl } from '../../services/imageService';
+import { uploadImage, analyzeImages, getSignedUrl } from '../../services/imageService';
 import type { AnalyzeImageResponse } from '../../types/analyzeImage';
 import { isNeedsClarificationResponse } from '../../schemas/clarification_schema';
 
@@ -36,42 +41,92 @@ export default function ItemDetailsScreen({ navigation }: Props) {
   const [condition, setCondition] = useState<Condition>('good');
   const [sellIntent, setSellIntent] = useState<SellIntent>('might_sell');
   const [pricePurchased, setPricePurchased] = useState('');
-  const [deliveryPref, setDeliveryPref] = useState<ListingDeliveryPref>('local_only');
   const [notes, setNotes] = useState(draft?.notes || '');
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzed, setAnalyzed] = useState(false);
   const [images, setImages] = useState<string[]>(draft?.imageUris || [draft?.imageUri].filter(Boolean) || []);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
 
-  // Auto-analyze image when screen loads
+  // Track keyboard visibility for extra padding
   useEffect(() => {
+    const keyboardWillShow = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => setIsKeyboardVisible(true)
+    );
+    const keyboardWillHide = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setIsKeyboardVisible(false)
+    );
+    return () => {
+      keyboardWillShow.remove();
+      keyboardWillHide.remove();
+    };
+  }, []);
+
+  // Helper to scroll input into view when focused
+  const scrollToInput = (inputRef: React.RefObject<TextInput>) => {
+    if (inputRef.current && scrollViewRef.current) {
+      const nodeHandle = findNodeHandle(inputRef.current);
+      if (nodeHandle) {
+        setTimeout(() => {
+          scrollViewRef.current?.scrollResponderScrollNativeHandleToKeyboard(
+            nodeHandle,
+            120, // margin above keyboard
+            true
+          );
+        }, 100);
+      }
+    }
+  };
+
+  // Auto-analyze images when screen loads
+  useEffect(() => {
+    const imagesToAnalyze = images.length > 0 ? images : (draft?.imageUri ? [draft.imageUri] : []);
+
     console.log('ItemDetails useEffect triggered', {
-      hasImageUri: !!draft?.imageUri,
+      imageCount: imagesToAnalyze.length,
       hasUser: !!user,
       analyzed,
-      imageUri: draft?.imageUri,
       userId: user?.id
     });
 
-    async function analyzeItemImage() {
-      if (draft?.imageUri && user && !analyzed) {
+    async function analyzeItemImages() {
+      if (imagesToAnalyze.length > 0 && user && !analyzed) {
         setAnalyzing(true);
         try {
-          console.log('Starting image analysis for:', draft.imageUri);
+          console.log(`Starting image analysis for ${imagesToAnalyze.length} image(s)`);
 
-          // Upload image to Supabase Storage
-          const uploadResult = await uploadImage(draft.imageUri, user.id);
-          console.log('Upload result:', uploadResult);
+          // Upload all images to Supabase Storage
+          const uploadPromises = imagesToAnalyze.map(uri => uploadImage(uri, user.id));
+          const uploadResults = await Promise.all(uploadPromises);
 
-          if (!uploadResult.error && uploadResult.path) {
-            // Get signed URL for the uploaded image
-            const signedUrl = await getSignedUrl(uploadResult.path);
-            console.log('Signed URL:', signedUrl);
+          console.log('Upload results:', uploadResults);
 
-            if (signedUrl) {
-              // Call analyzeImage Edge Function
-              console.log('Calling analyzeImage with:', { signedUrl, path: uploadResult.path });
-              const analysisResult = await analyzeImage(signedUrl, uploadResult.path);
+          // Filter successful uploads
+          const successfulUploads = uploadResults.filter(r => !r.error && r.path);
+
+          if (successfulUploads.length > 0) {
+            // Get signed URLs for all uploaded images
+            const signedUrlPromises = successfulUploads.map(r => getSignedUrl(r.path));
+            const signedUrls = await Promise.all(signedUrlPromises);
+
+            // Filter out null URLs
+            const validSignedUrls = signedUrls.filter((url): url is string => url !== null);
+            const validPaths = successfulUploads
+              .filter((_, i) => signedUrls[i] !== null)
+              .map(r => r.path);
+
+            console.log(`Got ${validSignedUrls.length} signed URLs for analysis`);
+
+            if (validSignedUrls.length > 0) {
+              // Call analyzeImages Edge Function with all images
+              console.log('Calling analyzeImages with:', {
+                urlCount: validSignedUrls.length,
+                pathCount: validPaths.length
+              });
+              const analysisResult = await analyzeImages(validSignedUrls, validPaths);
               console.log('Analysis result:', analysisResult);
 
               if (analysisResult) {
@@ -81,7 +136,10 @@ export default function ItemDetailsScreen({ navigation }: Props) {
                   setTitle(analysisResult.item.title);
                   setCategory(analysisResult.item.category);
                   if (analysisResult.item.condition) {
-                    setCondition(analysisResult.item.condition.toLowerCase() as Condition);
+                    const conditionLower = analysisResult.item.condition.toLowerCase().replace(' ', '_') as Condition;
+                    if (['new', 'like_new', 'good', 'fair', 'poor'].includes(conditionLower)) {
+                      setCondition(conditionLower);
+                    }
                   }
                   if (analysisResult.item.description) {
                     setDescription(analysisResult.item.description);
@@ -95,7 +153,7 @@ export default function ItemDetailsScreen({ navigation }: Props) {
               }
             }
           } else {
-            console.warn('Upload failed:', uploadResult.error);
+            console.warn('All uploads failed');
           }
         } catch (error) {
           console.warn('Image analysis failed:', error);
@@ -107,8 +165,8 @@ export default function ItemDetailsScreen({ navigation }: Props) {
       }
     }
 
-    analyzeItemImage();
-  }, [draft?.imageUri, user]);
+    analyzeItemImages();
+  }, [images, draft?.imageUri, user]);
 
   const conditionOptions: { value: Condition; label: string }[] = [
     { value: 'new', label: 'New' },
@@ -124,13 +182,34 @@ export default function ItemDetailsScreen({ navigation }: Props) {
     { value: 'sell', label: 'Ready to sell' },
   ];
 
-  const deliveryOptions: { value: ListingDeliveryPref; label: string }[] = [
-    { value: 'local_only', label: 'Local only' },
-    { value: 'shipping_ok', label: 'Shipping OK' },
-    { value: 'both', label: 'Both' },
-  ];
+  const takePhotoWithCamera = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
 
-  const addMorePhotos = async () => {
+    if (status !== 'granted') {
+      Alert.alert(
+        'Permission needed',
+        'We need camera permissions to take photos.'
+      );
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false,
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets.length > 0) {
+      const newUri = result.assets[0].uri;
+      const updatedImages = [...images, newUri].slice(0, 5); // Max 5 images
+      setImages(updatedImages);
+      updateDraft({ imageUris: updatedImages });
+      // Trigger re-analysis when new photo is added
+      setAnalyzed(false);
+    }
+  };
+
+  const pickFromGallery = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
     if (status !== 'granted') {
@@ -154,6 +233,37 @@ export default function ItemDetailsScreen({ navigation }: Props) {
       const updatedImages = [...images, ...newUris].slice(0, 5); // Max 5 images
       setImages(updatedImages);
       updateDraft({ imageUris: updatedImages });
+      // Trigger re-analysis when new photos are added
+      setAnalyzed(false);
+    }
+  };
+
+  const addMorePhotos = () => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'Take Photo', 'Choose from Library'],
+          cancelButtonIndex: 0,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 1) {
+            takePhotoWithCamera();
+          } else if (buttonIndex === 2) {
+            pickFromGallery();
+          }
+        }
+      );
+    } else {
+      // For Android, show an Alert with options
+      Alert.alert(
+        'Add Photo',
+        'Choose an option',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Take Photo', onPress: takePhotoWithCamera },
+          { text: 'Choose from Library', onPress: pickFromGallery },
+        ]
+      );
     }
   };
 
@@ -206,7 +316,6 @@ export default function ItemDetailsScreen({ navigation }: Props) {
       condition: conditionMap[condition],
       sellIntent,
       pricePurchased: pricePurchased ? parseFloat(pricePurchased) : undefined,
-      deliveryPref,
       notes: notes.trim() || undefined,
     });
 
@@ -214,9 +323,23 @@ export default function ItemDetailsScreen({ navigation }: Props) {
   };
 
   return (
-    <SafeAreaView style={styles.screen}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <Header title="Item details" onBack={() => navigation.goBack()} />
+    <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoidingView}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
+      >
+        <ScrollView
+          ref={scrollViewRef}
+          contentContainerStyle={[
+            styles.scrollContent,
+            isKeyboardVisible && { paddingBottom: 150 },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+          showsVerticalScrollIndicator={true}
+        >
+          <Header title="Item details" onBack={() => navigation.goBack()} />
 
         {/* Main Image Preview with Navigation */}
         {images.length > 0 && (
@@ -295,7 +418,10 @@ export default function ItemDetailsScreen({ navigation }: Props) {
             ))}
             {images.length < 5 && (
               <Pressable style={styles.addPhotoBtn} onPress={addMorePhotos}>
-                <Text style={styles.addPhotoIcon}>+</Text>
+                <View style={styles.addPhotoIcons}>
+                  <Text style={styles.addPhotoIcon}>📷</Text>
+                  <Text style={styles.addPhotoIcon}>🖼️</Text>
+                </View>
                 <Text variant="body" size="xs" color="secondary">
                   Add photo
                 </Text>
@@ -420,23 +546,6 @@ export default function ItemDetailsScreen({ navigation }: Props) {
           keyboardType="numeric"
         />
 
-        {/* Delivery Preference */}
-        <View style={styles.inputGroup}>
-          <Text variant="body" size="base" color="secondary" style={styles.label}>
-            Delivery preference
-          </Text>
-          <View style={styles.pills}>
-            {deliveryOptions.map((option) => (
-              <Pill
-                key={option.value}
-                label={option.label}
-                selected={deliveryPref === option.value}
-                onPress={() => setDeliveryPref(option.value)}
-              />
-            ))}
-          </View>
-        </View>
-
         {/* Additional Notes */}
         <View style={styles.inputGroup}>
           <Text variant="body" size="base" color="secondary" style={styles.label}>
@@ -471,7 +580,8 @@ export default function ItemDetailsScreen({ navigation }: Props) {
             Continue
           </Button>
         </View>
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -480,6 +590,9 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.bg,
+  },
+  keyboardAvoidingView: {
+    flex: 1,
   },
   scrollContent: {
     paddingHorizontal: spacing.xxl,
@@ -622,9 +735,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xs,
   },
+  addPhotoIcons: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
   addPhotoIcon: {
-    fontSize: 32,
-    color: colors.textMuted,
+    fontSize: 24,
   },
   analyzingOverlay: {
     position: 'absolute',
@@ -662,6 +778,7 @@ const styles = StyleSheet.create({
     fontSize: typography?.sizes?.md || 14,
     color: colors.textPrimary,
     minHeight: 100,
+    textAlignVertical: 'top',
   },
   actions: {
     marginTop: spacing.lg,

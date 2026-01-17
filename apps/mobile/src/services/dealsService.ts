@@ -8,6 +8,109 @@ import { supabase } from '../lib/supabase';
 import { Deal, Message, DealStatus } from '../types/models';
 
 /**
+ * Express interest in an item (create a bid)
+ * This creates a match and deal in one step
+ */
+export async function expressInterest(
+  buyerId: string,
+  itemId: string,
+  maxBid?: number,
+  interestedFor?: string
+): Promise<{ deal: Deal | null; error: string | null }> {
+  try {
+    // First, get the item to find the seller
+    const { data: item, error: itemError } = await supabase
+      .from('items')
+      .select('owner_id, title, estimated_value_min, estimated_value_max')
+      .eq('id', itemId)
+      .single();
+
+    if (itemError || !item) {
+      return { deal: null, error: 'Item not found' };
+    }
+
+    if (item.owner_id === buyerId) {
+      return { deal: null, error: 'Cannot bid on your own item' };
+    }
+
+    // Check if there's already a deal for this buyer+item
+    const { data: existingDeal } = await supabase
+      .from('deals')
+      .select('id')
+      .eq('buyer_id', buyerId)
+      .eq('item_id', itemId)
+      .not('status', 'eq', 'cancelled')
+      .single();
+
+    if (existingDeal) {
+      return { deal: null, error: 'You already have a pending bid on this item' };
+    }
+
+    // Create a match first
+    const { data: match, error: matchError } = await supabase
+      .from('matches')
+      .insert({
+        buyer_id: buyerId,
+        seller_id: item.owner_id,
+        item_id: itemId,
+        match_score: 80, // Default score for direct interest
+        status: 'deal', // Goes directly to deal status
+      })
+      .select()
+      .single();
+
+    if (matchError) {
+      console.error('Error creating match:', matchError);
+      return { deal: null, error: 'Failed to create match' };
+    }
+
+    // Create the deal
+    const { data: deal, error: dealError } = await supabase
+      .from('deals')
+      .insert({
+        match_id: match.id,
+        buyer_id: buyerId,
+        seller_id: item.owner_id,
+        item_id: itemId,
+        status: 'negotiating',
+        current_offer: maxBid || null,
+        last_offer_by: maxBid ? buyerId : null,
+      })
+      .select(`
+        *,
+        item:items!deals_item_id_fkey(*)
+      `)
+      .single();
+
+    if (dealError) {
+      console.error('Error creating deal:', dealError);
+      return { deal: null, error: 'Failed to create deal' };
+    }
+
+    // Create initial message if there's a bid
+    if (maxBid) {
+      await sendMessage(deal.id, buyerId, `Offered $${maxBid}`, 'offer', { amount: maxBid });
+    } else {
+      await sendMessage(deal.id, buyerId, 'Expressed interest in this item', 'text');
+    }
+
+    // Add agent welcome message
+    await sendAgentMessage(
+      deal.id,
+      maxBid
+        ? `Great! You've offered $${maxBid} for "${item.title}". The seller will be notified and can accept, counter, or decline.`
+        : `You've expressed interest in "${item.title}". Consider making an offer to get the seller's attention!`
+    );
+
+    console.log('✅ Created deal:', deal.id);
+    return { deal, error: null };
+  } catch (error) {
+    console.error('Error expressing interest:', error);
+    return { deal: null, error: 'Something went wrong' };
+  }
+}
+
+/**
  * Create a deal from a match
  */
 export async function createDealFromMatch(
@@ -53,9 +156,7 @@ export async function getMyDeals(userId: string): Promise<Deal[]> {
       .from('deals')
       .select(`
         *,
-        item:items!deals_item_id_fkey(*),
-        buyer:auth.users!deals_buyer_id_fkey(id, email),
-        seller:auth.users!deals_seller_id_fkey(id, email)
+        item:items(*)
       `)
       .or(`buyer_id.eq.${userId},seller_id.eq.${userId}`)
       .order('updated_at', { ascending: false });
@@ -80,9 +181,7 @@ export async function getDealsByStatus(
       .from('deals')
       .select(`
         *,
-        item:items!deals_item_id_fkey(*),
-        buyer:auth.users!deals_buyer_id_fkey(id, email),
-        seller:auth.users!deals_seller_id_fkey(id, email)
+        item:items(*)
       `)
       .or(`buyer_id.eq.${userId},seller_id.eq.${userId}`)
       .eq('status', status)
@@ -97,6 +196,29 @@ export async function getDealsByStatus(
 }
 
 /**
+ * Get all deals for a specific item (for owner to see bids)
+ */
+export async function getDealsByItemId(itemId: string): Promise<Deal[]> {
+  try {
+    const { data: deals, error } = await supabase
+      .from('deals')
+      .select(`
+        *,
+        item:items(*)
+      `)
+      .eq('item_id', itemId)
+      .not('status', 'eq', 'cancelled')
+      .order('updated_at', { ascending: false });
+
+    if (error) throw error;
+    return deals || [];
+  } catch (error) {
+    console.error('Error getting deals by item:', error);
+    return [];
+  }
+}
+
+/**
  * Get a single deal by ID
  */
 export async function getDealById(dealId: string): Promise<Deal | null> {
@@ -105,9 +227,7 @@ export async function getDealById(dealId: string): Promise<Deal | null> {
       .from('deals')
       .select(`
         *,
-        item:items!deals_item_id_fkey(*),
-        buyer:auth.users!deals_buyer_id_fkey(id, email),
-        seller:auth.users!deals_seller_id_fkey(id, email)
+        item:items(*)
       `)
       .eq('id', dealId)
       .single();

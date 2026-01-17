@@ -6,169 +6,148 @@ import {
   ScrollView,
   Pressable,
   Alert,
-  TextInput,
+  ActivityIndicator,
+  Image,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { DealsStackParamList } from '../../navigation/types';
-import { Text, Button, Card, Badge, BroadcastAnnouncement } from '../../ui/components';
-import { colors, spacing, radius, typography } from '../../ui/tokens';
+import { Text, Button, Card, Badge } from '../../ui/components';
+import { colors, spacing, radius } from '../../ui/tokens';
 import { useNavigation } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { AppTabsParamList } from '../../navigation/types';
-import { Deal } from '../../types/models';
-import { getDealById } from '../../services/dealsService';
+import { getDealById, cancelDeal } from '../../services/dealsService';
 import { useAuthStore } from '../../state/authStore';
-import { broadcastToDealBuyer } from '../../services/broadcastService';
+import { Deal } from '../../types/models';
+import { getSignedUrl } from '../../services/imageService';
 
 type Props = NativeStackScreenProps<DealsStackParamList, 'DealDetail'>;
 type TabNavProp = BottomTabNavigationProp<AppTabsParamList>;
 
-// Demo deal details data matching HTML spec lines 1093-1136
-const demoDeals: Record<string, {
-  id: string;
-  emoji: string;
-  title: string;
-  subtitle: string;
-  status: string;
-  badgeVariant: 'warning' | 'success' | 'purple' | undefined;
-  agreedPrice: string | undefined;
-  otherParty: string | undefined;
-  delivery: string;
-  statusText: string;
-  agentStatus: string;
-  chatButtonText: string;
-  isSelling: boolean;
-}> = {
-  '1': {
-    id: '1',
-    emoji: '🪑',
-    title: 'Herman Miller Aeron',
-    subtitle: "You're selling",
-    status: 'Scheduling',
-    badgeVariant: 'warning',
-    agreedPrice: '$550',
-    otherParty: 'Anonymous · 1.2 mi',
-    delivery: 'Local pickup',
-    statusText: 'Coordinating time',
-    agentStatus: 'Finding a time that works',
-    chatButtonText: 'Chat with buyer',
-    isSelling: true,
-  },
-  '2': {
-    id: '2',
-    emoji: '🎸',
-    title: 'Fender Stratocaster',
-    subtitle: "You're selling",
-    status: 'Complete',
-    badgeVariant: 'success',
-    agreedPrice: '$425',
-    otherParty: 'Mike Johnson · 2.5 mi',
-    delivery: 'Local pickup',
-    statusText: 'Deal completed',
-    agentStatus: 'Payment received, item picked up',
-    chatButtonText: 'Chat with buyer',
-    isSelling: true,
-  },
-  '3': {
-    id: '3',
-    emoji: '🛋️',
-    title: 'Mid-century Sofa',
-    subtitle: "You're buying",
-    status: 'Pending',
-    badgeVariant: 'purple',
-    agreedPrice: '$580',
-    otherParty: 'Emma Wilson · 0.8 mi',
-    delivery: 'Local pickup',
-    statusText: 'Waiting for seller response',
-    agentStatus: 'Bid sent, awaiting response',
-    chatButtonText: 'Chat with seller',
-    isSelling: false,
-  },
-  '4': {
-    id: '4',
-    emoji: '🖥️',
-    title: 'Studio Display',
-    subtitle: "You're buying",
-    status: 'Pending',
-    badgeVariant: 'purple',
-    agreedPrice: '$1,050',
-    otherParty: 'Tech Seller · 3.1 mi',
-    delivery: 'Shipping OK',
-    statusText: 'Waiting for seller response',
-    agentStatus: 'Bid sent, awaiting response',
-    chatButtonText: 'Chat with seller',
-    isSelling: false,
-  },
-  '5': {
-    id: '5',
-    emoji: '🚴',
-    title: 'Road Bike',
-    subtitle: "You're buying",
-    status: 'Scheduling',
-    badgeVariant: 'warning',
-    agreedPrice: '$420',
-    otherParty: 'Bike Shop · 1.5 mi',
-    delivery: 'Local pickup',
-    statusText: 'Coordinating pickup',
-    agentStatus: 'Bid accepted, scheduling pickup',
-    chatButtonText: 'Chat with seller',
-    isSelling: false,
-  },
-  '6': {
-    id: '6',
-    emoji: '📷',
-    title: 'Vintage Camera',
-    subtitle: "You're buying",
-    status: 'Open',
-    badgeVariant: undefined,
-    agreedPrice: undefined,
-    otherParty: undefined,
-    delivery: 'Local pickup',
-    statusText: 'Listing open for bids',
-    agentStatus: 'No bids yet, place your bid',
-    chatButtonText: 'Chat with seller',
-    isSelling: false,
-  },
+// Category to emoji mapping
+const CATEGORY_EMOJI: Record<string, string> = {
+  'Electronics': '📱',
+  'Furniture': '🪑',
+  'Clothing': '👕',
+  'Books': '📚',
+  'Sports': '⚽',
+  'Sports & Outdoors': '🚴',
+  'Music': '🎸',
+  'Art': '🎨',
+  'Kitchen': '🍳',
+  'Home': '🏠',
+  'Home Decor': '🏠',
+  'Office': '💼',
+  'Games': '🎮',
+  'Health & Beauty': '💄',
+  'Other': '📦',
 };
+
+function getEmojiForCategory(category: string): string {
+  return CATEGORY_EMOJI[category] || '📦';
+}
+
+function getStatusBadge(status: string): { label: string; variant: 'warning' | 'success' | 'purple' | 'default' } {
+  switch (status) {
+    case 'negotiating':
+      return { label: 'Negotiating', variant: 'purple' };
+    case 'agreed':
+      return { label: 'Agreed', variant: 'success' };
+    case 'logistics':
+      return { label: 'Scheduling', variant: 'warning' };
+    case 'completed':
+      return { label: 'Complete', variant: 'success' };
+    case 'cancelled':
+      return { label: 'Cancelled', variant: 'default' };
+    default:
+      return { label: 'Unknown', variant: 'default' };
+  }
+}
+
+function getAgentStatus(deal: Deal, isSelling: boolean): string {
+  switch (deal.status) {
+    case 'negotiating':
+      if (deal.current_offer) {
+        if (isSelling) {
+          return `New offer of $${deal.current_offer} received. Review and respond.`;
+        } else {
+          return 'Waiting for seller to respond to your offer.';
+        }
+      }
+      return isSelling
+        ? 'Buyer has expressed interest. Waiting for an offer.'
+        : 'You expressed interest. Consider making an offer!';
+    case 'agreed':
+      return `Deal agreed at $${deal.agreed_price}! Arrange pickup or shipping.`;
+    case 'logistics':
+      return 'Coordinating pickup/delivery time and location.';
+    case 'completed':
+      return 'Deal completed successfully!';
+    case 'cancelled':
+      return 'This deal has been cancelled.';
+    default:
+      return 'Processing...';
+  }
+}
+
+function getStatusText(deal: Deal, isSelling: boolean): string {
+  switch (deal.status) {
+    case 'negotiating':
+      if (deal.current_offer) {
+        return isSelling ? 'Offer received' : 'Awaiting response';
+      }
+      return 'Interest expressed';
+    case 'agreed':
+      return 'Price agreed';
+    case 'logistics':
+      return 'Scheduling pickup';
+    case 'completed':
+      return 'Deal completed';
+    case 'cancelled':
+      return 'Cancelled';
+    default:
+      return 'Unknown';
+  }
+}
 
 export default function DealDetailScreen({ navigation, route }: Props) {
   const { dealId } = route.params;
-  const demoDeal = demoDeals[dealId] || demoDeals['1'];
   const tabNavigation = useNavigation<TabNavProp>();
   const user = useAuthStore((state) => state.user);
-  const [realDeal, setRealDeal] = useState<Deal | null>(null);
+
+  const [deal, setDeal] = useState<Deal | null>(null);
   const [loading, setLoading] = useState(true);
-  const [bidAmount, setBidAmount] = useState<string>('');
-  const [hasSubmittedBid, setHasSubmittedBid] = useState<boolean>(false);
-  const [currentBidPrice, setCurrentBidPrice] = useState<string | undefined>(demoDeal.agreedPrice);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
 
-  // Use real deal if available, otherwise fall back to demo
-  const deal = realDeal 
-    ? {
-        ...demoDeal,
-        isSelling: realDeal.seller_id === user?.id,
-        agreedPrice: realDeal.agreed_price ? `$${realDeal.agreed_price}` : undefined,
-        status: realDeal.status,
-      }
-    : demoDeal;
-
-  const isSeller = deal.isSelling;
-  const isDealOpen = !deal.agreedPrice && !deal.isSelling;
-  const isDealPending = deal.status === 'Pending' && !deal.isSelling;
-  const canShowBidForm = isDealOpen || isDealPending;
-
+  // Load deal from database
   useEffect(() => {
-    loadDeal();
-  }, []);
+    async function loadDeal() {
+      setLoading(true);
+      try {
+        const fetchedDeal = await getDealById(dealId);
+        setDeal(fetchedDeal);
 
-  async function loadDeal() {
-    const dealData = await getDealById(dealId);
-    setRealDeal(dealData);
-    setLoading(false);
-  }
+        // Load item image
+        if (fetchedDeal?.item?.photos?.[0]) {
+          const url = await getSignedUrl(fetchedDeal.item.photos[0]);
+          setImageUrl(url);
+        }
+      } catch (error) {
+        console.error('Error loading deal:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadDeal();
+  }, [dealId]);
+
+  const isSelling = deal?.seller_id === user?.id;
+  const badge = deal ? getStatusBadge(deal.status) : { label: 'Loading', variant: 'default' as const };
+  const agentStatus = deal ? getAgentStatus(deal, isSelling) : '';
+  const statusText = deal ? getStatusText(deal, isSelling) : '';
 
   const handleChatPress = () => {
-    navigation.navigate('ChatThread', { conversationId: dealId });
+    navigation.navigate('DealChat', { dealId });
   };
 
   const handleBackPress = () => {
@@ -178,7 +157,6 @@ export default function DealDetailScreen({ navigation, route }: Props) {
   const handleItemPress = () => {
     // Navigate to List tab and open ItemDetail
     tabNavigation.navigate('List');
-    // Note: In a real implementation, we'd pass the itemId and navigate to ItemDetail
   };
 
   const handleCancelDeal = () => {
@@ -193,93 +171,51 @@ export default function DealDetailScreen({ navigation, route }: Props) {
         {
           text: 'Cancel Deal',
           style: 'destructive',
-          onPress: () => {
-            // Navigate back to deals list
-            navigation.goBack();
-          },
-        },
-      ]
-    );
-  };
-
-  const handleBidSubmit = () => {
-    if (bidAmount && parseFloat(bidAmount) > 0) {
-      const newBidAmount = parseFloat(bidAmount);
-      
-      // For pending deals, check if new bid is higher than current bid
-      if (isDealPending && currentBidPrice) {
-        const currentAmount = parseFloat(currentBidPrice.replace(/[^0-9.]/g, ''));
-        if (newBidAmount <= currentAmount) {
-          Alert.alert(
-            'Invalid Bid',
-            `Your new bid must be higher than your current bid of ${currentBidPrice}.`,
-            [{ text: 'OK' }]
-          );
-          return;
-        }
-
-        // Show confirmation alert for updating existing bid
-        Alert.alert(
-          'Update Bid?',
-          `Update your bid from ${currentBidPrice} to $${bidAmount}?`,
-          [
-            {
-              text: 'Cancel',
-              style: 'cancel',
-            },
-            {
-              text: 'Update Bid',
-              onPress: () => {
-                submitBid(newBidAmount);
-              },
-            },
-          ]
-        );
-      } else {
-        // For open deals, submit directly
-        submitBid(newBidAmount);
-      }
-    }
-  };
-
-  const submitBid = (amount: number) => {
-    console.log(`Submitting bid of $${amount} for deal ${dealId}`);
-    
-    // Update UI state
-    setHasSubmittedBid(true);
-    setCurrentBidPrice(`$${amount.toLocaleString()}`);
-    setBidAmount(''); // Clear input
-    
-    // TODO: Implement actual bid submission logic
-  };
-
-  const handleBroadcastSubmit = (message: string) => {
-    Alert.alert(
-      'Broadcast Message',
-      `Send this message to the buyer?\n\n"${message}"`,
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Send',
           onPress: async () => {
-            const result = await broadcastToDealBuyer(dealId, message);
-            
-            if (result.success) {
-              Alert.alert(
-                'Message Sent',
-                `Your announcement has been sent to the buyer.`
-              );
-            } else {
-              Alert.alert('Error', result.error || 'Failed to send broadcast message.');
+            if (deal && user) {
+              await cancelDeal(deal.id, user.id);
+              navigation.goBack();
             }
           },
         },
       ]
     );
   };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.screen}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.accent} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!deal) {
+    return (
+      <SafeAreaView style={styles.screen}>
+        <View style={styles.loadingContainer}>
+          <Text variant="body" color="secondary">Deal not found</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const itemTitle = deal.item?.title || 'Untitled Item';
+  const itemCategory = deal.item?.category || 'Other';
+  const emoji = getEmojiForCategory(itemCategory);
+
+  // Price display logic
+  const priceLabel = deal.agreed_price ? 'Agreed price' : 'Proposed price';
+  const priceValue = deal.agreed_price
+    ? `$${deal.agreed_price}`
+    : deal.current_offer
+      ? `$${deal.current_offer}`
+      : 'No offer yet';
+
+  // Chat button text
+  const chatButtonText = isSelling ? 'Chat with buyer' : 'Chat with seller';
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -289,63 +225,51 @@ export default function DealDetailScreen({ navigation, route }: Props) {
           <Pressable onPress={handleBackPress} style={styles.backButton}>
             <Text size="xl">←</Text>
           </Pressable>
-          <Text variant="headingMedium" size="heading2">
-            Deal
+          <Text variant="headingMedium" size="heading2" style={styles.headerTitle} numberOfLines={1}>
+            {itemTitle}
           </Text>
         </View>
 
-        {/* Item Card - matching HTML lines 1099-1108 */}
+        {/* Item Card */}
         <Pressable onPress={handleItemPress}>
           <Card style={styles.itemCard}>
             <View style={styles.itemContent}>
               <View style={styles.itemThumb}>
-                <Text style={styles.itemEmoji}>{deal.emoji}</Text>
+                {imageUrl ? (
+                  <Image source={{ uri: imageUrl }} style={styles.thumbImage} resizeMode="cover" />
+                ) : (
+                  <Text style={styles.itemEmoji}>{emoji}</Text>
+                )}
               </View>
               <View style={styles.itemInfo}>
-                <Text variant="bodyMedium" size="lg" style={styles.itemName}>
-                  {deal.title}
+                <Text variant="bodyMedium" size="lg" style={styles.itemName} numberOfLines={1}>
+                  {itemTitle}
                 </Text>
                 <Text variant="body" size="sm" color="secondary">
-                  {deal.subtitle}
+                  {isSelling ? "You're selling" : "You're buying"}
                 </Text>
               </View>
-              {hasSubmittedBid && !deal.badgeVariant ? (
-                <Badge variant="purple">Pending</Badge>
-              ) : deal.badgeVariant ? (
-                <Badge variant={deal.badgeVariant}>{deal.status}</Badge>
-              ) : null}
+              <Badge variant={badge.variant}>{badge.label}</Badge>
             </View>
           </Card>
         </Pressable>
 
-        {/* Agent Summary - matching HTML lines 1110-1127 */}
+        {/* Deal Summary */}
         <View style={styles.agentSummary}>
-          {(currentBidPrice || deal.agreedPrice) && (
-            <View style={styles.agentRow}>
-              <Text variant="body" size="sm" color="secondary">
-                {hasSubmittedBid || isDealPending ? 'Your bid' : 'Agreed price'}
-              </Text>
-              <Text variant="bodyMedium" size="md">
-                {currentBidPrice || deal.agreedPrice}
-              </Text>
-            </View>
-          )}
-          {deal.otherParty && (
-            <View style={styles.agentRow}>
-              <Text variant="body" size="sm" color="secondary">
-                {deal.isSelling ? 'Buyer' : 'Seller'}
-              </Text>
-              <Text variant="bodyMedium" size="md">
-                {deal.otherParty}
-              </Text>
-            </View>
-          )}
           <View style={styles.agentRow}>
             <Text variant="body" size="sm" color="secondary">
-              Delivery
+              {priceLabel}
             </Text>
             <Text variant="bodyMedium" size="md">
-              {deal.delivery}
+              {priceValue}
+            </Text>
+          </View>
+          <View style={styles.agentRow}>
+            <Text variant="body" size="sm" color="secondary">
+              {isSelling ? 'Buyer' : 'Seller'}
+            </Text>
+            <Text variant="bodyMedium" size="md">
+              Anonymous
             </Text>
           </View>
           <View style={styles.agentRow}>
@@ -353,87 +277,29 @@ export default function DealDetailScreen({ navigation, route }: Props) {
               Status
             </Text>
             <Text variant="bodyMedium" size="md">
-              {hasSubmittedBid && !isDealPending 
-                ? 'Waiting for seller response' 
-                : deal.statusText}
+              {statusText}
             </Text>
           </View>
         </View>
 
-        {/* Agent Recommendation - matching HTML lines 1129-1132 */}
+        {/* Agent Status */}
         <View style={styles.agentRecommendation}>
           <Text variant="body" size="sm" color="secondary" style={styles.agentRecLabel}>
             Agent status
           </Text>
           <Text variant="bodyMedium" size="md" style={styles.agentRecValue}>
-            {hasSubmittedBid && !isDealPending 
-              ? 'Bid sent, awaiting response' 
-              : deal.agentStatus}
+            {agentStatus}
           </Text>
         </View>
 
-        {/* Broadcast Announcement for Sellers */}
-        {isSeller && (
-          <BroadcastAnnouncement onSend={handleBroadcastSubmit} />
-        )}
+        {/* Buttons */}
+        <Button variant="primary" onPress={handleChatPress}>
+          {chatButtonText}
+        </Button>
 
-        {/* Bid Form for Open Listings and Pending Deals (Buyer Side Only) */}
-        {canShowBidForm && (
-          <Card style={styles.bidFormCard}>
-            <Text variant="bodyMedium" size="base" style={styles.bidFormLabel}>
-              {isDealPending ? 'Update your bid' : 'Place your bid'}
-            </Text>
-            {isDealPending && currentBidPrice && (
-              <Text variant="body" size="sm" color="secondary" style={styles.currentBidText}>
-                Current bid: {currentBidPrice}
-              </Text>
-            )}
-            <View style={styles.bidForm}>
-              <View style={styles.bidInputContainer}>
-                <Text variant="headingMedium" size="heading3" style={styles.dollarSign}>
-                  $
-                </Text>
-                <TextInput
-                  style={styles.bidInput}
-                  value={bidAmount}
-                  onChangeText={setBidAmount}
-                  keyboardType="numeric"
-                  placeholder="0"
-                  placeholderTextColor={colors.textMuted}
-                />
-              </View>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.bidButton,
-                  pressed && styles.bidButtonPressed,
-                  (!bidAmount || parseFloat(bidAmount || '0') <= 0) && styles.bidButtonDisabled,
-                  isDealPending && currentBidPrice && parseFloat(bidAmount || '0') <= parseFloat(currentBidPrice.replace(/[^0-9.]/g, '') || '0') && styles.bidButtonDisabled,
-                ]}
-                onPress={handleBidSubmit}
-                disabled={
-                  !bidAmount || 
-                  parseFloat(bidAmount || '0') <= 0 ||
-                  (isDealPending && currentBidPrice && parseFloat(bidAmount || '0') <= parseFloat(currentBidPrice.replace(/[^0-9.]/g, '') || '0'))
-                }
-              >
-                <Text style={styles.bidIcon}>💵</Text>
-              </Pressable>
-            </View>
-          </Card>
-        )}
-
-        {/* Buttons - matching HTML lines 1134-1135 */}
-        {!canShowBidForm && (
-          <>
-            <Button variant="primary" onPress={handleChatPress}>
-              {deal.chatButtonText}
-            </Button>
-
-            <Button variant="secondary" onPress={handleCancelDeal} style={styles.cancelButton}>
-              Cancel deal
-            </Button>
-          </>
-        )}
+        <Button variant="secondary" onPress={handleCancelDeal} style={styles.cancelButton}>
+          Cancel deal
+        </Button>
       </ScrollView>
     </SafeAreaView>
   );
@@ -443,6 +309,11 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.bg,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   scrollContent: {
     paddingHorizontal: spacing.xxl,
@@ -454,6 +325,9 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     marginBottom: spacing.lg,
     gap: spacing.md,
+  },
+  headerTitle: {
+    flex: 1,
   },
   backButton: {
     width: 40,
@@ -476,6 +350,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  thumbImage: {
+    width: '100%',
+    height: '100%',
   },
   itemEmoji: {
     fontSize: 24,
@@ -514,57 +393,5 @@ const styles = StyleSheet.create({
   },
   cancelButton: {
     marginTop: spacing.md,
-  },
-  bidFormCard: {
-    marginBottom: spacing.xl,
-  },
-  bidFormLabel: {
-    marginBottom: spacing.sm,
-  },
-  currentBidText: {
-    marginBottom: spacing.md,
-  },
-  bidForm: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  bidInputContainer: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    backgroundColor: colors.card,
-  },
-  dollarSign: {
-    marginRight: spacing.xs,
-    color: colors.textSecondary,
-  },
-  bidInput: {
-    flex: 1,
-    paddingVertical: spacing.md,
-    fontSize: 16,
-    fontFamily: 'DMSans_400Regular',
-    color: colors.textPrimary,
-  },
-  bidButton: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.md,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bidButtonPressed: {
-    opacity: 0.8,
-  },
-  bidButtonDisabled: {
-    opacity: 0.4,
-  },
-  bidIcon: {
-    fontSize: 20,
   },
 });

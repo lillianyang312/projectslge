@@ -1,112 +1,282 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   StyleSheet,
   SafeAreaView,
   ScrollView,
   Pressable,
+  Switch,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ProfileStackParamList } from '../../navigation/types';
-import { Text, Button, Input, Pill } from '../../ui/components';
-import { colors, spacing, radius, typography } from '../../ui/tokens';
+import { Text, Button } from '../../ui/components';
+import { colors, spacing, radius } from '../../ui/tokens';
 import { useAuthStore } from '../../state/authStore';
+import { supabase } from '../../lib/supabase';
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'Profile'>;
 
-type LocationPrecision = 'campus' | 'neighborhood' | 'zip';
-type Availability = 'weekdays' | 'weekends' | 'evenings';
+interface UserProfile {
+  full_name: string;
+  gender: string;
+  phone_number: string;
+  harvard_email: string;
+  graduation_year: number;
+  house: string;
+  dorm_building: string | null;
+  dorm_room: string | null;
+  login_preference: string;
+  email_verified: boolean;
+  created_at: string;
+}
 
 export default function ProfileHomeScreen({ navigation }: Props) {
   const user = useAuthStore((state) => state.user);
   const signOut = useAuthStore((state) => state.signOut);
+  const biometricAvailable = useAuthStore((state) => state.biometricAvailable);
+  const biometricEnabled = useAuthStore((state) => state.biometricEnabled);
+  const biometricType = useAuthStore((state) => state.biometricType);
+  const enableBiometric = useAuthStore((state) => state.enableBiometric);
+  const disableBiometric = useAuthStore((state) => state.disableBiometric);
 
-  const [displayName, setDisplayName] = useState('Lillian');
-  const [location, setLocation] = useState('San Francisco, CA');
-  const [availability, setAvailability] = useState<Set<Availability>>(
-    new Set(['weekdays', 'weekends'])
-  );
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const availabilityOptions: { value: Availability; label: string }[] = [
-    { value: 'weekdays', label: 'Weekdays' },
-    { value: 'weekends', label: 'Weekends' },
-    { value: 'evenings', label: 'Evenings' },
-  ];
+  useEffect(() => {
+    fetchProfile();
+  }, [user?.id]);
 
-  const toggleAvailability = (value: Availability) => {
-    const newSet = new Set(availability);
-    if (newSet.has(value)) {
-      newSet.delete(value);
-    } else {
-      newSet.add(value);
+  const fetchProfile = async () => {
+    if (!user?.id) {
+      setLoading(false);
+      return;
     }
-    setAvailability(newSet);
+
+    try {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+
+      if (error) {
+        console.error('Error fetching profile:', error);
+      } else {
+        setProfile(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch profile:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSignOut = async () => {
-    await signOut();
+    Alert.alert(
+      'Sign out',
+      'Are you sure you want to sign out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign out',
+          style: 'destructive',
+          onPress: async () => {
+            await signOut();
+          },
+        },
+      ]
+    );
   };
+
+  const getBiometricLabel = () => {
+    switch (biometricType) {
+      case 'facial':
+        return 'Face ID';
+      case 'fingerprint':
+        return 'Touch ID';
+      default:
+        return 'Biometric login';
+    }
+  };
+
+  const handleBiometricToggle = async (value: boolean) => {
+    if (value) {
+      Alert.prompt(
+        'Enable ' + getBiometricLabel(),
+        'Enter your password to enable biometric login',
+        async (password) => {
+          if (password && profile) {
+            const { error } = await enableBiometric(profile.harvard_email, password);
+            if (error) {
+              Alert.alert('Error', error.message);
+            }
+          }
+        },
+        'secure-text'
+      );
+    } else {
+      await disableBiometric();
+    }
+  };
+
+  const formatPhoneNumber = (phone: string) => {
+    if (!phone) return '';
+    const cleaned = phone.replace(/\D/g, '');
+    if (cleaned.length === 10) {
+      return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6)}`;
+    }
+    return phone;
+  };
+
+  const getMemberSince = () => {
+    if (!profile?.created_at) return '';
+    const date = new Date(profile.created_at);
+    return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.screen}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.accent} />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.screen}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Header */}
         <View style={styles.header}>
-          <Text variant="headingMedium" size="heading2">
+          <Text variant="headingMedium" size="xl">
             Profile
           </Text>
+          <Pressable
+            style={styles.editBtn}
+            onPress={() => navigation.navigate('EditProfile')}
+          >
+            <Text variant="bodyMedium" size="sm" color="accent">
+              Edit
+            </Text>
+          </Pressable>
         </View>
 
-        {/* Avatar */}
-        <View style={styles.avatar}>
-          <Text style={styles.avatarIcon}>👤</Text>
-        </View>
-
-        {/* Display name - matching HTML spec line 1225 */}
-        <Input
-          label="Display name"
-          value={displayName}
-          onChangeText={setDisplayName}
-          placeholder="How others will see you"
-        />
-
-        {/* Location - matching HTML spec line 1230 */}
-        <Input
-          label="Location"
-          value={location}
-          onChangeText={setLocation}
-          placeholder="City or neighborhood"
-        />
-
-        {/* Pickup availability */}
-        <View style={styles.inputGroup}>
-          <Text variant="body" size="sm" color="secondary" style={styles.label}>
-            Pickup availability
-          </Text>
-          <View style={styles.pills}>
-            {availabilityOptions.map((option) => (
-              <Pill
-                key={option.value}
-                label={option.label}
-                selected={availability.has(option.value)}
-                onPress={() => toggleAvailability(option.value)}
-              />
-            ))}
+        {/* Avatar & Name */}
+        <View style={styles.profileHeader}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarIcon}>👤</Text>
           </View>
-        </View>
-
-        {/* Privacy note - matching HTML spec lines 1243-1246 */}
-        <View style={styles.privacyNote}>
-          <Text style={styles.privacyIcon}>🔒</Text>
-          <Text variant="body" size="sm" style={styles.privacyText}>
-            Your exact location is never shared.
+          <Text variant="headingMedium" size="lg" style={styles.name}>
+            {profile?.full_name || 'User'}
           </Text>
+          <Text variant="body" size="sm" color="secondary">
+            {profile?.harvard_email || user?.email || ''}
+          </Text>
+          {profile && (
+            <Text variant="body" size="xs" color="muted" style={styles.memberSince}>
+              Member since {getMemberSince()}
+            </Text>
+          )}
         </View>
 
-        {/* Sign out - matching HTML spec line 1248 */}
-        <Button variant="secondary" onPress={handleSignOut}>
+        {/* Profile Info */}
+        {profile && (
+          <>
+            <Text variant="bodyMedium" size="sm" style={styles.sectionTitle}>
+              Harvard Details
+            </Text>
+
+            <View style={styles.infoCard}>
+              <View style={styles.infoRow}>
+                <Text variant="body" size="sm" color="secondary">House</Text>
+                <Text variant="body" size="sm">{profile.house}</Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Text variant="body" size="sm" color="secondary">Class of</Text>
+                <Text variant="body" size="sm">{profile.graduation_year}</Text>
+              </View>
+              {profile.dorm_building && (
+                <View style={styles.infoRow}>
+                  <Text variant="body" size="sm" color="secondary">Building</Text>
+                  <Text variant="body" size="sm">{profile.dorm_building}</Text>
+                </View>
+              )}
+              {profile.dorm_room && (
+                <View style={[styles.infoRow, styles.infoRowLast]}>
+                  <Text variant="body" size="sm" color="secondary">Room</Text>
+                  <Text variant="body" size="sm">{profile.dorm_room}</Text>
+                </View>
+              )}
+            </View>
+
+            <Text variant="bodyMedium" size="sm" style={styles.sectionTitle}>
+              Contact
+            </Text>
+
+            <View style={styles.infoCard}>
+              <View style={styles.infoRow}>
+                <Text variant="body" size="sm" color="secondary">Email</Text>
+                <Text variant="body" size="sm" numberOfLines={1} style={styles.emailText}>
+                  {profile.harvard_email}
+                </Text>
+              </View>
+              {profile.phone_number && (
+                <View style={[styles.infoRow, styles.infoRowLast]}>
+                  <Text variant="body" size="sm" color="secondary">Phone</Text>
+                  <Text variant="body" size="sm">{formatPhoneNumber(profile.phone_number)}</Text>
+                </View>
+              )}
+            </View>
+          </>
+        )}
+
+        {/* Section: Security */}
+        <Text variant="bodyMedium" size="sm" style={styles.sectionTitle}>
+          Security
+        </Text>
+
+        {/* Biometric login toggle */}
+        {biometricAvailable && (
+          <View style={styles.settingRow}>
+            <View style={styles.settingInfo}>
+              <Text variant="body" size="sm">
+                {getBiometricLabel()}
+              </Text>
+              <Text variant="body" size="xs" color="secondary">
+                Sign in quickly with {biometricType === 'facial' ? 'your face' : 'your fingerprint'}
+              </Text>
+            </View>
+            <Switch
+              value={biometricEnabled}
+              onValueChange={handleBiometricToggle}
+              trackColor={{ false: colors.border, true: colors.accent }}
+              thumbColor={colors.card}
+            />
+          </View>
+        )}
+
+        {!biometricAvailable && (
+          <View style={styles.settingRow}>
+            <View style={styles.settingInfo}>
+              <Text variant="body" size="sm" color="secondary">
+                Biometric login
+              </Text>
+              <Text variant="body" size="xs" color="muted">
+                Not available on this device
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {/* Sign out */}
+        <Button variant="secondary" onPress={handleSignOut} style={styles.signOutBtn}>
           Sign out
         </Button>
+
+        <View style={styles.bottomSpacer} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -117,13 +287,29 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.bg,
   },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   scrollContent: {
-    paddingHorizontal: spacing.xxl,
-    paddingBottom: 120, // Space for tab bar
+    paddingHorizontal: spacing.lg,
+    paddingBottom: 120,
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingTop: spacing.sm,
-    paddingBottom: spacing.sm,
+    paddingBottom: spacing.md,
+  },
+  editBtn: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+  },
+  profileHeader: {
+    alignItems: 'center',
+    marginBottom: spacing.xl,
   },
   avatar: {
     width: 80,
@@ -132,39 +318,64 @@ const styles = StyleSheet.create({
     borderRadius: 40,
     alignItems: 'center',
     justifyContent: 'center',
-    alignSelf: 'center',
-    marginBottom: spacing.xxl,
+    marginBottom: spacing.md,
   },
   avatarIcon: {
     fontSize: 32,
   },
-  inputGroup: {
-    marginBottom: spacing.xl,
+  name: {
+    marginBottom: spacing.xs,
   },
-  label: {
+  memberSince: {
+    marginTop: spacing.sm,
+  },
+  sectionTitle: {
+    marginTop: spacing.lg,
     marginBottom: spacing.sm,
+    color: colors.textSecondary,
   },
-  pills: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    flexWrap: 'wrap',
-  },
-  privacyNote: {
-    backgroundColor: colors.successSoft,
+  infoCard: {
+    backgroundColor: colors.card,
     borderRadius: radius.md,
-    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  infoRowLast: {
+    borderBottomWidth: 0,
+  },
+  emailText: {
+    flex: 1,
+    textAlign: 'right',
+    marginLeft: spacing.md,
+  },
+  settingRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-    marginTop: spacing.xl,
-    marginBottom: spacing.xl,
+    justifyContent: 'space-between',
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
   },
-  privacyIcon: {
-    fontSize: 16,
-  },
-  privacyText: {
+  settingInfo: {
     flex: 1,
-    color: colors.success,
+  },
+  signOutBtn: {
+    marginTop: spacing.lg,
+  },
+  bottomSpacer: {
+    height: spacing.xl,
   },
 });
-

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { forwardRef } from 'react';
 import { View, TextInput, StyleSheet, TextInputProps } from 'react-native';
 import { Text } from './Text';
 import { colors, radius, spacing, typography } from '../tokens';
@@ -8,43 +8,48 @@ interface InputProps extends TextInputProps {
   error?: string;
 }
 
-export function Input({ label, error, style, ...props }: InputProps) {
-  return (
-    <View style={styles.container}>
-      {label && (
-        <Text variant="body" size="base" color="secondary" style={styles.label}>
-          {label}
-        </Text>
-      )}
-      <TextInput
-        style={[styles.input, error && styles.inputError, style]}
-        placeholderTextColor={colors.textMuted}
-        {...props}
-      />
-      {error && (
-        <Text variant="body" size="sm" color="danger" style={styles.error}>
-          {error}
-        </Text>
-      )}
-    </View>
-  );
-}
+const InputComponent = forwardRef<TextInput, InputProps>(
+  function Input({ label, error, style, ...props }, ref) {
+    return (
+      <View style={styles.container}>
+        {label && (
+          <Text variant="body" size="sm" color="secondary" style={styles.label}>
+            {label}
+          </Text>
+        )}
+        <TextInput
+          ref={ref}
+          style={[styles.input, error && styles.inputError, style]}
+          placeholderTextColor={colors.textMuted}
+          {...props}
+        />
+        {error && (
+          <Text variant="body" size="sm" color="danger" style={styles.error}>
+            {error}
+          </Text>
+        )}
+      </View>
+    );
+  }
+);
+
+export const Input = InputComponent;
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: spacing.xl,
+    marginBottom: spacing.lg,
   },
   label: {
-    marginBottom: 6,
+    marginBottom: spacing.sm,
   },
   input: {
     width: '100%',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: 14,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.md,
-    fontSize: typography?.sizes?.lg || 15,
+    fontSize: typography?.sizes?.sm || 14,
     fontFamily: typography?.fonts?.body || 'DMSans_400Regular',
     color: colors.textPrimary,
     backgroundColor: colors.card,
@@ -53,6 +58,6 @@ const styles = StyleSheet.create({
     borderColor: colors.danger,
   },
   error: {
-    marginTop: 6,
+    marginTop: spacing.xs,
   },
 });

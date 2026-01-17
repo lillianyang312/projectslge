@@ -14,5 +14,6 @@ export { RichPriceText } from './RichPriceText';
 export { PendingMessage } from './PendingMessage';
 export { BroadcastAnnouncement } from './BroadcastAnnouncement';
 export { default as ChatThread } from './ChatThread';
+export { KeyboardAwareScreen, useKeyboardAwareInput } from './KeyboardAwareScreen';
 export type { PriceReference } from './RichPriceText';
-export type { ChatThreadProps, ChatThreadContext } from './ChatThread';
+export type { ChatThreadProps, ChatThreadContext, ChatType, DealStatus, ActionNeededType } from './ChatThread';

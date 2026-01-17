@@ -81,11 +81,110 @@ export interface ChatbotResponse {
    * app can render as color–coded pill tags.
    */
   priceReferences?: PriceReference[];
+
+  /**
+   * Optional deal updates extracted from agent response.
+   * Client can use this to update local state immediately.
+   */
+  dealUpdates?: DealUpdate;
+
+  /**
+   * Whether a deal was updated in the database.
+   */
+  dealUpdated?: boolean;
+
+  /**
+   * Action type that requires user input (e.g., accept_offer, finalize).
+   * Client can use this to show appropriate UI buttons.
+   */
+  actionNeeded?: ActionNeededType;
 }
 
 export const DEFAULT_SYSTEM_PROMPT =
   "You are a helpful assistant for a marketplace app. " +
   "Answer clearly and concisely, focusing on helping the user understand how to list, find, and evaluate items.";
+
+/**
+ * Agent-mediated three-way chat system prompt.
+ * The agent facilitates communication between buyer and seller,
+ * extracts key negotiation details, and minimizes direct back-and-forth.
+ */
+export const MEDIATOR_SYSTEM_PROMPT = `You are an AI marketplace agent mediating between a buyer and seller. Your job is to facilitate smooth transactions with minimal direct messaging between parties.
+
+NEGOTIATION STAGES:
+The deal progresses through these stages in order:
+1. NEGOTIATING - Price discussion (offer, counter-offer, acceptance)
+2. AGREED - Both parties accept a price, ready for finalization
+3. LOGISTICS - After finalization, coordinate pickup/delivery details
+4. COMPLETED - Pickup confirmed, transaction done
+
+CRITICAL INFORMATION TO TRACK:
+For BOTH buyer AND seller, always ensure they know:
+- Current offer amount (who offered what)
+- Payment method (cash, Venmo, etc.)
+- Any changes to price or terms
+
+PROACTIVE PROMPTING - You MUST ask for missing info:
+- No price mentioned? → "What price would you like to offer/accept?"
+- Price accepted but no payment method? → "How would you like to handle payment? (Cash, Venmo, etc.)"
+- In logistics but no timing? → "What days/times work for pickup?"
+- In logistics but no location? → "Where should the pickup happen?"
+
+WHEN TO SUGGEST FINALIZATION:
+When BOTH conditions are met:
+1. A price has been accepted by both parties
+2. Payment method is agreed
+
+Tell them: "Both parties have agreed on $X with [payment method]. You can now finalize the deal using the 'Finalize' button. Once finalized, we'll coordinate pickup details."
+
+LOGISTICS COORDINATION (after finalization):
+1. Ask seller for available pickup times (suggest 2-3 options)
+2. Present options to buyer
+3. If no match, let them propose alternatives
+4. Once timing agreed, confirm location
+5. Summarize final pickup details to both parties
+
+RESPONSE FORMAT:
+Always include a structured tag at the END when deal state changes:
+
+For new offers:
+[DEAL_UPDATE: offer=$XXX, status=negotiating]
+
+For accepted price (ready to finalize):
+[DEAL_UPDATE: agreed_price=$XXX, status=agreed, payment_method="cash"]
+
+For logistics updates:
+[DEAL_UPDATE: status=logistics, pickup_date=YYYY-MM-DD, pickup_time="3pm", pickup_location="123 Main St"]
+
+For completion:
+[DEAL_UPDATE: status=completed]
+
+Also include action prompts when user input is needed:
+[ACTION_NEEDED: type=accept_offer|counter_offer|confirm_pickup|finalize]
+
+Example negotiation response:
+"The buyer has offered $500 for your item (asking price was $550).
+
+Would you like to:
+• Accept $500
+• Counter with a different price
+• Decline the offer
+
+[DEAL_UPDATE: offer=$500, status=negotiating]
+[ACTION_NEEDED: type=accept_offer]"
+
+Example logistics response:
+"Great, the deal is finalized at $550! Now let's coordinate pickup.
+
+Seller, what times work for you this week? I'll suggest some options:
+• Saturday 2-4pm
+• Sunday 11am-1pm
+• Monday after 5pm
+
+[DEAL_UPDATE: status=logistics]
+[ACTION_NEEDED: type=confirm_pickup]"
+
+Be concise and action-oriented. Guide users toward completing the transaction efficiently.`;
 
 /**
  * Minimal row shapes for items and deals from the Supabase DB.
@@ -201,6 +300,178 @@ export function buildDbContextSummary(item?: DbItemRow, deal?: DbDealRow): strin
   }
 
   return parts.join(" ");
+}
+
+/**
+ * Action types that require user input
+ */
+export type ActionNeededType = 'accept_offer' | 'counter_offer' | 'confirm_pickup' | 'finalize' | 'provide_payment' | 'suggest_times';
+
+/**
+ * Interface for deal updates extracted from agent response
+ */
+export interface DealUpdate {
+  offer?: number;
+  agreed_price?: number;
+  status?: 'negotiating' | 'agreed' | 'logistics' | 'completed' | 'cancelled';
+  payment_method?: string;
+  pickup_date?: string;
+  pickup_time?: string;
+  pickup_location?: string;
+  delivery_method?: 'pickup' | 'shipping';
+}
+
+/**
+ * Parse deal updates from agent response
+ * Looks for [DEAL_UPDATE: ...] tags in the output
+ */
+export function parseDealUpdates(output: string): DealUpdate | null {
+  const dealUpdateMatch = output.match(/\[DEAL_UPDATE:\s*([^\]]+)\]/i);
+  if (!dealUpdateMatch) return null;
+
+  const updateStr = dealUpdateMatch[1];
+  const update: DealUpdate = {};
+
+  // Parse offer amount
+  const offerMatch = updateStr.match(/offer=\$?(\d+(?:\.\d{2})?)/i);
+  if (offerMatch) {
+    update.offer = parseFloat(offerMatch[1]);
+  }
+
+  // Parse agreed price
+  const agreedMatch = updateStr.match(/agreed_price=\$?(\d+(?:\.\d{2})?)/i);
+  if (agreedMatch) {
+    update.agreed_price = parseFloat(agreedMatch[1]);
+  }
+
+  // Parse status
+  const statusMatch = updateStr.match(/status=(negotiating|agreed|logistics|completed|cancelled)/i);
+  if (statusMatch) {
+    update.status = statusMatch[1].toLowerCase() as DealUpdate['status'];
+  }
+
+  // Parse payment method
+  const paymentMatch = updateStr.match(/payment_method="([^"]+)"/i);
+  if (paymentMatch) {
+    update.payment_method = paymentMatch[1];
+  }
+
+  // Parse pickup date
+  const dateMatch = updateStr.match(/pickup_date=(\d{4}-\d{2}-\d{2})/i);
+  if (dateMatch) {
+    update.pickup_date = dateMatch[1];
+  }
+
+  // Parse pickup time
+  const timeMatch = updateStr.match(/pickup_time="([^"]+)"/i);
+  if (timeMatch) {
+    update.pickup_time = timeMatch[1];
+  }
+
+  // Parse pickup location
+  const locationMatch = updateStr.match(/pickup_location="([^"]+)"/i);
+  if (locationMatch) {
+    update.pickup_location = locationMatch[1];
+  }
+
+  // Parse delivery method
+  const deliveryMatch = updateStr.match(/delivery_method=(pickup|shipping)/i);
+  if (deliveryMatch) {
+    update.delivery_method = deliveryMatch[1].toLowerCase() as 'pickup' | 'shipping';
+  }
+
+  return Object.keys(update).length > 0 ? update : null;
+}
+
+/**
+ * Parse action needed from agent response
+ * Looks for [ACTION_NEEDED: ...] tags in the output
+ */
+export function parseActionNeeded(output: string): ActionNeededType | null {
+  const actionMatch = output.match(/\[ACTION_NEEDED:\s*type=([^\]]+)\]/i);
+  if (!actionMatch) return null;
+
+  const actionType = actionMatch[1].trim().toLowerCase();
+  const validTypes: ActionNeededType[] = ['accept_offer', 'counter_offer', 'confirm_pickup', 'finalize', 'provide_payment', 'suggest_times'];
+
+  if (validTypes.includes(actionType as ActionNeededType)) {
+    return actionType as ActionNeededType;
+  }
+  return null;
+}
+
+/**
+ * Remove action needed tags from output before sending to client
+ */
+export function cleanActionTags(output: string): string {
+  return output.replace(/\s*\[ACTION_NEEDED:[^\]]+\]\s*/gi, '').trim();
+}
+
+/**
+ * Update deal in database based on parsed updates
+ */
+async function updateDealFromChat(
+  dealId: string,
+  updates: DealUpdate,
+): Promise<boolean> {
+  const client = createServiceClient();
+  if (!client) {
+    console.warn("⚠️ [chatbot] Cannot update deal - no Supabase client");
+    return false;
+  }
+
+  const dbUpdates: Record<string, unknown> = {};
+
+  if (updates.offer !== undefined) {
+    dbUpdates.current_offer = updates.offer;
+  }
+  if (updates.agreed_price !== undefined) {
+    dbUpdates.agreed_price = updates.agreed_price;
+  }
+  if (updates.status !== undefined) {
+    dbUpdates.status = updates.status;
+  }
+  if (updates.payment_method !== undefined) {
+    dbUpdates.payment_method = updates.payment_method;
+  }
+  if (updates.pickup_date !== undefined) {
+    dbUpdates.pickup_date = updates.pickup_date;
+  }
+  if (updates.pickup_time !== undefined) {
+    dbUpdates.pickup_time = updates.pickup_time;
+  }
+  if (updates.pickup_location !== undefined) {
+    dbUpdates.pickup_location = updates.pickup_location;
+  }
+  if (updates.delivery_method !== undefined) {
+    dbUpdates.delivery_method = updates.delivery_method;
+  }
+
+  if (Object.keys(dbUpdates).length === 0) {
+    return false;
+  }
+
+  console.log("📝 [chatbot] Updating deal:", { dealId, updates: dbUpdates });
+
+  const { error } = await client
+    .from("deals")
+    .update(dbUpdates)
+    .eq("id", dealId);
+
+  if (error) {
+    console.error("❌ [chatbot] Failed to update deal:", error);
+    return false;
+  }
+
+  console.log("✅ [chatbot] Deal updated successfully");
+  return true;
+}
+
+/**
+ * Remove deal update tags from output before sending to client
+ */
+export function cleanDealUpdateTags(output: string): string {
+  return output.replace(/\s*\[DEAL_UPDATE:[^\]]+\]\s*/gi, '').trim();
 }
 
 /**
@@ -381,10 +652,14 @@ export async function handleChatbotRequest(req: Request): Promise<Response> {
       summary: dbContextSummary.substring(0, 200) + (dbContextSummary.length > 200 ? "..." : ""),
     });
 
+    // Use mediator prompt when we have a deal context (three-way chat)
+    const isThreeWayChat = !!deal;
     const baseSystemPrompt =
       systemPrompt && typeof systemPrompt === "string"
         ? systemPrompt
-        : DEFAULT_SYSTEM_PROMPT;
+        : isThreeWayChat
+          ? MEDIATOR_SYSTEM_PROMPT
+          : DEFAULT_SYSTEM_PROMPT;
 
     const pillTagGuidance = dbContextSummary
       ? "\n\nYou have access to structured marketplace context from the database:\n" +
@@ -398,6 +673,8 @@ export async function handleChatbotRequest(req: Request): Promise<Response> {
       : "\n\nIf you mention any concrete prices, prefer round, realistic amounts and keep them internally consistent.";
 
     const finalSystemPrompt = baseSystemPrompt + pillTagGuidance;
+
+    console.log("🎭 [chatbot] Chat mode:", isThreeWayChat ? "THREE-WAY MEDIATOR" : "STANDARD");
 
     // Build messages array for Claude (without system message in array)
     const messages: Array<{ role: "user" | "assistant"; content: string }> = [];
@@ -455,8 +732,27 @@ export async function handleChatbotRequest(req: Request): Promise<Response> {
       duration: `${claudeDuration}ms`,
     });
 
+    // Parse deal updates from agent response (for three-way chat)
+    const dealUpdates = parseDealUpdates(output);
+    let dealUpdated = false;
+
+    if (dealUpdates && deal?.id) {
+      console.log("🔄 [chatbot] Deal updates detected:", dealUpdates);
+      dealUpdated = await updateDealFromChat(deal.id, dealUpdates);
+    }
+
+    // Parse action needed from agent response
+    const actionNeeded = parseActionNeeded(output);
+    if (actionNeeded) {
+      console.log("🎯 [chatbot] Action needed detected:", actionNeeded);
+    }
+
+    // Clean output for client (remove [DEAL_UPDATE:] and [ACTION_NEEDED:] tags)
+    let cleanOutput = cleanDealUpdateTags(output);
+    cleanOutput = cleanActionTags(cleanOutput);
+
     const priceReferences = extractPriceReferencesFromOutput(
-      output,
+      cleanOutput,
       item,
       deal,
     );
@@ -467,9 +763,12 @@ export async function handleChatbotRequest(req: Request): Promise<Response> {
     });
 
     const responseBody: ChatbotResponse = {
-      output,
+      output: cleanOutput,
       // Only include if non-empty to keep payload lean and backwards compatible.
       ...(priceReferences.length > 0 ? { priceReferences } : {}),
+      ...(dealUpdates ? { dealUpdates } : {}),
+      ...(dealUpdated ? { dealUpdated } : {}),
+      ...(actionNeeded ? { actionNeeded } : {}),
     };
 
     console.log("✅ [chatbot] Sending response:", {
@@ -477,6 +776,9 @@ export async function handleChatbotRequest(req: Request): Promise<Response> {
       outputLength: responseBody.output.length,
       hasPriceReferences: !!responseBody.priceReferences,
       priceReferencesCount: responseBody.priceReferences?.length || 0,
+      hasDealUpdates: !!responseBody.dealUpdates,
+      dealUpdated: responseBody.dealUpdated,
+      actionNeeded: responseBody.actionNeeded,
     });
 
     return new Response(JSON.stringify(responseBody), {

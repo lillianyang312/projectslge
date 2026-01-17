@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   StyleSheet,
   SafeAreaView,
   ScrollView,
   Pressable,
+  Image,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
@@ -12,6 +15,10 @@ import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { SwipeStackParamList, AppTabsParamList } from '../../navigation/types';
 import { Text, Button, Input, Card } from '../../ui/components';
 import { colors, spacing, radius, typography } from '../../ui/tokens';
+import { getItemById, Item } from '../../services/itemsService';
+import { getSignedUrl } from '../../services/imageService';
+import { expressInterest } from '../../services/dealsService';
+import { useAuthStore } from '../../state/authStore';
 
 type Props = NativeStackScreenProps<SwipeStackParamList, 'BrowseItemDetail'>;
 type TabNavProp = BottomTabNavigationProp<AppTabsParamList>;
@@ -22,10 +29,8 @@ const demoItems: Record<string, {
   title: string;
   category: string;
   distance: string;
-  askingPrice: number;
   marketEstimate: string;
   condition: string;
-  sellerPreference: string;
   description: string;
 }> = {
   '1': {
@@ -33,10 +38,8 @@ const demoItems: Record<string, {
     title: 'Mid-century Modern Sofa',
     category: 'Furniture',
     distance: '~0.8 mi away',
-    askingPrice: 650,
     marketEstimate: '$600 – $750',
     condition: 'Good',
-    sellerPreference: 'Local pickup',
     description: 'Walnut frame, original cushions, minor wear on armrests. Non-smoking home.',
   },
   '2': {
@@ -44,10 +47,8 @@ const demoItems: Record<string, {
     title: 'Studio Display',
     category: 'Electronics',
     distance: '~1.2 mi away',
-    askingPrice: 1100,
     marketEstimate: '$1000 – $1200',
     condition: 'Like new',
-    sellerPreference: 'Shipping OK',
     description: 'Apple Studio Display, barely used, includes original box.',
   },
   '3': {
@@ -55,31 +56,168 @@ const demoItems: Record<string, {
     title: 'Road Bike',
     category: 'Sports',
     distance: '~2.5 mi away',
-    askingPrice: 450,
     marketEstimate: '$400 – $550',
     condition: 'Good',
-    sellerPreference: 'Local pickup',
     description: 'Specialized road bike, well maintained, new tires.',
   },
 };
 
 export default function BrowseItemDetailScreen({ navigation, route }: Props) {
   const { itemId } = route.params;
-  const itemData = demoItems[itemId] || demoItems['1'];
   const tabNavigation = useNavigation<TabNavProp>();
+  const user = useAuthStore((state) => state.user);
 
   const [showBidForm, setShowBidForm] = useState(false);
   const [maxBid, setMaxBid] = useState('');
   const [interestedFor, setInterestedFor] = useState<'1 week' | '2 weeks' | '1 month' | 'Flexible'>('2 weeks');
+  const [supabaseItem, setSupabaseItem] = useState<Item | null>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSendInterest = () => {
-    // Navigate directly to Deals tab (Buying section)
-    tabNavigation.navigate('Deals', { initialMode: 'buying' });
+  // Fetch item data from Supabase
+  useEffect(() => {
+    async function fetchItem() {
+      const { data } = await getItemById(itemId);
+      if (data) {
+        setSupabaseItem(data);
+        if (data.photos?.[0]) {
+          const url = await getSignedUrl(data.photos[0]);
+          setImageUrl(url);
+        }
+      }
+      setLoading(false);
+    }
+    fetchItem();
+  }, [itemId]);
+
+  // Build item data from Supabase or fall back to demo
+  const demoItem = demoItems[itemId] || demoItems['1'];
+  const itemData = supabaseItem
+    ? {
+        emoji: '📦',
+        title: supabaseItem.title,
+        category: supabaseItem.category,
+        distance: '~1 mi away',
+        marketEstimate: supabaseItem.estimated_value_min && supabaseItem.estimated_value_max
+          ? `$${supabaseItem.estimated_value_min} – $${supabaseItem.estimated_value_max}`
+          : '$50 – $150',
+        condition: supabaseItem.condition || 'Good',
+        description: '',
+        minPrice: supabaseItem.min_price,
+        estimatedValueMax: supabaseItem.estimated_value_max,
+        imageUri: imageUrl,
+      }
+    : { ...demoItem, minPrice: undefined as number | undefined, estimatedValueMax: undefined as number | undefined, imageUri: null as string | null };
+
+  // Calculate the likely offer range the seller will accept
+  const getLikelyOfferRange = () => {
+    if (itemData.minPrice && itemData.estimatedValueMax) {
+      return `$${itemData.minPrice} – $${itemData.estimatedValueMax}`;
+    } else if (itemData.minPrice) {
+      return `$${itemData.minPrice}+`;
+    }
+    return null;
   };
 
-  const handleAskQuestion = () => {
-    // Navigate directly to chat thread for this item
-    navigation.navigate('ChatThread', { conversationId: `item-${itemId}` });
+  const likelyOfferRange = getLikelyOfferRange();
+
+  const handleSendInterest = async () => {
+    if (!user?.id) {
+      Alert.alert('Error', 'Please log in to express interest');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const bidAmount = maxBid ? parseInt(maxBid.replace(/[^0-9]/g, ''), 10) : undefined;
+
+      console.log('📤 Submitting bid:', { itemId, bidAmount, interestedFor });
+
+      const { deal, error } = await expressInterest(
+        user.id,
+        itemId,
+        bidAmount,
+        interestedFor
+      );
+
+      if (error) {
+        Alert.alert('Error', error);
+        return;
+      }
+
+      if (deal) {
+        Alert.alert(
+          'Success!',
+          bidAmount
+            ? `Your bid of $${bidAmount} has been submitted. The seller will be notified.`
+            : 'Your interest has been submitted. Consider adding a price to get the seller\'s attention!',
+          [
+            {
+              text: 'View Deals',
+              onPress: () => tabNavigation.navigate('Deals', { initialMode: 'buying' }),
+            },
+          ]
+        );
+        setShowBidForm(false);
+        setMaxBid('');
+      }
+    } catch (err) {
+      console.error('Error submitting bid:', err);
+      Alert.alert('Error', 'Something went wrong. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleAskQuestion = async () => {
+    if (!user?.id) {
+      Alert.alert('Error', 'Please log in to ask a question');
+      return;
+    }
+
+    // Create a deal first (without a bid), then navigate to chat
+    setSubmitting(true);
+    try {
+      const { deal, error } = await expressInterest(user.id, itemId);
+
+      if (error) {
+        // If deal already exists, navigate to deals tab
+        if (error === 'You already have a pending bid on this item') {
+          Alert.alert(
+            'Existing Conversation',
+            'You already have an active conversation with this seller.',
+            [
+              {
+                text: 'View Deals',
+                onPress: () => tabNavigation.navigate('Deals', { initialMode: 'buying' }),
+              },
+            ]
+          );
+        } else {
+          Alert.alert('Error', error);
+        }
+        return;
+      }
+
+      if (deal) {
+        Alert.alert(
+          'Question Sent',
+          'The seller has been notified. You can continue the conversation in your Deals.',
+          [
+            {
+              text: 'View Deals',
+              onPress: () => tabNavigation.navigate('Deals', { initialMode: 'buying' }),
+            },
+          ]
+        );
+      }
+    } catch (err) {
+      console.error('Error asking question:', err);
+      Alert.alert('Error', 'Something went wrong. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (showBidForm) {
@@ -153,15 +291,21 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
                   </Pressable>
                 ))}
               </View>
+              {interestedFor === 'Flexible' && (
+                <Text variant="body" size="xs" color="muted" style={styles.compactHint}>
+                  Indefinite until manually removed
+                </Text>
+              )}
             </View>
+
           </ScrollView>
 
           {/* Buttons at bottom */}
           <View style={styles.compactButtonArea}>
-            <Button variant="primary" onPress={handleSendInterest}>
-              Submit bid
+            <Button variant="primary" onPress={handleSendInterest} disabled={submitting}>
+              {submitting ? 'Submitting...' : 'Submit bid'}
             </Button>
-            <Button variant="secondary" onPress={handleAskQuestion}>
+            <Button variant="secondary" onPress={handleAskQuestion} disabled={submitting}>
               Ask question
             </Button>
           </View>
@@ -172,20 +316,24 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
 
   return (
     <SafeAreaView style={styles.screen}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <Text size="xl">←</Text>
-          </Pressable>
-          <Text variant="headingMedium" size="heading3" style={styles.headerTitle}>
-            Item
-          </Text>
-        </View>
+      {/* Header - outside ScrollView to match Express Interest */}
+      <View style={styles.header}>
+        <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <Text size="xl">←</Text>
+        </Pressable>
+        <Text variant="headingMedium" size="heading3" style={styles.headerTitle} numberOfLines={1}>
+          {loading ? 'Loading...' : itemData.title}
+        </Text>
+      </View>
 
+      <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Item Image */}
         <View style={styles.detailImage}>
-          <Text style={styles.imageEmoji}>{itemData.emoji}</Text>
+          {itemData.imageUri ? (
+            <Image source={{ uri: itemData.imageUri }} style={styles.image} resizeMode="cover" />
+          ) : (
+            <Text style={styles.imageEmoji}>{itemData.emoji}</Text>
+          )}
         </View>
 
         <Text variant="headingMedium" size="heading3" style={styles.detailTitle}>
@@ -206,6 +354,16 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
               {itemData.marketEstimate}
             </Text>
           </View>
+          {likelyOfferRange && (
+            <View style={styles.agentRow}>
+              <Text variant="body" size="md" color="secondary">
+                Likely to accept
+              </Text>
+              <Text variant="bodyMedium" size="md" color="success">
+                {likelyOfferRange}
+              </Text>
+            </View>
+          )}
           <View style={styles.agentRow}>
             <Text variant="body" size="md" color="secondary">
               Condition
@@ -214,19 +372,13 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
               {itemData.condition}
             </Text>
           </View>
-          <View style={styles.agentRow}>
-            <Text variant="body" size="md" color="secondary">
-              Seller preference
-            </Text>
-            <Text variant="bodyMedium" size="md">
-              {itemData.sellerPreference}
-            </Text>
-          </View>
         </View>
 
-        <Text variant="body" size="md" color="secondary" style={styles.description}>
-          {itemData.description}
-        </Text>
+        {itemData.description ? (
+          <Text variant="body" size="md" color="secondary" style={styles.description}>
+            {itemData.description}
+          </Text>
+        ) : null}
 
         <Button variant="primary" onPress={() => setShowBidForm(true)}>
           Express Interest
@@ -250,6 +402,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.lg,
     paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xxl,
   },
   backBtn: {
     width: 36,
@@ -260,7 +413,6 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: spacing.sm,
   },
   headerTitle: {
     flex: 1,
@@ -276,6 +428,10 @@ const styles = StyleSheet.create({
   },
   imageEmoji: {
     fontSize: 80,
+  },
+  image: {
+    width: '100%',
+    height: '100%',
   },
   detailTitle: {
     marginBottom: 4,

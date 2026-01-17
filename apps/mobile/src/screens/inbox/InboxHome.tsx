@@ -1,235 +1,195 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   StyleSheet,
   SafeAreaView,
   ScrollView,
   Pressable,
-  ViewStyle,
-  Alert,
+  RefreshControl,
+  ActivityIndicator,
+  Image,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { InboxStackParamList } from '../../navigation/types';
+import { useFocusEffect } from '@react-navigation/native';
+import { InboxStackParamList, DealsStackParamList } from '../../navigation/types';
 import { Text, Card, Badge } from '../../ui/components';
 import { colors, spacing, radius } from '../../ui/tokens';
+import { useAuthStore } from '../../state/authStore';
+import { getMyDeals, getMessages } from '../../services/dealsService';
+import { getSignedUrl } from '../../services/imageService';
+import { Deal, Message } from '../../types/models';
 
 type Props = NativeStackScreenProps<InboxStackParamList, 'InboxHome'>;
 
 type FilterType = 'all' | 'unread' | 'selling' | 'buying';
 
-interface InboxMessage {
+interface InboxConversation {
   id: string;
+  dealId: string;
   emoji: string;
   itemName: string;
   preview: string;
-  fullMessage?: string; // Full message text for broadcasts
   time: string;
+  timeMs: number;
   isUnread: boolean;
   isAgent: boolean;
   type: 'selling' | 'buying';
+  status: string;
+  imageUrl?: string;
   badge?: {
     label: string;
-    variant: 'warning' | 'purple' | 'blue' | 'success';
+    variant: 'danger' | 'blue' | 'success' | 'warning' | 'purple';
   };
-  avatarType: 'agent' | 'buyer' | 'seller';
-  isBroadcast?: boolean; // Flag to identify broadcast messages
 }
 
-// Broadcast announcements (separate section at top)
-const broadcastMessages: InboxMessage[] = [
-  {
-    id: 'broadcast-1',
-    emoji: '🪑',
-    itemName: 'Herman Miller Aeron',
-    preview: '🔈 Seller broadcast: "Price reduced to $520! Available for immediate pickup."',
-    fullMessage: 'Price reduced to $520! Available for immediate pickup. This is a great opportunity - the chair is in excellent condition and I can meet you anytime this week.',
-    time: '1m',
-    isUnread: true,
-    isAgent: false,
-    type: 'buying',
-    badge: { label: 'Broadcast', variant: 'blue' },
-    avatarType: 'seller',
-    isBroadcast: true,
-  },
-  {
-    id: 'broadcast-2',
-    emoji: '📱',
-    itemName: 'iPhone 14 Pro',
-    preview: '🔈 Seller broadcast: "Just posted new photos. Mint condition, no scratches!"',
-    fullMessage: 'Just posted new photos. Mint condition, no scratches! Battery health at 98%. Includes original box and charger. Open to reasonable offers.',
-    time: '45m',
-    isUnread: false,
-    isAgent: false,
-    type: 'buying',
-    badge: { label: 'Broadcast', variant: 'blue' },
-    avatarType: 'seller',
-    isBroadcast: true,
-  },
-];
+// Category to emoji mapping
+const CATEGORY_EMOJI: Record<string, string> = {
+  'Electronics': '📱',
+  'Furniture': '🪑',
+  'Clothing': '👕',
+  'Books': '📚',
+  'Sports': '⚽',
+  'Sports & Outdoors': '🚴',
+  'Music': '🎸',
+  'Art': '🎨',
+  'Kitchen': '🍳',
+  'Home': '🏠',
+  'Home Decor': '🏠',
+  'Office': '💼',
+  'Games': '🎮',
+  'Health & Beauty': '💄',
+  'Other': '📦',
+};
 
-// Demo data matching HTML spec - lines 1105-1226
-const needsResponseMessages: InboxMessage[] = [
-  {
-    id: '1',
-    emoji: '🪑',
-    itemName: 'Herman Miller Aeron',
-    preview: 'Agent: Does Saturday at 3pm work for pickup?',
-    time: '2m',
-    isUnread: true,
-    isAgent: true,
-    type: 'selling',
-    badge: { label: 'Action needed', variant: 'warning' },
-    avatarType: 'agent',
-  },
-  {
-    id: 'buyer-question-1',
-    emoji: '🪑',
-    itemName: 'Herman Miller Aeron',
-    preview: 'Buyer question: "Would you consider $480 if I handle shipping?"',
-    time: '5m',
-    isUnread: true,
-    isAgent: false,
-    type: 'selling',
-    badge: { label: 'Question', variant: 'warning' },
-    avatarType: 'buyer',
-  },
-  {
-    id: 'buyer-question-2',
-    emoji: '🪑',
-    itemName: 'Herman Miller Aeron',
-    preview: 'Buyer question: "What\'s the exact condition of the armrests?"',
-    time: '10m',
-    isUnread: true,
-    isAgent: false,
-    type: 'selling',
-    badge: { label: 'Question', variant: 'warning' },
-    avatarType: 'buyer',
-  },
-  {
-    id: '2',
-    emoji: '🛋️',
-    itemName: 'Mid-century Sofa',
-    preview: 'Seller: Available for pickup this weekend',
-    time: '15m',
-    isUnread: true,
-    isAgent: false,
-    type: 'buying',
-    badge: { label: 'Buying', variant: 'purple' },
-    avatarType: 'buyer',
-  },
-];
+function getEmojiForCategory(category: string): string {
+  return CATEGORY_EMOJI[category] || '📦';
+}
 
-const recentMessages: InboxMessage[] = [
-  {
-    id: '3',
-    emoji: '🖥️',
-    itemName: 'Studio Display',
-    preview: 'Agent: What\'s your shipping address?',
-    time: '1h',
-    isUnread: false,
-    isAgent: true,
-    type: 'buying',
-    badge: { label: 'Buying', variant: 'blue' },
-    avatarType: 'agent',
-  },
-  {
-    id: '4',
-    emoji: '📱',
-    itemName: 'iPhone 14 Pro',
-    preview: 'Buyer: Can you meet at 5pm instead?',
-    time: '3h',
-    isUnread: false,
-    isAgent: false,
-    type: 'selling',
-    badge: { label: 'Selling', variant: 'success' },
-    avatarType: 'seller',
-  },
-  {
-    id: '5',
-    emoji: '🎸',
-    itemName: 'Fender Stratocaster',
-    preview: 'Agent: Deal completed! Payment confirmed.',
-    time: '1d',
-    isUnread: false,
-    isAgent: true,
-    type: 'selling',
-    badge: { label: 'Selling', variant: 'success' },
-    avatarType: 'agent',
-  },
-];
-
-const earlierMessages: InboxMessage[] = [
-  {
-    id: '6',
-    emoji: '🚴',
-    itemName: 'Road Bike',
-    preview: 'You: Thanks! Looking forward to it',
-    time: '2d',
-    isUnread: false,
-    isAgent: false,
-    type: 'buying',
-    badge: { label: 'Buying', variant: 'purple' },
-    avatarType: 'buyer',
-  },
-  {
-    id: '7',
-    emoji: '🖥️',
-    itemName: 'Dell Monitor 27"',
-    preview: 'Agent: No new interest yet. Try lowering price?',
-    time: '3d',
-    isUnread: false,
-    isAgent: true,
-    type: 'selling',
-    badge: { label: 'Selling', variant: 'success' },
-    avatarType: 'agent',
-  },
-];
+function formatTimeAgo(dateStr: string): string {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 1) return 'now';
+  if (diffMins < 60) return `${diffMins}m`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d`;
+}
 
 export default function InboxHomeScreen({ navigation }: Props) {
+  const user = useAuthStore((state) => state.user);
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
-  const [messagesState, setMessagesState] = useState<{
-    broadcasts: InboxMessage[];
-    needsResponse: InboxMessage[];
-    recent: InboxMessage[];
-    earlier: InboxMessage[];
-  }>({
-    broadcasts: broadcastMessages,
-    needsResponse: needsResponseMessages,
-    recent: recentMessages,
-    earlier: earlierMessages,
-  });
+  const [conversations, setConversations] = useState<InboxConversation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const markMessageAsRead = (messageId: string) => {
-    setMessagesState((prev) => {
-      const updateMessages = (messages: InboxMessage[]) =>
-        messages.map((msg) => (msg.id === messageId ? { ...msg, isUnread: false } : msg));
+  // Load all conversations from deals
+  const loadConversations = useCallback(async (showRefresh = false) => {
+    if (!user?.id) {
+      setLoading(false);
+      return;
+    }
 
-      return {
-        broadcasts: updateMessages(prev.broadcasts),
-        needsResponse: updateMessages(prev.needsResponse),
-        recent: updateMessages(prev.recent),
-        earlier: updateMessages(prev.earlier),
-      };
-    });
+    if (showRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+
+    try {
+      const deals = await getMyDeals(user.id);
+
+      // Build conversations from deals with their last messages
+      const convos: InboxConversation[] = await Promise.all(
+        deals.map(async (deal) => {
+          const messages = await getMessages(deal.id);
+          const lastMessage = messages[messages.length - 1];
+          const isSelling = deal.seller_id === user.id;
+
+          // Get image URL
+          let imageUrl: string | undefined;
+          if (deal.item?.photos?.[0]) {
+            imageUrl = await getSignedUrl(deal.item.photos[0]) || undefined;
+          }
+
+          // Determine badge
+          let badge: InboxConversation['badge'];
+          if (deal.status === 'negotiating') {
+            if (deal.current_offer && deal.last_offer_by !== user.id) {
+              badge = { label: 'Action needed', variant: 'danger' };
+            } else if (isSelling) {
+              badge = { label: 'Selling', variant: 'success' };
+            } else {
+              badge = { label: 'Buying', variant: 'blue' };
+            }
+          } else if (deal.status === 'agreed') {
+            badge = { label: 'Agreed', variant: 'purple' };
+          } else if (deal.status === 'logistics') {
+            badge = { label: 'Scheduling', variant: 'warning' };
+          } else if (deal.status === 'completed') {
+            badge = { label: 'Complete', variant: 'success' };
+          } else {
+            badge = isSelling
+              ? { label: 'Selling', variant: 'success' }
+              : { label: 'Buying', variant: 'blue' };
+          }
+
+          const updatedAt = lastMessage?.created_at || deal.updated_at;
+
+          return {
+            id: deal.id,
+            dealId: deal.id,
+            emoji: getEmojiForCategory(deal.item?.category || 'Other'),
+            itemName: deal.item?.title || 'Untitled Item',
+            preview: lastMessage?.content || 'No messages yet',
+            time: formatTimeAgo(updatedAt),
+            timeMs: new Date(updatedAt).getTime(),
+            isUnread: deal.status === 'negotiating' && deal.last_offer_by !== user.id && !!deal.current_offer,
+            isAgent: lastMessage?.is_agent || false,
+            type: isSelling ? 'selling' : 'buying',
+            status: deal.status,
+            imageUrl,
+            badge,
+          };
+        })
+      );
+
+      // Sort by most recent
+      convos.sort((a, b) => b.timeMs - a.timeMs);
+      setConversations(convos);
+    } catch (error) {
+      console.error('Error loading conversations:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [user?.id]);
+
+  // Reload on focus
+  useFocusEffect(
+    useCallback(() => {
+      loadConversations();
+    }, [loadConversations])
+  );
+
+  const handleRefresh = () => loadConversations(true);
+
+  // Filter conversations
+  const filterConversations = (convos: InboxConversation[]) => {
+    if (activeFilter === 'all') return convos;
+    if (activeFilter === 'unread') return convos.filter(c => c.isUnread);
+    if (activeFilter === 'selling') return convos.filter(c => c.type === 'selling');
+    if (activeFilter === 'buying') return convos.filter(c => c.type === 'buying');
+    return convos;
   };
 
-  const filterMessages = (messages: InboxMessage[]) => {
-    if (activeFilter === 'all') return messages;
-    if (activeFilter === 'unread') return messages.filter(m => m.isUnread);
-    if (activeFilter === 'selling') return messages.filter(m => m.type === 'selling');
-    if (activeFilter === 'buying') return messages.filter(m => m.type === 'buying');
-    return messages;
-  };
-
-  const filteredBroadcasts = filterMessages(messagesState.broadcasts);
-  const filteredNeedsResponse = filterMessages(messagesState.needsResponse);
-  const filteredRecent = filterMessages(messagesState.recent);
-  const filteredEarlier = filterMessages(messagesState.earlier);
-
-  const hasBroadcasts = filteredBroadcasts.length > 0;
-  const hasNeedsResponse = filteredNeedsResponse.length > 0;
-  const hasRecent = filteredRecent.length > 0;
-  const hasEarlier = filteredEarlier.length > 0;
+  // Split into sections
+  const filteredConvos = filterConversations(conversations);
+  const needsResponse = filteredConvos.filter(c => c.isUnread || c.badge?.variant === 'danger');
+  const recent = filteredConvos.filter(c => !c.isUnread && c.badge?.variant !== 'danger' && c.timeMs > Date.now() - 24 * 60 * 60 * 1000);
+  const earlier = filteredConvos.filter(c => !c.isUnread && c.badge?.variant !== 'danger' && c.timeMs <= Date.now() - 24 * 60 * 60 * 1000);
 
   const filters: { value: FilterType; label: string }[] = [
     { value: 'all', label: 'All' },
@@ -238,91 +198,65 @@ export default function InboxHomeScreen({ navigation }: Props) {
     { value: 'buying', label: 'Buying' },
   ];
 
-  const handleMessagePress = (message: InboxMessage) => {
-    // Mark message as read when viewed
-    if (message.isUnread) {
-      markMessageAsRead(message.id);
-    }
-
-    // If it's a broadcast, show alert with full message
-    if (message.isBroadcast && message.fullMessage) {
-      Alert.alert(
-        `🔈 Broadcast: ${message.itemName}`,
-        message.fullMessage,
-        [
-          {
-            text: 'Close',
-            style: 'cancel',
-          },
-          {
-            text: 'Open Chat',
-            onPress: () => {
-              navigation.navigate('ChatThread', { conversationId: message.id });
-            },
-          },
-        ]
-      );
-    } else {
-      // Regular message - navigate directly to chat
-      navigation.navigate('ChatThread', { conversationId: message.id });
-    }
+  const handleConversationPress = (dealId: string) => {
+    // Navigate directly to DealChat
+    navigation.navigate('DealChat', { dealId });
   };
 
-  const getAvatarStyle = (type: 'agent' | 'buyer' | 'seller') => {
-    if (type === 'agent') return styles.avatarAgent;
-    if (type === 'buyer') return styles.avatarBuyer;
-    return styles.avatarSeller;
-  };
-
-  const getAvatarIcon = (type: 'agent' | 'buyer' | 'seller') => {
-    if (type === 'agent') return '🤖';
-    return '👤';
-  };
-
-  const renderMessage = (message: InboxMessage) => {
-    const cardStyle: ViewStyle = message.isUnread 
-      ? { ...styles.messageCard, ...styles.messageCardUnread }
-      : styles.messageCard;
-    
-    return (
-      <Pressable key={message.id} onPress={() => handleMessagePress(message)}>
-        <Card style={cardStyle}>
+  const renderConversation = (convo: InboxConversation) => (
+    <Pressable key={convo.id} onPress={() => handleConversationPress(convo.dealId)}>
+      <Card style={[styles.messageCard, convo.isUnread && styles.messageCardUnread]}>
         <View style={styles.inboxCard}>
-          <View style={[styles.avatar, getAvatarStyle(message.avatarType)]}>
-            <Text style={styles.avatarIcon}>{getAvatarIcon(message.avatarType)}</Text>
+          <View style={styles.itemThumb}>
+            {convo.imageUrl ? (
+              <Image source={{ uri: convo.imageUrl }} style={styles.thumbImage} resizeMode="cover" />
+            ) : (
+              <Text style={styles.itemEmoji}>{convo.emoji}</Text>
+            )}
           </View>
           <View style={styles.inboxInfo}>
+            {/* Item name as main title with badge */}
             <View style={styles.inboxName}>
-              <Text variant="bodyMedium" size="md" style={styles.inboxNameText}>
-                {message.itemName}
+              <Text variant="bodyMedium" size="md" style={styles.inboxNameText} numberOfLines={1}>
+                {convo.itemName}
               </Text>
-              {message.badge && (
-                <Badge variant={message.badge.variant} style={styles.inlineBadge}>
-                  {message.badge.label}
+              {convo.badge && (
+                <Badge variant={convo.badge.variant} style={styles.inlineBadge}>
+                  {convo.badge.label}
                 </Badge>
               )}
             </View>
+            {/* Status */}
             <Text
               variant="body"
               size="xs"
-              color={message.isAgent ? 'purple' : 'secondary'}
+              color="muted"
+              numberOfLines={1}
+              style={styles.statusText}
+            >
+              {convo.type === 'selling' ? 'Selling' : 'Buying'} · {convo.status}
+            </Text>
+            {/* Message preview */}
+            <Text
+              variant="body"
+              size="xs"
+              color={convo.isAgent ? 'purple' : 'secondary'}
               numberOfLines={1}
               style={styles.inboxPreview}
             >
-              {message.preview}
+              {convo.isAgent ? '🤖 ' : ''}{convo.preview}
             </Text>
           </View>
           <View style={styles.inboxMeta}>
             <Text variant="body" size="xs" color="muted" style={styles.inboxTime}>
-              {message.time}
+              {convo.time}
             </Text>
-            {message.isUnread && <View style={styles.unreadDot} />}
+            {convo.isUnread && <View style={styles.unreadDot} />}
           </View>
         </View>
       </Card>
     </Pressable>
-    );
-  };
+  );
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -332,7 +266,7 @@ export default function InboxHomeScreen({ navigation }: Props) {
           Inbox
         </Text>
         <Text variant="body" size="md" color="secondary">
-          Messages and updates
+          All conversations
         </Text>
       </View>
 
@@ -344,6 +278,13 @@ export default function InboxHomeScreen({ navigation }: Props) {
             if (filter.value === 'selling') return styles.filterBtnSelling;
             if (filter.value === 'buying') return styles.filterBtnBuying;
             return styles.filterBtnActive;
+          };
+
+          const getTextStyle = () => {
+            if (activeFilter !== filter.value) return null;
+            if (filter.value === 'selling') return styles.filterBtnTextSelling;
+            if (filter.value === 'buying') return styles.filterBtnTextBuying;
+            return styles.filterBtnTextActive;
           };
 
           return (
@@ -359,7 +300,7 @@ export default function InboxHomeScreen({ navigation }: Props) {
                 variant="bodyMedium"
                 size="sm"
                 color={activeFilter === filter.value ? undefined : 'secondary'}
-                style={activeFilter === filter.value && styles.filterBtnTextActive}
+                style={activeFilter === filter.value && getTextStyle()}
               >
                 {filter.label}
               </Text>
@@ -369,54 +310,69 @@ export default function InboxHomeScreen({ navigation }: Props) {
       </View>
 
       {/* Content */}
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Broadcast Announcements Section */}
-        {hasBroadcasts && (
-          <>
-            <Text variant="bodyMedium" size="xs" color="muted" style={styles.sectionHeader}>
-              🔈 BROADCASTS
-            </Text>
-            {filteredBroadcasts.map(renderMessage)}
-          </>
-        )}
-
-        {/* Needs Response Section */}
-        {hasNeedsResponse && (
-          <>
-            <Text variant="bodyMedium" size="xs" color="muted" style={styles.sectionHeader}>
-              ⏰ NEEDS RESPONSE
-            </Text>
-            {filteredNeedsResponse.map(renderMessage)}
-          </>
-        )}
-
-        {/* Recent Section */}
-        {hasRecent && (
-          <>
-            <Text variant="bodyMedium" size="xs" color="muted" style={styles.sectionHeader}>
-              💬 RECENT
-            </Text>
-            {filteredRecent.map(renderMessage)}
-          </>
-        )}
-
-        {/* Earlier Section */}
-        {hasEarlier && (
-          <>
-            <Text variant="bodyMedium" size="xs" color="muted" style={styles.sectionHeader}>
-              📅 EARLIER
-            </Text>
-            {filteredEarlier.map(renderMessage)}
-          </>
-        )}
-
-        {/* Empty state / All caught up */}
-        <View style={styles.emptyState}>
-          <Text variant="body" size="sm" color="muted">
-            You're all caught up!
-          </Text>
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.accent} />
         </View>
-      </ScrollView>
+      ) : (
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+          }
+        >
+          {filteredConvos.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyIcon}>💬</Text>
+              <Text variant="bodyMedium" size="md" style={styles.emptyTitle}>
+                No conversations yet
+              </Text>
+              <Text variant="body" size="sm" color="secondary" style={styles.emptyText}>
+                When you express interest in items or receive offers, your conversations will appear here.
+              </Text>
+            </View>
+          ) : (
+            <>
+              {/* Needs Response Section */}
+              {needsResponse.length > 0 && (
+                <>
+                  <Text variant="bodyMedium" size="xs" color="muted" style={styles.sectionHeader}>
+                    ⏰ NEEDS RESPONSE
+                  </Text>
+                  {needsResponse.map(renderConversation)}
+                </>
+              )}
+
+              {/* Recent Section */}
+              {recent.length > 0 && (
+                <>
+                  <Text variant="bodyMedium" size="xs" color="muted" style={styles.sectionHeader}>
+                    💬 RECENT
+                  </Text>
+                  {recent.map(renderConversation)}
+                </>
+              )}
+
+              {/* Earlier Section */}
+              {earlier.length > 0 && (
+                <>
+                  <Text variant="bodyMedium" size="xs" color="muted" style={styles.sectionHeader}>
+                    📅 EARLIER
+                  </Text>
+                  {earlier.map(renderConversation)}
+                </>
+              )}
+
+              {/* All caught up */}
+              <View style={styles.emptyState}>
+                <Text variant="body" size="sm" color="muted">
+                  You're all caught up!
+                </Text>
+              </View>
+            </>
+          )}
+        </ScrollView>
+      )}
     </SafeAreaView>
   );
 }
@@ -452,19 +408,48 @@ const styles = StyleSheet.create({
     borderColor: colors.accent,
   },
   filterBtnSelling: {
-    backgroundColor: '#E8F5E9', // Soft green for selling
-    borderColor: '#81C784',
+    backgroundColor: colors.sellingSoft,
+    borderColor: colors.selling,
   },
   filterBtnBuying: {
-    backgroundColor: '#E3F2FD', // Soft blue for buying
-    borderColor: '#64B5F6',
+    backgroundColor: colors.buyingSoft,
+    borderColor: colors.buying,
   },
   filterBtnTextActive: {
     color: '#FFFFFF',
   },
+  filterBtnTextSelling: {
+    color: colors.selling,
+  },
+  filterBtnTextBuying: {
+    color: colors.buying,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing.xxl,
+    paddingTop: spacing.xxxl,
+  },
+  emptyIcon: {
+    fontSize: 48,
+    marginBottom: spacing.md,
+    opacity: 0.5,
+  },
+  emptyTitle: {
+    marginBottom: spacing.sm,
+  },
+  emptyText: {
+    textAlign: 'center',
+  },
   scrollContent: {
     paddingHorizontal: spacing.xxl,
-    paddingBottom: 120, // Space for tab bar
+    paddingBottom: 120,
   },
   sectionHeader: {
     marginTop: spacing.xxl,
@@ -478,31 +463,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
   },
   messageCardUnread: {
-    backgroundColor: colors.blueSoft,
+    backgroundColor: colors.unread,
   },
   inboxCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
   },
-  avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  itemThumb: {
+    width: 48,
+    height: 48,
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.sm,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
-  avatarAgent: {
-    backgroundColor: colors.purpleSoft,
+  thumbImage: {
+    width: '100%',
+    height: '100%',
   },
-  avatarBuyer: {
-    backgroundColor: colors.blueSoft,
-  },
-  avatarSeller: {
-    backgroundColor: colors.warningSoft,
-  },
-  avatarIcon: {
-    fontSize: 16,
+  itemEmoji: {
+    fontSize: 20,
   },
   inboxInfo: {
     flex: 1,
@@ -521,6 +503,9 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
     paddingHorizontal: 4,
   },
+  statusText: {
+    marginBottom: 2,
+  },
   inboxPreview: {
     lineHeight: 16,
   },
@@ -534,7 +519,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: colors.purple,
+    backgroundColor: colors.warning,
   },
   emptyState: {
     paddingVertical: spacing.xl,

@@ -85,3 +85,4 @@ Then add your Supabase project credentials to `apps/mobile/.env`:
 
 - Make sure you're using Node.js v18 or later
 
+

@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import Anthropic from "@anthropic-ai/sdk";
 import { CONFIDENCE_THRESHOLDS } from '../shared/constants.ts';
 
 // Deno global is available in Supabase Edge Functions runtime
@@ -11,8 +11,11 @@ declare const Deno: {
 
 // Type definitions matching clarification_schema.ts
 export interface AnalyzeImageRequest {
-  imageUrl: string;
-  imagePath: string;
+  imageUrls: string[];  // Support multiple images
+  imagePaths: string[];
+  // Legacy single-image support
+  imageUrl?: string;
+  imagePath?: string;
 }
 
 export interface ClarificationOption {
@@ -54,7 +57,6 @@ export function validateClarificationResponse(
 ): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
 
-  // Validate that response is an object
   if (!response || typeof response !== 'object') {
     errors.push('Response must be an object');
     return { valid: false, errors };
@@ -62,18 +64,15 @@ export function validateClarificationResponse(
 
   const r = response as Record<string, unknown>;
 
-  // Validate type
   if (r.type !== 'identified' && r.type !== 'needs_clarification') {
     errors.push('Type must be either "identified" or "needs_clarification"');
     return { valid: false, errors };
   }
 
-  // Validate confidence
   if (typeof r.confidence !== 'number' || r.confidence < 0 || r.confidence > 1) {
     errors.push('Confidence must be a number in range [0.0, 1.0]');
   }
 
-  // Validate based on type
   if (r.type === 'identified') {
     if (!r.item || typeof r.item !== 'object') {
       errors.push('Item must be an object');
@@ -116,9 +115,6 @@ export function validateClarificationResponse(
           if (!opt.descriptor || typeof opt.descriptor !== 'string') {
             errors.push(`Option at index ${index}: descriptor is required and must be a string`);
           }
-          if (opt.thumbnail !== undefined && typeof opt.thumbnail !== 'string') {
-            errors.push(`Option at index ${index}: thumbnail must be a string if provided`);
-          }
         }
       });
     }
@@ -129,7 +125,6 @@ export function validateClarificationResponse(
 
 /**
  * Determine confidence level from numeric score
- * Exported for testing
  */
 export function getConfidenceLevel(confidence: number): 'high' | 'medium' | 'low' {
   if (confidence >= CONFIDENCE_THRESHOLDS.HIGH_MIN) {
@@ -142,151 +137,203 @@ export function getConfidenceLevel(confidence: number): 'high' | 'medium' | 'low
 }
 
 /**
- * Generate sample item data for a category
+ * Fetch image and convert to base64
  */
-function generateItemForCategory(category: string, confidence: number): IdentifiedItem {
-  const itemTemplates: Record<string, Partial<IdentifiedItem>> = {
-    furniture: {
-      title: 'Office Chair',
-      description: 'Ergonomic office chair with adjustable features',
-      condition: 'Good',
-      tags: ['chair', 'office', 'furniture'],
-    },
-    electronics: {
-      title: 'Laptop',
-      description: 'Portable computer device',
-      condition: 'Like new',
-      tags: ['laptop', 'computer', 'electronics'],
-    },
-    clothing: {
-      title: 'T-Shirt',
-      description: 'Casual cotton t-shirt',
-      condition: 'Good',
-      tags: ['clothing', 'shirt', 'casual'],
-    },
-    books: {
-      title: 'Book',
-      description: 'Paperback book',
-      condition: 'Fair',
-      tags: ['book', 'reading', 'literature'],
-    },
-    kitchen: {
-      title: 'Kitchen Appliance',
-      description: 'Kitchen utility item',
-      condition: 'Good',
-      tags: ['kitchen', 'appliance', 'cooking'],
-    },
-    sports: {
-      title: 'Sports Equipment',
-      description: 'Athletic gear',
-      condition: 'Good',
-      tags: ['sports', 'fitness', 'equipment'],
-    },
-    toys: {
-      title: 'Toy',
-      description: 'Children\'s play item',
-      condition: 'Good',
-      tags: ['toy', 'play', 'children'],
-    },
-    tools: {
-      title: 'Tool',
-      description: 'Hand or power tool',
-      condition: 'Good',
-      tags: ['tool', 'hardware', 'diy'],
-    },
-  };
+async function fetchImageAsBase64(url: string): Promise<{ base64: string; mediaType: string } | null> {
+  try {
+    console.log(`📸 Fetching image from: ${url.substring(0, 100)}...`);
+    const response = await fetch(url);
 
-  const template = itemTemplates[category.toLowerCase()] || {
-    title: category.charAt(0).toUpperCase() + category.slice(1),
-    description: `A ${category} item`,
-    tags: [category.toLowerCase()],
-  };
+    if (!response.ok) {
+      console.error(`Failed to fetch image: ${response.status} ${response.statusText}`);
+      return null;
+    }
 
-  return {
-    title: template.title || category,
-    category: category.charAt(0).toUpperCase() + category.slice(1),
-    description: template.description,
-    condition: template.condition,
-    tags: template.tags,
-  };
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    const arrayBuffer = await response.arrayBuffer();
+    const uint8Array = new Uint8Array(arrayBuffer);
+
+    // Convert to base64
+    let binary = '';
+    for (let i = 0; i < uint8Array.length; i++) {
+      binary += String.fromCharCode(uint8Array[i]);
+    }
+    const base64 = btoa(binary);
+
+    // Map content type to supported media types
+    let mediaType = 'image/jpeg';
+    if (contentType.includes('png')) {
+      mediaType = 'image/png';
+    } else if (contentType.includes('gif')) {
+      mediaType = 'image/gif';
+    } else if (contentType.includes('webp')) {
+      mediaType = 'image/webp';
+    }
+
+    console.log(`✅ Image fetched successfully: ${mediaType}, ${base64.length} chars`);
+    return { base64, mediaType };
+  } catch (error) {
+    console.error('Error fetching image:', error);
+    return null;
+  }
 }
 
 /**
- * Generate clarification options for medium confidence
+ * Analyze images using Claude Vision API
  */
-function generateClarificationOptions(
-  categories: string[],
-  preferredCount: number = 4
-): ClarificationOption[] {
-  const shuffled = [...categories].sort(() => 0.5 - Math.random());
-  const count = Math.min(preferredCount, shuffled.length);
-  const options: ClarificationOption[] = [];
+async function analyzeWithClaude(imageUrls: string[]): Promise<ClarificationResponse> {
+  const apiKey = Deno.env.get('CLAUDE_API_KEY') || Deno.env.get('ANTHROPIC_API_KEY');
 
-  for (let i = 0; i < count; i++) {
-    const category = shuffled[i];
-    options.push({
-      id: `option-${i + 1}`,
-      label: category.charAt(0).toUpperCase() + category.slice(1),
-      descriptor: `A ${category} item that matches your photo`,
-    });
+  if (!apiKey) {
+    console.error('❌ No CLAUDE_API_KEY or ANTHROPIC_API_KEY found');
+    throw new Error('Claude API key not configured');
   }
 
-  return options;
+  console.log(`🤖 Analyzing ${imageUrls.length} image(s) with Claude Vision...`);
+
+  const client = new Anthropic({ apiKey });
+
+  // Fetch all images and convert to base64
+  const imageContents: Anthropic.ImageBlockParam[] = [];
+
+  for (const url of imageUrls) {
+    const imageData = await fetchImageAsBase64(url);
+    if (imageData) {
+      imageContents.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: imageData.mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+          data: imageData.base64,
+        },
+      });
+    }
+  }
+
+  if (imageContents.length === 0) {
+    console.error('❌ No images could be fetched');
+    throw new Error('Failed to fetch any images');
+  }
+
+  const systemPrompt = `You are an expert at identifying items for a marketplace listing.
+Analyze the provided image(s) and identify the item being shown.
+
+${imageContents.length > 1 ? `You have been provided ${imageContents.length} images of the SAME item from different angles. Use ALL images together to get a complete understanding of the item, including details that may only be visible in certain photos.` : 'Analyze this single image carefully.'}
+
+You MUST respond with valid JSON in one of these two formats:
+
+FORMAT 1 - When you can confidently identify the item:
+{
+  "type": "identified",
+  "item": {
+    "title": "Specific item name (e.g., 'Apple MacBook Pro 14-inch 2023' or 'IKEA MALM 6-drawer dresser')",
+    "category": "Category (e.g., 'Electronics', 'Furniture', 'Clothing', 'Kitchen', 'Sports', 'Books', 'Toys', 'Tools', 'Home Decor', 'Collectibles')",
+    "description": "Detailed description including brand, model, color, size, material, and notable features visible in the image(s)",
+    "condition": "Condition based on visible wear (New, Like New, Good, Fair, Poor)",
+    "tags": ["relevant", "search", "tags"]
+  },
+  "confidence": 0.95
 }
 
-/**
- * Stub AI logic - This will be replaced with actual model/LLM integration
- * Returns ClarificationResponse format matching clarification_schema.ts
- * Exported for testing
- */
-export function analyzeImageStub(imageUrl: string): ClarificationResponse {
-  // Generate a random confidence score
-  const confidence = Number(Math.random().toFixed(2));
+FORMAT 2 - When the item is unclear or you need more information:
+{
+  "type": "needs_clarification",
+  "question": "A specific question to help identify the item",
+  "options": [
+    {"id": "1", "label": "Option 1", "descriptor": "Description of this option"},
+    {"id": "2", "label": "Option 2", "descriptor": "Description of this option"},
+    {"id": "3", "label": "Option 3", "descriptor": "Description of this option"}
+  ],
+  "confidence": 0.5
+}
 
-  // Sample categories for demonstration
-  const categories = [
-    'furniture',
-    'electronics',
-    'clothing',
-    'books',
-    'kitchen',
-    'sports',
-    'toys',
-    'tools',
+IMPORTANT RULES:
+- Be SPECIFIC with titles - include brand, model, size when visible
+- For electronics, try to identify exact models
+- For furniture, identify brand (IKEA, West Elm, etc.) and style
+- Confidence should be 0.85+ when you're certain of the identification
+- Confidence should be 0.60-0.84 when reasonably confident but not certain
+- Confidence should be below 0.60 when the item is unclear
+- ONLY output valid JSON, no other text`;
+
+  const userContent: Anthropic.ContentBlockParam[] = [
+    ...imageContents,
+    {
+      type: 'text',
+      text: imageContents.length > 1
+        ? `Please analyze these ${imageContents.length} images of the same item and provide a detailed identification for a marketplace listing. Consider all angles and details visible across all photos.`
+        : 'Please analyze this image and provide a detailed identification for a marketplace listing.',
+    },
   ];
 
-  const randomCategory = categories[Math.floor(Math.random() * categories.length)];
-  const confidenceLevel = getConfidenceLevel(confidence);
+  try {
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1024,
+      messages: [
+        {
+          role: 'user',
+          content: userContent,
+        },
+      ],
+      system: systemPrompt,
+    });
 
-  if (confidenceLevel === 'high') {
-    // High confidence (≥0.85) - return identified item
-    const item = generateItemForCategory(randomCategory, confidence);
-    return {
-      type: 'identified',
-      item,
-      confidence,
-    };
-  } else if (confidenceLevel === 'medium') {
-    // Medium confidence (0.60-0.84) - return options for selection
-    const options = generateClarificationOptions(categories, 4);
-    return {
-      type: 'needs_clarification',
-      question: 'Which item matches your photo?',
-      options,
-      confidence,
-    };
-  } else {
-    // Low confidence (<0.60) - ask targeted question with empty options
-    return {
-      type: 'needs_clarification',
-      question: 'What type of item is this? (e.g., furniture, electronics, clothing)',
-      options: [],
-      confidence,
-    };
+    console.log('📝 Claude response received');
+
+    // Extract text content from response
+    const textContent = response.content.find((block) => block.type === 'text');
+    if (!textContent || textContent.type !== 'text') {
+      throw new Error('No text response from Claude');
+    }
+
+    const responseText = textContent.text.trim();
+    console.log('📄 Raw response:', responseText.substring(0, 500));
+
+    // Parse JSON response
+    // Handle case where response might be wrapped in markdown code blocks
+    let jsonStr = responseText;
+    const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (jsonMatch) {
+      jsonStr = jsonMatch[1];
+    }
+
+    const result = JSON.parse(jsonStr) as ClarificationResponse;
+
+    // Validate the response
+    const validation = validateClarificationResponse(result);
+    if (!validation.valid) {
+      console.error('❌ Invalid response format:', validation.errors);
+      throw new Error(`Invalid response format: ${validation.errors.join(', ')}`);
+    }
+
+    console.log(`✅ Analysis complete: ${result.type}, confidence: ${result.confidence}`);
+    return result;
+
+  } catch (error) {
+    console.error('❌ Error calling Claude API:', error);
+    throw error;
   }
 }
 
-// Only start the server if this is the main module (not imported for tests)
+/**
+ * Fallback stub for when Claude API is unavailable
+ */
+function analyzeImageStub(): ClarificationResponse {
+  return {
+    type: 'needs_clarification',
+    question: 'Unable to analyze image automatically. What type of item is this?',
+    options: [
+      { id: '1', label: 'Electronics', descriptor: 'Phones, computers, gadgets, etc.' },
+      { id: '2', label: 'Furniture', descriptor: 'Tables, chairs, shelves, etc.' },
+      { id: '3', label: 'Clothing', descriptor: 'Shirts, pants, shoes, etc.' },
+      { id: '4', label: 'Other', descriptor: 'Something else' },
+    ],
+    confidence: 0.0,
+  };
+}
+
+// Only start the server if this is the main module
 if (import.meta.main) {
   Deno.serve(async (req) => {
     // Handle CORS
@@ -301,12 +348,20 @@ if (import.meta.main) {
     }
 
     try {
-      // Parse request body
-      const { imageUrl, imagePath }: AnalyzeImageRequest = await req.json();
+      const body: AnalyzeImageRequest = await req.json();
 
-      if (!imageUrl || !imagePath) {
+      // Support both single image (legacy) and multiple images
+      let imageUrls: string[] = [];
+
+      if (body.imageUrls && body.imageUrls.length > 0) {
+        imageUrls = body.imageUrls;
+      } else if (body.imageUrl) {
+        imageUrls = [body.imageUrl];
+      }
+
+      if (imageUrls.length === 0) {
         return new Response(
-          JSON.stringify({ error: 'imageUrl and imagePath are required' }),
+          JSON.stringify({ error: 'At least one imageUrl is required' }),
           {
             status: 400,
             headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
@@ -314,8 +369,16 @@ if (import.meta.main) {
         );
       }
 
-      // Perform analysis (stub implementation)
-      const result = analyzeImageStub(imageUrl);
+      console.log(`🖼️ Received request to analyze ${imageUrls.length} image(s)`);
+
+      let result: ClarificationResponse;
+
+      try {
+        result = await analyzeWithClaude(imageUrls);
+      } catch (error) {
+        console.error('⚠️ Claude analysis failed, using fallback:', error);
+        result = analyzeImageStub();
+      }
 
       // Validate response against schema
       const validation = validateClarificationResponse(result);
@@ -333,7 +396,6 @@ if (import.meta.main) {
         );
       }
 
-      // Return validated result
       return new Response(JSON.stringify(result), {
         headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
         status: 200,

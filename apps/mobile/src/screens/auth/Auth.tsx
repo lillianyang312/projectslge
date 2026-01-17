@@ -17,15 +17,30 @@ export default function AuthScreen({ navigation, route }: Props) {
   const [neighborhood, setNeighborhood] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [hasSavedCreds, setHasSavedCreds] = useState(false);
 
   const signIn = useAuthStore((state) => state.signIn);
   const signUp = useAuthStore((state) => state.signUp);
+  const biometricAvailable = useAuthStore((state) => state.biometricAvailable);
+  const biometricEnabled = useAuthStore((state) => state.biometricEnabled);
+  const biometricType = useAuthStore((state) => state.biometricType);
+  const signInWithBiometric = useAuthStore((state) => state.signInWithBiometric);
+  const hasSavedCredentials = useAuthStore((state) => state.hasSavedCredentials);
 
   useEffect(() => {
     if ((route.params as any)?.mode) {
       setMode((route.params as any).mode);
     }
   }, [(route.params as any)?.mode]);
+
+  // Check for saved credentials on mount
+  useEffect(() => {
+    const checkCreds = async () => {
+      const hasCreds = await hasSavedCredentials();
+      setHasSavedCreds(hasCreds);
+    };
+    checkCreds();
+  }, []);
 
   const isLogin = mode === 'login';
 
@@ -53,6 +68,46 @@ export default function AuthScreen({ navigation, route }: Props) {
     }
   };
 
+  const handleBiometricLogin = async () => {
+    setLoading(true);
+    setError('');
+
+    try {
+      const { error: authError } = await signInWithBiometric();
+      if (authError) {
+        setError(authError.message);
+      }
+    } catch (err: any) {
+      setError(err.message || 'An error occurred');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getBiometricIcon = () => {
+    switch (biometricType) {
+      case 'facial':
+        return '👤';
+      case 'fingerprint':
+        return '👆';
+      default:
+        return '🔐';
+    }
+  };
+
+  const getBiometricLabel = () => {
+    switch (biometricType) {
+      case 'facial':
+        return 'Sign in with Face ID';
+      case 'fingerprint':
+        return 'Sign in with Touch ID';
+      default:
+        return 'Sign in with biometrics';
+    }
+  };
+
+  const showBiometricButton = isLogin && biometricAvailable && biometricEnabled && hasSavedCreds;
+
   return (
     <SafeAreaView style={styles.screen}>
       <ScrollView contentContainerStyle={styles.scroll}>
@@ -78,6 +133,30 @@ export default function AuthScreen({ navigation, route }: Props) {
             </Text>
           </View>
         ) : null}
+
+        {/* Biometric login button - shown prominently at top for returning users */}
+        {showBiometricButton && (
+          <>
+            <Pressable
+              style={styles.biometricButton}
+              onPress={handleBiometricLogin}
+              disabled={loading}
+            >
+              <Text style={styles.biometricIcon}>{getBiometricIcon()}</Text>
+              <Text variant="bodyMedium" size="md">
+                {getBiometricLabel()}
+              </Text>
+            </Pressable>
+
+            <View style={styles.divider}>
+              <View style={styles.dividerLine} />
+              <Text variant="body" size="base" color="muted" style={styles.dividerText}>
+                or use email
+              </Text>
+              <View style={styles.dividerLine} />
+            </View>
+          </>
+        )}
 
         <Input
           label="Email"
@@ -219,6 +298,20 @@ const styles = StyleSheet.create({
   subtitle: {
     lineHeight: (typography?.lineHeights?.relaxed || 1.5) * (typography?.sizes?.lg || 15),
     marginBottom: spacing.xxxl,
+  },
+  biometricButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.md,
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.xl,
+    marginBottom: spacing.lg,
+  },
+  biometricIcon: {
+    fontSize: 24,
   },
   toggleGroup: {
     flexDirection: 'row',

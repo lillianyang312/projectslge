@@ -20,6 +20,13 @@ export const colors = {
   purpleSoft: '#F0EDF5',
   blue: '#4A7FB5',
   blueSoft: '#EBF3FA',
+  // Chat type colors
+  buying: '#3B82F6',      // Blue for buying
+  buyingSoft: '#DBEAFE',  // Light blue background
+  selling: '#22C55E',     // Green for selling
+  sellingSoft: '#DCFCE7', // Light green background
+  unread: '#FAF8F0',      // Very subtle warm cream for unread messages
+  unreadBorder: '#E8E2D0', // Muted border for unread
 };
 
 export const spacing = {

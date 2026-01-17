@@ -5,6 +5,7 @@ import { InboxStackParamList } from '../types';
 // Import screens
 import InboxHomeScreen from '../../screens/inbox/InboxHome';
 import ChatThreadScreen from '../../screens/inbox/ChatThread';
+import DealChatScreen from '../../screens/deals/DealChat';
 
 const Stack = createNativeStackNavigator<InboxStackParamList>();
 
@@ -18,6 +19,7 @@ export default function InboxStack() {
     >
       <Stack.Screen name="InboxHome" component={InboxHomeScreen} />
       <Stack.Screen name="ChatThread" component={ChatThreadScreen} />
+      <Stack.Screen name="DealChat" component={DealChatScreen} />
     </Stack.Navigator>
   );
 }

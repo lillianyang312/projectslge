@@ -18,6 +18,7 @@ import { colors, spacing, radius, typography, shadows } from '../../ui/tokens';
 import { useItemsStore } from '../../state/itemsStore';
 import { useAuthStore } from '../../state/authStore';
 import { getMyItems, deleteItem, Item } from '../../services/itemsService';
+import { getSignedUrl } from '../../services/imageService';
 
 type Props = NativeStackScreenProps<ListStackParamList, 'MyList'>;
 
@@ -68,6 +69,7 @@ export default function MyListScreen({ navigation }: Props) {
   
   const [demoItems, setDemoItems] = useState(initialDemoItems);
   const [supabaseItems, setSupabaseItems] = useState<Item[]>([]);
+  const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>({});
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showMenu, setShowMenu] = useState(false);
@@ -81,6 +83,18 @@ export default function MyListScreen({ navigation }: Props) {
       if (!error && data) {
         console.log('[MyList] Successfully fetched items:', data.length, data);
         setSupabaseItems(data);
+
+        // Fetch signed URLs for thumbnails
+        const urlMap: Record<string, string> = {};
+        for (const item of data) {
+          if (item.photos?.[0]) {
+            const url = await getSignedUrl(item.photos[0]);
+            if (url) {
+              urlMap[item.id] = url;
+            }
+          }
+        }
+        setThumbnailUrls(urlMap);
       } else if (error) {
         console.error('[MyList] Error fetching items:', error);
       }
@@ -136,7 +150,7 @@ export default function MyListScreen({ navigation }: Props) {
     interestedCount: 0,
     topBid: undefined,
     bidStatus: undefined,
-    imageUri: item.photos?.[0],
+    imageUri: thumbnailUrls[item.id] || null,
     isLocal: false,
   }));
 
