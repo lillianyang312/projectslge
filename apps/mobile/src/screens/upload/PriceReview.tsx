@@ -15,6 +15,7 @@ import { useItemsStore } from '../../state/itemsStore';
 import { useAuthStore } from '../../state/authStore';
 import { createItem } from '../../services/itemsService';
 import { uploadImage } from '../../services/imageService';
+import { estimatePrice } from '../../services/pricingService';
 
 type Props = NativeStackScreenProps<ListStackParamList, 'PriceReview'>;
 
@@ -25,39 +26,91 @@ export default function PriceReviewScreen({ navigation }: Props) {
   const clearDraft = useItemsStore((state) => state.clearDraft);
   const user = useAuthStore((state) => state.user);
 
-  // Simulated estimated price range (in real app, this would come from API)
   const [priceRange, setPriceRange] = useState({ min: 0, max: 0, mid: 0 });
   const [minimumPrice, setMinimumPrice] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [loadingPrice, setLoadingPrice] = useState(true);
+  const [priceConfidence, setPriceConfidence] = useState(0);
+  const [priceReasoning, setPriceReasoning] = useState('');
 
   useEffect(() => {
-    // Simulate API call for price estimation
-    // In real implementation, this would call your pricing API
-    const simulateEstimatedPriceRange = () => {
-      // Generate a reasonable price based on condition
-      const conditionMultiplier: Record<string, number> = {
-        'New': 1.0,
-        'Like new': 0.85,
-        'Good': 0.65,
-        'Fair': 0.45,
-        'Poor': 0.25,
-      };
+    const fetchPricingEstimate = async () => {
+      if (!draft?.title || !draft?.category || !draft?.condition) {
+        console.warn('[PriceReview] Missing required fields for pricing estimation');
+        setLoadingPrice(false);
+        return;
+      }
 
-      // Base price simulation (would come from API in real app)
-      const basePrice = Math.floor(Math.random() * 200) + 50; // $50-$250
-      const multiplier = conditionMultiplier[draft?.condition || 'Good'] || 0.65;
-      const midPrice = Math.round(basePrice * multiplier);
+      try {
+        setLoadingPrice(true);
+        console.log('[PriceReview] Fetching price estimation...');
 
-      // Create range: -20% to +20% of mid price
-      const minPrice = Math.round(midPrice * 0.8);
-      const maxPrice = Math.round(midPrice * 1.2);
+        const result = await estimatePrice({
+          title: draft.title,
+          category: draft.category,
+          condition: draft.condition,
+          description: draft.description || draft.notes,
+          pricePurchased: draft.pricePurchased,
+        });
 
-      setPriceRange({ min: minPrice, max: maxPrice, mid: midPrice });
-      updateDraft({ estimatedPrice: midPrice });
+        if (result) {
+          console.log('[PriceReview] Price estimation received:', result);
+          setPriceRange({
+            min: result.market_value_min,
+            max: result.market_value_max,
+            mid: result.estimated_midpoint,
+          });
+          setPriceConfidence(result.confidence);
+          setPriceReasoning(result.reasoning);
+          updateDraft({ estimatedPrice: result.estimated_midpoint });
+        } else {
+          console.warn('[PriceReview] Price estimation failed, using fallback');
+          // Fallback to simple estimation
+          const conditionMultiplier: Record<string, number> = {
+            'New': 1.0,
+            'Like new': 0.85,
+            'Good': 0.65,
+            'Fair': 0.45,
+            'Poor': 0.25,
+          };
+          const basePrice = Math.floor(Math.random() * 200) + 50;
+          const multiplier = conditionMultiplier[draft?.condition || 'Good'] || 0.65;
+          const midPrice = Math.round(basePrice * multiplier);
+          const minPrice = Math.round(midPrice * 0.8);
+          const maxPrice = Math.round(midPrice * 1.2);
+
+          setPriceRange({ min: minPrice, max: maxPrice, mid: midPrice });
+          setPriceConfidence(0.5);
+          setPriceReasoning('Estimated based on condition');
+          updateDraft({ estimatedPrice: midPrice });
+        }
+      } catch (error) {
+        console.error('[PriceReview] Error fetching price estimation:', error);
+        // Use fallback on error
+        const conditionMultiplier: Record<string, number> = {
+          'New': 1.0,
+          'Like new': 0.85,
+          'Good': 0.65,
+          'Fair': 0.45,
+          'Poor': 0.25,
+        };
+        const basePrice = Math.floor(Math.random() * 200) + 50;
+        const multiplier = conditionMultiplier[draft?.condition || 'Good'] || 0.65;
+        const midPrice = Math.round(basePrice * multiplier);
+        const minPrice = Math.round(midPrice * 0.8);
+        const maxPrice = Math.round(midPrice * 1.2);
+
+        setPriceRange({ min: minPrice, max: maxPrice, mid: midPrice });
+        setPriceConfidence(0.5);
+        setPriceReasoning('Estimated based on condition');
+        updateDraft({ estimatedPrice: midPrice });
+      } finally {
+        setLoadingPrice(false);
+      }
     };
 
-    simulateEstimatedPriceRange();
-  }, []);
+    fetchPricingEstimate();
+  }, [draft?.title, draft?.category, draft?.condition]);
 
   const handleEdit = () => {
     navigation.goBack();
@@ -225,12 +278,27 @@ export default function PriceReviewScreen({ navigation }: Props) {
             <Text variant="body" size="sm" color="muted" style={styles.priceLabel}>
               ESTIMATED VALUE RANGE
             </Text>
-            <Text variant="heading" size="display" style={styles.priceValue}>
-              ${priceRange.min} – ${priceRange.max}
-            </Text>
-            <Text variant="body" size="xs" color="muted" style={styles.priceHint}>
-              Based on condition and market data
-            </Text>
+            {loadingPrice ? (
+              <Text variant="body" size="base" color="muted" style={styles.priceValue}>
+                Loading...
+              </Text>
+            ) : (
+              <>
+                <Text variant="heading" size="display" style={styles.priceValue}>
+                  ${priceRange.min} – ${priceRange.max}
+                </Text>
+                {priceConfidence > 0 && (
+                  <Text variant="body" size="xs" color="muted" style={styles.priceHint}>
+                    Confidence: {(priceConfidence * 100).toFixed(0)}%
+                  </Text>
+                )}
+                {priceReasoning && (
+                  <Text variant="body" size="xs" color="secondary" style={styles.priceHint}>
+                    {priceReasoning}
+                  </Text>
+                )}
+              </>
+            )}
           </View>
 
           <View style={styles.divider} />
