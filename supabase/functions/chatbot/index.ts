@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
 
 // Deno global is available in Supabase Edge Functions runtime
@@ -292,13 +292,13 @@ export async function handleChatbotRequest(req: Request): Promise<Response> {
   }
 
   try {
-    const apiKey = Deno.env.get("OPENAI_API_KEY");
+    const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
     if (!apiKey) {
-      console.error("❌ [chatbot] OPENAI_API_KEY not set");
+      console.error("❌ [chatbot] ANTHROPIC_API_KEY not set");
       return new Response(
         JSON.stringify({
           error:
-            "OPENAI_API_KEY is not set. Configure this secret in Supabase.",
+            "ANTHROPIC_API_KEY is not set. Configure this secret in Supabase.",
         }),
         {
           status: 500,
@@ -360,7 +360,7 @@ export async function handleChatbotRequest(req: Request): Promise<Response> {
       );
     }
 
-    const client = new OpenAI({ apiKey });
+    const client = new Anthropic({ apiKey });
 
     // Fetch any referenced Supabase objects (items, deals) so we can
     // provide grounded numeric context to the LLM.
@@ -398,21 +398,22 @@ export async function handleChatbotRequest(req: Request): Promise<Response> {
 
     const finalSystemPrompt = baseSystemPrompt + pillTagGuidance;
 
-    // Build messages array for OpenAI
-    const messages: ChatMessage[] = [
-      {
-        role: "system",
-        content: finalSystemPrompt,
-      },
-    ];
+    // Build messages array for Claude (without system message in array)
+    const messages: Array<{ role: "user" | "assistant"; content: string }> = [];
 
     // Add conversation history if provided
     if (conversationHistory && Array.isArray(conversationHistory)) {
-      // Filter out system messages from history (we already have one)
+      // Filter out system messages from history (we'll pass separately)
       const historyMessages = conversationHistory.filter(
         (msg) => msg.role !== "system"
       );
-      messages.push(...historyMessages);
+      // Convert to Claude message format (user | assistant)
+      messages.push(
+        ...historyMessages.map((msg) => ({
+          role: msg.role as "user" | "assistant",
+          content: msg.content,
+        }))
+      );
       console.log("💭 [chatbot] Added conversation history:", {
         originalLength: conversationHistory.length,
         filteredLength: historyMessages.length,
@@ -425,29 +426,32 @@ export async function handleChatbotRequest(req: Request): Promise<Response> {
       content: userMessage,
     });
 
-    console.log("🤖 [chatbot] Calling OpenAI API:", {
-      model: "gpt-4o-mini",
+    console.log("🤖 [chatbot] Calling Claude API:", {
+      model: "claude-opus-4-5-20251101",
       messagesCount: messages.length,
       systemPromptLength: finalSystemPrompt.length,
       userMessageLength: userMessage.length,
     });
 
     const startTime = Date.now();
-    const completion = await client.chat.completions.create({
-      model: "gpt-4o-mini",
+    const response = await client.messages.create({
+      model: "claude-opus-4-5-20251101",
+      max_tokens: 1024,
+      system: finalSystemPrompt,
       messages: messages,
-      temperature: 0.7,
     });
-    const openaiDuration = Date.now() - startTime;
+    const claudeDuration = Date.now() - startTime;
 
     const output =
-      completion.choices[0]?.message?.content?.toString().trim() ?? "";
+      response.content[0]?.type === "text"
+        ? response.content[0].text.trim()
+        : "";
 
-    console.log("✨ [chatbot] OpenAI response received:", {
+    console.log("✨ [chatbot] Claude response received:", {
       outputLength: output.length,
       outputPreview: output.substring(0, 200) + (output.length > 200 ? "..." : ""),
-      choicesCount: completion.choices.length,
-      duration: `${openaiDuration}ms`,
+      contentBlocksCount: response.content.length,
+      duration: `${claudeDuration}ms`,
     });
 
     const priceReferences = extractPriceReferencesFromOutput(

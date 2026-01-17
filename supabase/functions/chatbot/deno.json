@@ -1,6 +1,6 @@
 {
   "imports": {
-    "openai": "npm:openai@^4.0.0",
+    "@anthropic-ai/sdk": "npm:@anthropic-ai/sdk@^0.24.0",
     "@supabase/supabase-js": "npm:@supabase/supabase-js@^2.48.0"
   },
   "compilerOptions": {
