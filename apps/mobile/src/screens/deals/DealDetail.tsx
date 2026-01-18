@@ -47,7 +47,7 @@ function getEmojiForCategory(category: string): string {
   return CATEGORY_EMOJI[category] || '📦';
 }
 
-function getStatusBadge(status: string): { label: string; variant: 'warning' | 'success' | 'purple' | 'default' } {
+function getStatusBadge(status: string): { label: string; variant: 'warning' | 'success' | 'purple' | 'neutral' } {
   switch (status) {
     case 'negotiating':
       return { label: 'Negotiating', variant: 'purple' };
@@ -58,9 +58,9 @@ function getStatusBadge(status: string): { label: string; variant: 'warning' | '
     case 'completed':
       return { label: 'Complete', variant: 'success' };
     case 'cancelled':
-      return { label: 'Cancelled', variant: 'default' };
+      return { label: 'Cancelled', variant: 'neutral' };
     default:
-      return { label: 'Unknown', variant: 'default' };
+      return { label: 'Unknown', variant: 'neutral' };
   }
 }
 
@@ -142,7 +142,7 @@ export default function DealDetailScreen({ navigation, route }: Props) {
   }, [dealId]);
 
   const isSelling = deal?.seller_id === user?.id;
-  const badge = deal ? getStatusBadge(deal.status) : { label: 'Loading', variant: 'default' as const };
+  const badge = deal ? getStatusBadge(deal.status) : { label: 'Loading', variant: 'neutral' as const };
   const agentStatus = deal ? getAgentStatus(deal, isSelling) : '';
   const statusText = deal ? getStatusText(deal, isSelling) : '';
 

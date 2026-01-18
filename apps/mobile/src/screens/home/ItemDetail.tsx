@@ -18,14 +18,15 @@ import { useItemsStore } from '../../state/itemsStore';
 import { useAuthStore } from '../../state/authStore';
 import { getItemById, updateItem, deleteItem, Item } from '../../services/itemsService';
 import { getSignedUrl } from '../../services/imageService';
-import { getDealsByItemId } from '../../services/dealsService';
+import { getDealsByItemId, getQuestionsForItem, getDealsWithExpiration, acceptOffer, ItemQuestion } from '../../services/dealsService';
 import { Deal } from '../../types/models';
+import SellerDashboard from './SellerDashboard';
+import { SellIntent } from '../../state/itemsStore';
 
 type Props = NativeStackScreenProps<ListStackParamList, 'ItemDetail'>;
 type TabNavProp = BottomTabNavigationProp<AppTabsParamList>;
 
 type Condition = 'New' | 'Like new' | 'Good' | 'Fair';
-type SellIntent = 'Maybe' | 'If good offer' | 'Want gone';
 
 // Demo data matching HTML spec
 const demoItemsData: Record<string, {
@@ -78,6 +79,7 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
   const [loading, setLoading] = useState(true);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loadingDeals, setLoadingDeals] = useState(true);
+  const [questions, setQuestions] = useState<ItemQuestion[]>([]);
 
   // Try to get listing from store first
   const storedListing = listings.find((l) => l.id === itemId);
@@ -101,17 +103,22 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
     fetchItem();
   }, [itemId, user, storedListing]);
 
-  // Fetch deals/bids for this item
-  useEffect(() => {
-    async function fetchDeals() {
-      if (user) {
-        setLoadingDeals(true);
-        const itemDeals = await getDealsByItemId(itemId);
-        setDeals(itemDeals);
-        setLoadingDeals(false);
-      }
+  // Fetch deals/bids and questions for this item
+  const fetchDealsAndQuestions = async () => {
+    if (user) {
+      setLoadingDeals(true);
+      const [itemDeals, itemQuestions] = await Promise.all([
+        getDealsWithExpiration(itemId),
+        getQuestionsForItem(itemId),
+      ]);
+      setDeals(itemDeals);
+      setQuestions(itemQuestions);
+      setLoadingDeals(false);
     }
-    fetchDeals();
+  };
+
+  useEffect(() => {
+    fetchDealsAndQuestions();
   }, [itemId, user]);
   
   // Get item data from various sources
@@ -224,6 +231,26 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
     tabNavigation.navigate('Deals');
   };
 
+  const handleViewDeal = (dealId: string) => {
+    // Navigate to deal details
+    tabNavigation.navigate('Deals', { initialMode: 'selling' });
+  };
+
+  const handleAcceptOffer = async (dealId: string) => {
+    if (!user) return;
+    const success = await acceptOffer(dealId, user.id);
+    if (success) {
+      Alert.alert('Success', 'Offer accepted!');
+      fetchDealsAndQuestions();
+    } else {
+      Alert.alert('Error', 'Failed to accept offer');
+    }
+  };
+
+  const handleRefresh = () => {
+    fetchDealsAndQuestions();
+  };
+
   return (
     <SafeAreaView style={styles.screen}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -245,154 +272,22 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
         />
 
         {/* Tab Content: Buyer Interest */}
-        {activeTab === 0 && (
-          <View>
-            {/* Summary of interested buyers */}
-            <View style={styles.buyerSummaryCard}>
-              <Text variant="body" size="xs" color="secondary" style={styles.buyerSummaryLabel}>
-                Buyer interest
-              </Text>
-              <Text variant="heading" size="heading3" style={styles.buyerSummaryValue}>
-                {loadingDeals ? 'Loading...' : `${deals.length} interested buyer${deals.length !== 1 ? 's' : ''}`}
-              </Text>
-              {deals.length > 0 && (
-                <Text variant="body" size="xs" color="secondary" style={styles.buyerSummaryNote}>
-                  Review offers and chat with interested buyers
-                </Text>
-              )}
-            </View>
-
-            {/* Agent Recommendation - only show if there are deals with offers */}
-            {deals.some(d => d.current_offer) && (
-              <View style={styles.agentRecommendation}>
-                <Text variant="body" size="xs" color="secondary" style={styles.agentRecLabel}>
-                  Agent recommendation
-                </Text>
-                <Text variant="heading" size="heading3" color="success" style={styles.agentRecValue}>
-                  {(() => {
-                    const bestOffer = Math.max(...deals.filter(d => d.current_offer).map(d => d.current_offer || 0));
-                    return bestOffer > 0 ? `Accept $${bestOffer} offer` : 'Review incoming offers';
-                  })()}
-                </Text>
-              </View>
-            )}
-
-            {/* Show real deals/bids */}
-            {loadingDeals ? (
-              <View style={styles.loadingContainer}>
-                <Text variant="body" color="secondary">Loading bids...</Text>
-              </View>
-            ) : deals.length === 0 ? (
-              <View style={styles.emptyBidsContainer}>
-                <Text style={styles.emptyBidsEmoji}>💬</Text>
-                <Text variant="bodyMedium" size="md" style={styles.emptyBidsTitle}>
-                  No bids yet
-                </Text>
-                <Text variant="body" size="sm" color="secondary" style={styles.emptyBidsText}>
-                  When buyers express interest in your item, their bids will appear here.
-                </Text>
-              </View>
-            ) : (
-              deals.map((deal, index) => {
-                const hasOffer = deal.current_offer && deal.current_offer > 0;
-                const isAgreed = deal.status === 'agreed' || deal.status === 'logistics' || deal.status === 'completed';
-                const bestOffer = Math.max(...deals.filter(d => d.current_offer).map(d => d.current_offer || 0));
-                const isRecommended = hasOffer && deal.current_offer === bestOffer;
-
-                // Get status badge
-                const getStatusBadge = () => {
-                  switch (deal.status) {
-                    case 'negotiating':
-                      return hasOffer ? { label: 'Offer received', variant: 'purple' as const } : { label: 'Interest shown', variant: 'secondary' as const };
-                    case 'agreed':
-                      return { label: 'Deal agreed', variant: 'success' as const };
-                    case 'logistics':
-                      return { label: 'Scheduling', variant: 'warning' as const };
-                    case 'completed':
-                      return { label: 'Completed', variant: 'success' as const };
-                    default:
-                      return { label: 'Active', variant: 'default' as const };
-                  }
-                };
-                const statusBadge = getStatusBadge();
-
-                // Format time ago
-                const timeAgo = () => {
-                  const updated = new Date(deal.updated_at);
-                  const now = new Date();
-                  const diffMs = now.getTime() - updated.getTime();
-                  const diffMins = Math.floor(diffMs / 60000);
-                  if (diffMins < 60) return `${diffMins}m ago`;
-                  const diffHours = Math.floor(diffMins / 60);
-                  if (diffHours < 24) return `${diffHours}h ago`;
-                  const diffDays = Math.floor(diffHours / 24);
-                  return `${diffDays}d ago`;
-                };
-
-                return (
-                  <View key={deal.id} style={[styles.bidCard, !hasOffer && styles.bidCardLocked]}>
-                    <View style={styles.bidHeader}>
-                      <Text variant="heading" size="heading3" color={hasOffer ? 'success' : 'secondary'}>
-                        {hasOffer ? `$${deal.current_offer}` : 'No offer yet'}
-                      </Text>
-                      <View style={styles.bidBadges}>
-                        {isRecommended && <Badge variant="success">Recommended</Badge>}
-                        <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
-                      </View>
-                    </View>
-
-                    {/* Time indicator */}
-                    <View style={styles.timeIndicator}>
-                      <Text variant="body" size="xs" color="secondary">
-                        ⏰ Active {timeAgo()}
-                      </Text>
-                    </View>
-
-                    {/* Deal info */}
-                    <View style={styles.dealInfoSection}>
-                      <View style={styles.buyerDetailRow}>
-                        <Text variant="body" size="sm" color="secondary">Status</Text>
-                        <Text variant="bodyMedium" size="sm">
-                          {deal.status === 'negotiating' ? 'Negotiating' :
-                           deal.status === 'agreed' ? `Agreed at $${deal.agreed_price}` :
-                           deal.status === 'logistics' ? 'Scheduling pickup' :
-                           deal.status === 'completed' ? 'Completed' : deal.status}
-                        </Text>
-                      </View>
-                      {isAgreed && deal.agreed_price && (
-                        <View style={styles.buyerDetailRow}>
-                          <Text variant="body" size="sm" color="secondary">Final price</Text>
-                          <Text variant="bodyMedium" size="sm" color="success">${deal.agreed_price}</Text>
-                        </View>
-                      )}
-                    </View>
-
-                    <View style={styles.bidActions}>
-                      {deal.status === 'negotiating' && hasOffer && (
-                        <Button
-                          variant="primary"
-                          style={styles.bidActionBtn}
-                          onPress={() => {
-                            tabNavigation.navigate('Deals', { initialMode: 'selling' });
-                          }}
-                        >
-                          Review offer
-                        </Button>
-                      )}
-                      <Button
-                        variant="secondary"
-                        style={styles.bidActionBtn}
-                        onPress={() => {
-                          tabNavigation.navigate('Deals', { initialMode: 'selling' });
-                        }}
-                      >
-                        View deal
-                      </Button>
-                    </View>
-                  </View>
-                );
-              })
-            )}
+        {activeTab === 0 && supabaseItem && (
+          <SellerDashboard
+            item={supabaseItem}
+            deals={deals}
+            questions={questions}
+            onRefresh={handleRefresh}
+            onViewDeal={handleViewDeal}
+            onAcceptOffer={handleAcceptOffer}
+            sellIntent={sellIntent}
+          />
+        )}
+        {activeTab === 0 && !supabaseItem && (
+          <View style={styles.loadingContainer}>
+            <Text variant="body" color="secondary">
+              {loading ? 'Loading item...' : 'Item data not available'}
+            </Text>
           </View>
         )}
 

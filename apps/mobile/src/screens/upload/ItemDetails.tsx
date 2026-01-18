@@ -39,7 +39,7 @@ export default function ItemDetailsScreen({ navigation }: Props) {
   const [category, setCategory] = useState(draft?.category || '');
   const [description, setDescription] = useState(draft?.description || '');
   const [condition, setCondition] = useState<Condition>('good');
-  const [sellIntent, setSellIntent] = useState<SellIntent>('might_sell');
+  const [sellIntent, setSellIntent] = useState<SellIntent>('Maybe');
   const [pricePurchased, setPricePurchased] = useState('');
   const [notes, setNotes] = useState(draft?.notes || '');
   const [analyzing, setAnalyzing] = useState(false);
@@ -177,9 +177,9 @@ export default function ItemDetailsScreen({ navigation }: Props) {
   ];
 
   const sellIntentOptions: { value: SellIntent; label: string }[] = [
-    { value: 'keep', label: 'Want to keep' },
-    { value: 'might_sell', label: 'Might sell' },
-    { value: 'sell', label: 'Ready to sell' },
+    { value: 'Maybe', label: 'Maybe' },
+    { value: 'If good offer', label: 'If good offer' },
+    { value: 'Want gone', label: 'Want gone' },
   ];
 
   const takePhotoWithCamera = async () => {

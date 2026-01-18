@@ -29,7 +29,7 @@ export type Item = {
 };
 
 // Sell intent type
-export type SellIntent = 'keep' | 'sell' | 'might_sell';
+export type SellIntent = 'Maybe' | 'If good offer' | 'Want gone';
 
 // Draft type for creating new listings
 export type DraftListing = Partial<OriginalListingData> & {

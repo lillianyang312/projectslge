@@ -45,7 +45,7 @@ function getEmojiForCategory(category: string): string {
   return CATEGORY_EMOJI[category] || '📦';
 }
 
-function getStatusBadge(deal: Deal, isSelling: boolean): { label: string; variant: 'warning' | 'success' | 'purple' | 'default' } {
+function getStatusBadge(deal: Deal, isSelling: boolean): { label: string; variant: 'warning' | 'success' | 'purple' | 'neutral' } {
   switch (deal.status) {
     case 'negotiating':
       return isSelling
@@ -58,9 +58,9 @@ function getStatusBadge(deal: Deal, isSelling: boolean): { label: string; varian
     case 'completed':
       return { label: 'Complete', variant: 'success' };
     case 'cancelled':
-      return { label: 'Cancelled', variant: 'default' };
+      return { label: 'Cancelled', variant: 'neutral' };
     default:
-      return { label: 'Unknown', variant: 'default' };
+      return { label: 'Unknown', variant: 'neutral' };
   }
 }
 

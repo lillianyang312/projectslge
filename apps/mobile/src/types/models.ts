@@ -79,6 +79,8 @@ export interface Deal {
   pickup_date?: string;
   shipping_address?: string;
   tracking_number?: string;
+  expires_at?: string;
+  is_question?: boolean;
   created_at: string;
   updated_at: string;
 

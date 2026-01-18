@@ -8,6 +8,25 @@ import { supabase } from '../lib/supabase';
 import { Deal, Message, DealStatus } from '../types/models';
 
 /**
+ * Question from a buyer about an item
+ */
+export interface ItemQuestion {
+  id: string;
+  dealId: string;
+  buyerId: string;
+  buyerName: string;
+  questionText: string;
+  isAnswered: boolean;
+  createdAt: string;
+  replies: {
+    id: string;
+    senderId: string;
+    content: string;
+    createdAt: string;
+  }[];
+}
+
+/**
  * Express interest in an item (create a bid)
  * This creates a match and deal in one step
  */
@@ -458,5 +477,106 @@ export async function sendAgentMessage(
   } catch (error) {
     console.error('Error sending agent message:', error);
     return null;
+  }
+}
+
+/**
+ * Get questions from buyers for a specific item
+ * Questions are deals marked with is_question=true
+ */
+export async function getQuestionsForItem(itemId: string): Promise<ItemQuestion[]> {
+  try {
+    // Get deals that are questions for this item
+    const { data: questionDeals, error } = await supabase
+      .from('deals')
+      .select(`
+        id,
+        buyer_id,
+        created_at,
+        updated_at
+      `)
+      .eq('item_id', itemId)
+      .eq('is_question', true)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    if (!questionDeals || questionDeals.length === 0) return [];
+
+    // Get messages for these deals to extract questions and replies
+    const questions: ItemQuestion[] = await Promise.all(
+      questionDeals.map(async (deal) => {
+        const messages = await getMessages(deal.id);
+
+        // First message from buyer is the question
+        const questionMessage = messages.find(m => m.sender_id === deal.buyer_id && !m.is_agent);
+
+        // Replies are messages from seller (not agent, not buyer)
+        const replies = messages
+          .filter(m => m.sender_id !== deal.buyer_id && !m.is_agent && m.sender_id)
+          .map(m => ({
+            id: m.id,
+            senderId: m.sender_id!,
+            content: m.content,
+            createdAt: m.created_at,
+          }));
+
+        return {
+          id: deal.id,
+          dealId: deal.id,
+          buyerId: deal.buyer_id,
+          buyerName: 'Buyer', // Simplified - could fetch from profiles
+          questionText: questionMessage?.content || '',
+          isAnswered: replies.length > 0,
+          createdAt: deal.created_at,
+          replies,
+        };
+      })
+    );
+
+    return questions;
+  } catch (error) {
+    console.error('Error getting questions for item:', error);
+    return [];
+  }
+}
+
+/**
+ * Get deals with expiration info for a specific item
+ */
+export async function getDealsWithExpiration(itemId: string): Promise<Deal[]> {
+  try {
+    const { data: deals, error } = await supabase
+      .from('deals')
+      .select(`
+        *,
+        item:items(*),
+        buyer:profiles!deals_buyer_id_fkey(id, display_name)
+      `)
+      .eq('item_id', itemId)
+      .not('status', 'eq', 'cancelled')
+      .order('updated_at', { ascending: false });
+
+    if (error) throw error;
+    return deals || [];
+  } catch (error) {
+    console.error('Error getting deals with expiration:', error);
+    return [];
+  }
+}
+
+/**
+ * Reply to a buyer's question
+ */
+export async function replyToQuestion(
+  questionDealId: string,
+  sellerId: string,
+  replyText: string
+): Promise<boolean> {
+  try {
+    await sendMessage(questionDealId, sellerId, replyText, 'text');
+    return true;
+  } catch (error) {
+    console.error('Error replying to question:', error);
+    return false;
   }
 }
