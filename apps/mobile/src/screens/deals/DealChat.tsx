@@ -13,8 +13,8 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { DealsStackParamList } from '../../navigation/types';
 import { Text, Button, Card, RichPriceText, type PriceReference } from '../../ui/components';
 import { colors, spacing, radius, typography } from '../../ui/tokens';
-import { Message } from '../../types/models';
-import { getMessages, sendMessage, sendAgentMessage } from '../../services/dealsService';
+import { Message, Deal } from '../../types/models';
+import { getMessages, sendMessage, sendAgentMessage, getDealById } from '../../services/dealsService';
 import { getQuickActionMessages } from '../../services/agentService';
 import { useAuthStore } from '../../state/authStore';
 import { useChatLLM } from '../../hooks/useChatLLM';
@@ -111,6 +111,7 @@ export default function DealChatScreen({ navigation, route }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
+  const [deal, setDeal] = useState<Deal | null>(null);
   const user = useAuthStore((state) => state.user);
   const scrollViewRef = useRef<ScrollView>(null);
 
@@ -126,8 +127,14 @@ export default function DealChatScreen({ navigation, route }: Props) {
   });
 
   useEffect(() => {
+    loadDeal();
     loadMessages();
   }, []);
+
+  async function loadDeal() {
+    const dealData = await getDealById(dealId);
+    setDeal(dealData);
+  }
 
   async function loadMessages() {
     const msgs = await getMessages(dealId);
@@ -213,6 +220,12 @@ export default function DealChatScreen({ navigation, route }: Props) {
     ? getQuickActionMessages(deliveryMethod as 'pickup' | 'shipping')
     : [];
 
+  const isSeller = deal && user && deal.seller_id === user.id;
+
+  const handleBroadcastAnnouncement = () => {
+    navigation.navigate('ChatThread', { conversationId: dealId });
+  };
+
   return (
     <SafeAreaView style={styles.screen}>
       <KeyboardAvoidingView
@@ -225,9 +238,16 @@ export default function DealChatScreen({ navigation, route }: Props) {
           <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
             <Text size="xxxl">←</Text>
           </Pressable>
-          <Text variant="headingMedium" size="heading3">
+          <Text variant="headingMedium" size="heading3" style={styles.headerTitle}>
             Chat
           </Text>
+          {isSeller && (
+            <Pressable onPress={handleBroadcastAnnouncement} style={styles.broadcastBtn}>
+              <Text variant="bodyMedium" size="sm" color="accent">
+                Broadcast announcement
+              </Text>
+            </Pressable>
+          )}
         </View>
 
         {/* Messages */}
@@ -363,6 +383,17 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.lg,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+  },
+  headerTitle: {
+    flex: 1,
+  },
+  broadcastBtn: {
+    backgroundColor: colors.accentSoft,
+    borderWidth: 1,
+    borderColor: colors.accent,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
   },
   backBtn: {
     width: 36,

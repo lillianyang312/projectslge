@@ -60,6 +60,14 @@ const buyingDeals = [
     badgeLabel: 'Scheduling',
     badgeVariant: 'warning' as const,
   },
+  {
+    id: '6',
+    emoji: '📷',
+    title: 'Vintage Camera',
+    meta: 'Listing open for bids',
+    badgeLabel: undefined,
+    badgeVariant: undefined as any,
+  },
 ];
 
 export default function DealsHomeScreen({ navigation, route }: Props) {
@@ -131,7 +139,9 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
                     {deal.meta}
                   </Text>
                 </View>
-                <Badge variant={deal.badgeVariant}>{deal.badgeLabel}</Badge>
+                {deal.badgeLabel && (
+                  <Badge variant={deal.badgeVariant}>{deal.badgeLabel}</Badge>
+                )}
               </View>
             </Card>
           </Pressable>

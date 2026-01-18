@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -6,6 +6,7 @@ import {
   ScrollView,
   Pressable,
   Alert,
+  TextInput,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { DealsStackParamList } from '../../navigation/types';
@@ -25,9 +26,9 @@ const demoDeals: Record<string, {
   title: string;
   subtitle: string;
   status: string;
-  badgeVariant: 'warning' | 'success' | 'purple';
-  agreedPrice: string;
-  otherParty: string;
+  badgeVariant: 'warning' | 'success' | 'purple' | undefined;
+  agreedPrice: string | undefined;
+  otherParty: string | undefined;
   delivery: string;
   statusText: string;
   agentStatus: string;
@@ -109,12 +110,34 @@ const demoDeals: Record<string, {
     chatButtonText: 'Chat with seller',
     isSelling: false,
   },
+  '6': {
+    id: '6',
+    emoji: '📷',
+    title: 'Vintage Camera',
+    subtitle: "You're buying",
+    status: 'Open',
+    badgeVariant: undefined,
+    agreedPrice: undefined,
+    otherParty: undefined,
+    delivery: 'Local pickup',
+    statusText: 'Listing open for bids',
+    agentStatus: 'No bids yet, place your bid',
+    chatButtonText: 'Chat with seller',
+    isSelling: false,
+  },
 };
 
 export default function DealDetailScreen({ navigation, route }: Props) {
   const { dealId } = route.params;
   const deal = demoDeals[dealId] || demoDeals['1'];
   const tabNavigation = useNavigation<TabNavProp>();
+  const [bidAmount, setBidAmount] = useState<string>('');
+  const [hasSubmittedBid, setHasSubmittedBid] = useState<boolean>(false);
+  const [currentBidPrice, setCurrentBidPrice] = useState<string | undefined>(deal.agreedPrice);
+
+  const isDealOpen = !deal.agreedPrice && !deal.isSelling;
+  const isDealPending = deal.status === 'Pending' && !deal.isSelling;
+  const canShowBidForm = isDealOpen || isDealPending;
 
   const handleChatPress = () => {
     navigation.navigate('ChatThread', { conversationId: dealId });
@@ -151,6 +174,57 @@ export default function DealDetailScreen({ navigation, route }: Props) {
     );
   };
 
+  const handleBidSubmit = () => {
+    if (bidAmount && parseFloat(bidAmount) > 0) {
+      const newBidAmount = parseFloat(bidAmount);
+      
+      // For pending deals, check if new bid is higher than current bid
+      if (isDealPending && currentBidPrice) {
+        const currentAmount = parseFloat(currentBidPrice.replace(/[^0-9.]/g, ''));
+        if (newBidAmount <= currentAmount) {
+          Alert.alert(
+            'Invalid Bid',
+            `Your new bid must be higher than your current bid of ${currentBidPrice}.`,
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+
+        // Show confirmation alert for updating existing bid
+        Alert.alert(
+          'Update Bid?',
+          `Update your bid from ${currentBidPrice} to $${bidAmount}?`,
+          [
+            {
+              text: 'Cancel',
+              style: 'cancel',
+            },
+            {
+              text: 'Update Bid',
+              onPress: () => {
+                submitBid(newBidAmount);
+              },
+            },
+          ]
+        );
+      } else {
+        // For open deals, submit directly
+        submitBid(newBidAmount);
+      }
+    }
+  };
+
+  const submitBid = (amount: number) => {
+    console.log(`Submitting bid of $${amount} for deal ${dealId}`);
+    
+    // Update UI state
+    setHasSubmittedBid(true);
+    setCurrentBidPrice(`$${amount.toLocaleString()}`);
+    setBidAmount(''); // Clear input
+    
+    // TODO: Implement actual bid submission logic
+  };
+
   return (
     <SafeAreaView style={styles.screen}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -179,29 +253,37 @@ export default function DealDetailScreen({ navigation, route }: Props) {
                   {deal.subtitle}
                 </Text>
               </View>
-              <Badge variant={deal.badgeVariant}>{deal.status}</Badge>
+              {hasSubmittedBid && !deal.badgeVariant ? (
+                <Badge variant="purple">Pending</Badge>
+              ) : deal.badgeVariant ? (
+                <Badge variant={deal.badgeVariant}>{deal.status}</Badge>
+              ) : null}
             </View>
           </Card>
         </Pressable>
 
         {/* Agent Summary - matching HTML lines 1110-1127 */}
         <View style={styles.agentSummary}>
-          <View style={styles.agentRow}>
-            <Text variant="body" size="sm" color="secondary">
-              Agreed price
-            </Text>
-            <Text variant="bodyMedium" size="md">
-              {deal.agreedPrice}
-            </Text>
-          </View>
-          <View style={styles.agentRow}>
-            <Text variant="body" size="sm" color="secondary">
-              {deal.isSelling ? 'Buyer' : 'Seller'}
-            </Text>
-            <Text variant="bodyMedium" size="md">
-              {deal.otherParty}
-            </Text>
-          </View>
+          {(currentBidPrice || deal.agreedPrice) && (
+            <View style={styles.agentRow}>
+              <Text variant="body" size="sm" color="secondary">
+                {hasSubmittedBid || isDealPending ? 'Your bid' : 'Agreed price'}
+              </Text>
+              <Text variant="bodyMedium" size="md">
+                {currentBidPrice || deal.agreedPrice}
+              </Text>
+            </View>
+          )}
+          {deal.otherParty && (
+            <View style={styles.agentRow}>
+              <Text variant="body" size="sm" color="secondary">
+                {deal.isSelling ? 'Buyer' : 'Seller'}
+              </Text>
+              <Text variant="bodyMedium" size="md">
+                {deal.otherParty}
+              </Text>
+            </View>
+          )}
           <View style={styles.agentRow}>
             <Text variant="body" size="sm" color="secondary">
               Delivery
@@ -215,7 +297,9 @@ export default function DealDetailScreen({ navigation, route }: Props) {
               Status
             </Text>
             <Text variant="bodyMedium" size="md">
-              {deal.statusText}
+              {hasSubmittedBid && !isDealPending 
+                ? 'Waiting for seller response' 
+                : deal.statusText}
             </Text>
           </View>
         </View>
@@ -226,18 +310,69 @@ export default function DealDetailScreen({ navigation, route }: Props) {
             Agent status
           </Text>
           <Text variant="bodyMedium" size="md" style={styles.agentRecValue}>
-            {deal.agentStatus}
+            {hasSubmittedBid && !isDealPending 
+              ? 'Bid sent, awaiting response' 
+              : deal.agentStatus}
           </Text>
         </View>
 
-        {/* Buttons - matching HTML lines 1134-1135 */}
-        <Button variant="primary" onPress={handleChatPress}>
-          {deal.chatButtonText}
-        </Button>
+        {/* Bid Form for Open Listings and Pending Deals (Buyer Side Only) */}
+        {canShowBidForm && (
+          <Card style={styles.bidFormCard}>
+            <Text variant="bodyMedium" size="base" style={styles.bidFormLabel}>
+              {isDealPending ? 'Update your bid' : 'Place your bid'}
+            </Text>
+            {isDealPending && currentBidPrice && (
+              <Text variant="body" size="sm" color="secondary" style={styles.currentBidText}>
+                Current bid: {currentBidPrice}
+              </Text>
+            )}
+            <View style={styles.bidForm}>
+              <View style={styles.bidInputContainer}>
+                <Text variant="headingMedium" size="heading3" style={styles.dollarSign}>
+                  $
+                </Text>
+                <TextInput
+                  style={styles.bidInput}
+                  value={bidAmount}
+                  onChangeText={setBidAmount}
+                  keyboardType="numeric"
+                  placeholder="0"
+                  placeholderTextColor={colors.textMuted}
+                />
+              </View>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.bidButton,
+                  pressed && styles.bidButtonPressed,
+                  (!bidAmount || parseFloat(bidAmount || '0') <= 0) && styles.bidButtonDisabled,
+                  isDealPending && currentBidPrice && parseFloat(bidAmount || '0') <= parseFloat(currentBidPrice.replace(/[^0-9.]/g, '') || '0') && styles.bidButtonDisabled,
+                ]}
+                onPress={handleBidSubmit}
+                disabled={
+                  !bidAmount || 
+                  parseFloat(bidAmount || '0') <= 0 ||
+                  (isDealPending && currentBidPrice && parseFloat(bidAmount || '0') <= parseFloat(currentBidPrice.replace(/[^0-9.]/g, '') || '0'))
+                }
+              >
+                <Text style={styles.bidIcon}>💵</Text>
+              </Pressable>
+            </View>
+          </Card>
+        )}
 
-        <Button variant="secondary" onPress={handleCancelDeal} style={styles.cancelButton}>
-          Cancel deal
-        </Button>
+        {/* Buttons - matching HTML lines 1134-1135 */}
+        {!canShowBidForm && (
+          <>
+            <Button variant="primary" onPress={handleChatPress}>
+              {deal.chatButtonText}
+            </Button>
+
+            <Button variant="secondary" onPress={handleCancelDeal} style={styles.cancelButton}>
+              Cancel deal
+            </Button>
+          </>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -318,5 +453,57 @@ const styles = StyleSheet.create({
   },
   cancelButton: {
     marginTop: spacing.md,
+  },
+  bidFormCard: {
+    marginBottom: spacing.xl,
+  },
+  bidFormLabel: {
+    marginBottom: spacing.sm,
+  },
+  currentBidText: {
+    marginBottom: spacing.md,
+  },
+  bidForm: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  bidInputContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.card,
+  },
+  dollarSign: {
+    marginRight: spacing.xs,
+    color: colors.textSecondary,
+  },
+  bidInput: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    fontSize: 16,
+    fontFamily: 'DMSans_400Regular',
+    color: colors.textPrimary,
+  },
+  bidButton: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.md,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bidButtonPressed: {
+    opacity: 0.8,
+  },
+  bidButtonDisabled: {
+    opacity: 0.4,
+  },
+  bidIcon: {
+    fontSize: 20,
   },
 });
