@@ -12,12 +12,13 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { ListStackParamList, AppTabsParamList } from '../../navigation/types';
-import { Text, Button, Input, Pill, Tabs, Badge } from '../../ui/components';
+import { Text, Button, Input, Pill, Tabs, Badge, BroadcastAnnouncement } from '../../ui/components';
 import { colors, spacing, radius, typography } from '../../ui/tokens';
 import { useItemsStore } from '../../state/itemsStore';
 import { useAuthStore } from '../../state/authStore';
 import { getItemById, updateItem, deleteItem, Item } from '../../services/itemsService';
 import { getSignedUrl } from '../../services/imageService';
+import { broadcastToItemBuyers } from '../../services/broadcastService';
 
 type Props = NativeStackScreenProps<ListStackParamList, 'ItemDetail'>;
 type TabNavProp = BottomTabNavigationProp<AppTabsParamList>;
@@ -258,6 +259,27 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
                 Accept $550 offer
               </Text>
             </View>
+
+            {/* Broadcast Announcement */}
+            <BroadcastAnnouncement
+              onSend={async (message) => {
+                if (!user) {
+                  Alert.alert('Error', 'You must be logged in to broadcast messages.');
+                  return;
+                }
+
+                const result = await broadcastToItemBuyers(itemId, user.id, message);
+                
+                if (result.success) {
+                  Alert.alert(
+                    'Message Sent',
+                    `Your announcement has been sent to ${result.recipientsCount} interested buyer${result.recipientsCount !== 1 ? 's' : ''}.`
+                  );
+                } else {
+                  Alert.alert('Error', result.error || 'Failed to send broadcast message.');
+                }
+              }}
+            />
 
             {/* Bids - Demo data matching HTML spec lines 763-801 */}
             {/* Bid #1: Answered questions - show full details */}

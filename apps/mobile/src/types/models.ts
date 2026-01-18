@@ -89,7 +89,7 @@ export interface Deal {
   match?: Match;
 }
 
-export type MessageType = 'text' | 'offer' | 'counter' | 'quick_action' | 'system';
+export type MessageType = 'text' | 'offer' | 'counter' | 'quick_action' | 'system' | 'broadcast';
 
 export interface Message {
   id: string;

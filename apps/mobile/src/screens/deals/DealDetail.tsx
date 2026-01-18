@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -10,11 +10,15 @@ import {
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { DealsStackParamList } from '../../navigation/types';
-import { Text, Button, Card, Badge } from '../../ui/components';
-import { colors, spacing, radius } from '../../ui/tokens';
+import { Text, Button, Card, Badge, BroadcastAnnouncement } from '../../ui/components';
+import { colors, spacing, radius, typography } from '../../ui/tokens';
 import { useNavigation } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { AppTabsParamList } from '../../navigation/types';
+import { Deal } from '../../types/models';
+import { getDealById } from '../../services/dealsService';
+import { useAuthStore } from '../../state/authStore';
+import { broadcastToDealBuyer } from '../../services/broadcastService';
 
 type Props = NativeStackScreenProps<DealsStackParamList, 'DealDetail'>;
 type TabNavProp = BottomTabNavigationProp<AppTabsParamList>;
@@ -129,15 +133,39 @@ const demoDeals: Record<string, {
 
 export default function DealDetailScreen({ navigation, route }: Props) {
   const { dealId } = route.params;
-  const deal = demoDeals[dealId] || demoDeals['1'];
+  const demoDeal = demoDeals[dealId] || demoDeals['1'];
   const tabNavigation = useNavigation<TabNavProp>();
+  const user = useAuthStore((state) => state.user);
+  const [realDeal, setRealDeal] = useState<Deal | null>(null);
+  const [loading, setLoading] = useState(true);
   const [bidAmount, setBidAmount] = useState<string>('');
   const [hasSubmittedBid, setHasSubmittedBid] = useState<boolean>(false);
-  const [currentBidPrice, setCurrentBidPrice] = useState<string | undefined>(deal.agreedPrice);
+  const [currentBidPrice, setCurrentBidPrice] = useState<string | undefined>(demoDeal.agreedPrice);
 
+  // Use real deal if available, otherwise fall back to demo
+  const deal = realDeal 
+    ? {
+        ...demoDeal,
+        isSelling: realDeal.seller_id === user?.id,
+        agreedPrice: realDeal.agreed_price ? `$${realDeal.agreed_price}` : undefined,
+        status: realDeal.status,
+      }
+    : demoDeal;
+
+  const isSeller = deal.isSelling;
   const isDealOpen = !deal.agreedPrice && !deal.isSelling;
   const isDealPending = deal.status === 'Pending' && !deal.isSelling;
   const canShowBidForm = isDealOpen || isDealPending;
+
+  useEffect(() => {
+    loadDeal();
+  }, []);
+
+  async function loadDeal() {
+    const dealData = await getDealById(dealId);
+    setRealDeal(dealData);
+    setLoading(false);
+  }
 
   const handleChatPress = () => {
     navigation.navigate('ChatThread', { conversationId: dealId });
@@ -223,6 +251,34 @@ export default function DealDetailScreen({ navigation, route }: Props) {
     setBidAmount(''); // Clear input
     
     // TODO: Implement actual bid submission logic
+  };
+
+  const handleBroadcastSubmit = (message: string) => {
+    Alert.alert(
+      'Broadcast Message',
+      `Send this message to the buyer?\n\n"${message}"`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Send',
+          onPress: async () => {
+            const result = await broadcastToDealBuyer(dealId, message);
+            
+            if (result.success) {
+              Alert.alert(
+                'Message Sent',
+                `Your announcement has been sent to the buyer.`
+              );
+            } else {
+              Alert.alert('Error', result.error || 'Failed to send broadcast message.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -315,6 +371,11 @@ export default function DealDetailScreen({ navigation, route }: Props) {
               : deal.agentStatus}
           </Text>
         </View>
+
+        {/* Broadcast Announcement for Sellers */}
+        {isSeller && (
+          <BroadcastAnnouncement onSend={handleBroadcastSubmit} />
+        )}
 
         {/* Bid Form for Open Listings and Pending Deals (Buyer Side Only) */}
         {canShowBidForm && (

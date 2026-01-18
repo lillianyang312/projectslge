@@ -5,6 +5,8 @@ import {
   SafeAreaView,
   ScrollView,
   Pressable,
+  ViewStyle,
+  Alert,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { InboxStackParamList } from '../../navigation/types';
@@ -20,6 +22,7 @@ interface InboxMessage {
   emoji: string;
   itemName: string;
   preview: string;
+  fullMessage?: string; // Full message text for broadcasts
   time: string;
   isUnread: boolean;
   isAgent: boolean;
@@ -29,7 +32,40 @@ interface InboxMessage {
     variant: 'warning' | 'purple' | 'blue' | 'success';
   };
   avatarType: 'agent' | 'buyer' | 'seller';
+  isBroadcast?: boolean; // Flag to identify broadcast messages
 }
+
+// Broadcast announcements (separate section at top)
+const broadcastMessages: InboxMessage[] = [
+  {
+    id: 'broadcast-1',
+    emoji: '🪑',
+    itemName: 'Herman Miller Aeron',
+    preview: '🔈 Seller broadcast: "Price reduced to $520! Available for immediate pickup."',
+    fullMessage: 'Price reduced to $520! Available for immediate pickup. This is a great opportunity - the chair is in excellent condition and I can meet you anytime this week.',
+    time: '1m',
+    isUnread: true,
+    isAgent: false,
+    type: 'buying',
+    badge: { label: 'Broadcast', variant: 'blue' },
+    avatarType: 'seller',
+    isBroadcast: true,
+  },
+  {
+    id: 'broadcast-2',
+    emoji: '📱',
+    itemName: 'iPhone 14 Pro',
+    preview: '🔈 Seller broadcast: "Just posted new photos. Mint condition, no scratches!"',
+    fullMessage: 'Just posted new photos. Mint condition, no scratches! Battery health at 98%. Includes original box and charger. Open to reasonable offers.',
+    time: '45m',
+    isUnread: false,
+    isAgent: false,
+    type: 'buying',
+    badge: { label: 'Broadcast', variant: 'blue' },
+    avatarType: 'seller',
+    isBroadcast: true,
+  },
+];
 
 // Demo data matching HTML spec - lines 1105-1226
 const needsResponseMessages: InboxMessage[] = [
@@ -151,8 +187,31 @@ const earlierMessages: InboxMessage[] = [
 
 export default function InboxHomeScreen({ navigation }: Props) {
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
+  const [messagesState, setMessagesState] = useState<{
+    broadcasts: InboxMessage[];
+    needsResponse: InboxMessage[];
+    recent: InboxMessage[];
+    earlier: InboxMessage[];
+  }>({
+    broadcasts: broadcastMessages,
+    needsResponse: needsResponseMessages,
+    recent: recentMessages,
+    earlier: earlierMessages,
+  });
 
-  const allMessages = [...needsResponseMessages, ...recentMessages, ...earlierMessages];
+  const markMessageAsRead = (messageId: string) => {
+    setMessagesState((prev) => {
+      const updateMessages = (messages: InboxMessage[]) =>
+        messages.map((msg) => (msg.id === messageId ? { ...msg, isUnread: false } : msg));
+
+      return {
+        broadcasts: updateMessages(prev.broadcasts),
+        needsResponse: updateMessages(prev.needsResponse),
+        recent: updateMessages(prev.recent),
+        earlier: updateMessages(prev.earlier),
+      };
+    });
+  };
 
   const filterMessages = (messages: InboxMessage[]) => {
     if (activeFilter === 'all') return messages;
@@ -162,10 +221,12 @@ export default function InboxHomeScreen({ navigation }: Props) {
     return messages;
   };
 
-  const filteredNeedsResponse = filterMessages(needsResponseMessages);
-  const filteredRecent = filterMessages(recentMessages);
-  const filteredEarlier = filterMessages(earlierMessages);
+  const filteredBroadcasts = filterMessages(messagesState.broadcasts);
+  const filteredNeedsResponse = filterMessages(messagesState.needsResponse);
+  const filteredRecent = filterMessages(messagesState.recent);
+  const filteredEarlier = filterMessages(messagesState.earlier);
 
+  const hasBroadcasts = filteredBroadcasts.length > 0;
   const hasNeedsResponse = filteredNeedsResponse.length > 0;
   const hasRecent = filteredRecent.length > 0;
   const hasEarlier = filteredEarlier.length > 0;
@@ -177,8 +238,34 @@ export default function InboxHomeScreen({ navigation }: Props) {
     { value: 'buying', label: 'Buying' },
   ];
 
-  const handleMessagePress = (messageId: string) => {
-    navigation.navigate('ChatThread', { conversationId: messageId });
+  const handleMessagePress = (message: InboxMessage) => {
+    // Mark message as read when viewed
+    if (message.isUnread) {
+      markMessageAsRead(message.id);
+    }
+
+    // If it's a broadcast, show alert with full message
+    if (message.isBroadcast && message.fullMessage) {
+      Alert.alert(
+        `🔈 Broadcast: ${message.itemName}`,
+        message.fullMessage,
+        [
+          {
+            text: 'Close',
+            style: 'cancel',
+          },
+          {
+            text: 'Open Chat',
+            onPress: () => {
+              navigation.navigate('ChatThread', { conversationId: message.id });
+            },
+          },
+        ]
+      );
+    } else {
+      // Regular message - navigate directly to chat
+      navigation.navigate('ChatThread', { conversationId: message.id });
+    }
   };
 
   const getAvatarStyle = (type: 'agent' | 'buyer' | 'seller') => {
@@ -192,9 +279,14 @@ export default function InboxHomeScreen({ navigation }: Props) {
     return '👤';
   };
 
-  const renderMessage = (message: InboxMessage) => (
-    <Pressable key={message.id} onPress={() => handleMessagePress(message.id)}>
-      <Card style={[styles.messageCard, message.isUnread && styles.messageCardUnread]}>
+  const renderMessage = (message: InboxMessage) => {
+    const cardStyle: ViewStyle = message.isUnread 
+      ? { ...styles.messageCard, ...styles.messageCardUnread }
+      : styles.messageCard;
+    
+    return (
+      <Pressable key={message.id} onPress={() => handleMessagePress(message)}>
+        <Card style={cardStyle}>
         <View style={styles.inboxCard}>
           <View style={[styles.avatar, getAvatarStyle(message.avatarType)]}>
             <Text style={styles.avatarIcon}>{getAvatarIcon(message.avatarType)}</Text>
@@ -229,7 +321,8 @@ export default function InboxHomeScreen({ navigation }: Props) {
         </View>
       </Card>
     </Pressable>
-  );
+    );
+  };
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -277,6 +370,16 @@ export default function InboxHomeScreen({ navigation }: Props) {
 
       {/* Content */}
       <ScrollView contentContainerStyle={styles.scrollContent}>
+        {/* Broadcast Announcements Section */}
+        {hasBroadcasts && (
+          <>
+            <Text variant="bodyMedium" size="xs" color="muted" style={styles.sectionHeader}>
+              🔈 BROADCASTS
+            </Text>
+            {filteredBroadcasts.map(renderMessage)}
+          </>
+        )}
+
         {/* Needs Response Section */}
         {hasNeedsResponse && (
           <>
