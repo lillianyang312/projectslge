@@ -175,7 +175,31 @@ export default function VerifyEmailScreen({ navigation, route }: Props) {
           { body: { email, code: fullCode } }
         );
 
-        if (verifyError || !verifyResult?.valid) {
+        if (verifyError) {
+          console.error('Verification error:', verifyError);
+          let errorMessage = 'Invalid or expired code. Please try again.';
+
+          try {
+            // Try to get error from context if it's a FunctionsHttpError
+            if (verifyError.context) {
+              const errorBody = await verifyError.context.json();
+              if (errorBody?.error) {
+                errorMessage = errorBody.error;
+              }
+            }
+          } catch {
+            // Fallback to checking verifyResult
+            if (verifyResult?.error) {
+              errorMessage = verifyResult.error;
+            }
+          }
+
+          setError(errorMessage);
+          setLoading(false);
+          return;
+        }
+
+        if (!verifyResult?.valid) {
           setError('Invalid or expired code. Please try again.');
           setLoading(false);
           return;
