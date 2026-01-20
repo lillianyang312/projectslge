@@ -117,6 +117,10 @@ export default function VerifyEmailScreen({ navigation, route }: Props) {
 
           if (loginError) {
             console.error('Login error:', loginError);
+            console.error('Login error context:', loginError?.context);
+            console.error('Login error message:', loginError?.message);
+            console.error('Login error name:', loginError?.name);
+
             // FunctionsHttpError contains the response body in context.json()
             // Also check if loginResult contains the error (sometimes returned even with error)
             let errorMessage = 'Login failed. Please try again.';
@@ -125,11 +129,13 @@ export default function VerifyEmailScreen({ navigation, route }: Props) {
               // Try to get error from context if it's a FunctionsHttpError
               if (loginError.context) {
                 const errorBody = await loginError.context.json();
+                console.error('Error body from context:', errorBody);
                 if (errorBody?.error) {
                   errorMessage = errorBody.error;
                 }
               }
-            } catch {
+            } catch (contextError) {
+              console.error('Failed to parse context:', contextError);
               // Fallback to checking loginResult
               if (loginResult?.error) {
                 errorMessage = loginResult.error;
