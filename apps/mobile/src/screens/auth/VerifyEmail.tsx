@@ -109,38 +109,58 @@ export default function VerifyEmailScreen({ navigation, route }: Props) {
     try {
       if (isLogin) {
         // For login, use the loginWithCode function which verifies code and creates session
-        const { data: loginResult, error: loginError } = await supabase.functions.invoke(
-          'loginWithCode',
-          { body: { email, code: fullCode } }
-        );
+        try {
+          const { data: loginResult, error: loginError } = await supabase.functions.invoke(
+            'loginWithCode',
+            { body: { email, code: fullCode } }
+          );
 
-        if (loginError) {
-          console.error('Login error:', loginError);
-          // FunctionsHttpError contains the response body in context.json()
-          // Also check if loginResult contains the error (sometimes returned even with error)
+          if (loginError) {
+            console.error('Login error:', loginError);
+            // FunctionsHttpError contains the response body in context.json()
+            // Also check if loginResult contains the error (sometimes returned even with error)
+            let errorMessage = 'Login failed. Please try again.';
+
+            try {
+              // Try to get error from context if it's a FunctionsHttpError
+              if (loginError.context) {
+                const errorBody = await loginError.context.json();
+                if (errorBody?.error) {
+                  errorMessage = errorBody.error;
+                }
+              }
+            } catch {
+              // Fallback to checking loginResult
+              if (loginResult?.error) {
+                errorMessage = loginResult.error;
+              }
+            }
+
+            // Show a user-friendly message for "account not found"
+            if (errorMessage.includes('Account not found') || errorMessage.includes('sign up')) {
+              setError('No account found with this email. Please sign up first.');
+            } else {
+              setError(errorMessage);
+            }
+            setLoading(false);
+            return;
+          }
+        } catch (invokeError: any) {
+          console.error('Exception in loginWithCode invoke:', invokeError);
           let errorMessage = 'Login failed. Please try again.';
 
           try {
-            // Try to get error from context if it's a FunctionsHttpError
-            if (loginError.context) {
-              const errorBody = await loginError.context.json();
+            if (invokeError?.context) {
+              const errorBody = await invokeError.context.json();
               if (errorBody?.error) {
                 errorMessage = errorBody.error;
               }
             }
           } catch {
-            // Fallback to checking loginResult
-            if (loginResult?.error) {
-              errorMessage = loginResult.error;
-            }
+            errorMessage = invokeError?.message || 'Login failed. Please try again.';
           }
 
-          // Show a user-friendly message for "account not found"
-          if (errorMessage.includes('Account not found') || errorMessage.includes('sign up')) {
-            setError('No account found with this email. Please sign up first.');
-          } else {
-            setError(errorMessage);
-          }
+          setError(errorMessage);
           setLoading(false);
           return;
         }
@@ -170,37 +190,57 @@ export default function VerifyEmailScreen({ navigation, route }: Props) {
         }
       } else if (signupData) {
         // For signup, verify the code first
-        const { data: verifyResult, error: verifyError } = await supabase.functions.invoke(
-          'verifyEmailCode',
-          { body: { email, code: fullCode } }
-        );
+        try {
+          const { data: verifyResult, error: verifyError } = await supabase.functions.invoke(
+            'verifyEmailCode',
+            { body: { email, code: fullCode } }
+          );
 
-        if (verifyError) {
-          console.error('Verification error:', verifyError);
+          if (verifyError) {
+            console.error('Verification error:', verifyError);
+            let errorMessage = 'Invalid or expired code. Please try again.';
+
+            try {
+              // Try to get error from context if it's a FunctionsHttpError
+              if (verifyError.context) {
+                const errorBody = await verifyError.context.json();
+                if (errorBody?.error) {
+                  errorMessage = errorBody.error;
+                }
+              }
+            } catch {
+              // Fallback to checking verifyResult
+              if (verifyResult?.error) {
+                errorMessage = verifyResult.error;
+              }
+            }
+
+            setError(errorMessage);
+            setLoading(false);
+            return;
+          }
+
+          if (!verifyResult?.valid) {
+            setError('Invalid or expired code. Please try again.');
+            setLoading(false);
+            return;
+          }
+        } catch (invokeError: any) {
+          console.error('Exception in verifyEmailCode invoke:', invokeError);
           let errorMessage = 'Invalid or expired code. Please try again.';
 
           try {
-            // Try to get error from context if it's a FunctionsHttpError
-            if (verifyError.context) {
-              const errorBody = await verifyError.context.json();
+            if (invokeError?.context) {
+              const errorBody = await invokeError.context.json();
               if (errorBody?.error) {
                 errorMessage = errorBody.error;
               }
             }
           } catch {
-            // Fallback to checking verifyResult
-            if (verifyResult?.error) {
-              errorMessage = verifyResult.error;
-            }
+            errorMessage = invokeError?.message || 'Invalid or expired code. Please try again.';
           }
 
           setError(errorMessage);
-          setLoading(false);
-          return;
-        }
-
-        if (!verifyResult?.valid) {
-          setError('Invalid or expired code. Please try again.');
           setLoading(false);
           return;
         }
