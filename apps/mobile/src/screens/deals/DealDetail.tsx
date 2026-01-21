@@ -19,7 +19,7 @@ import { AppTabsParamList } from '../../navigation/types';
 import { getDealById, cancelDeal } from '../../services/dealsService';
 import { useAuthStore } from '../../state/authStore';
 import { Deal } from '../../types/models';
-import { getSignedUrl } from '../../services/imageService';
+import { getSignedUrlCached } from '../../services/imageService';
 
 type Props = NativeStackScreenProps<DealsStackParamList, 'DealDetail'>;
 type TabNavProp = BottomTabNavigationProp<AppTabsParamList>;
@@ -127,9 +127,9 @@ export default function DealDetailScreen({ navigation, route }: Props) {
         const fetchedDeal = await getDealById(dealId);
         setDeal(fetchedDeal);
 
-        // Load item image
+        // Load item image (using cached signed URL)
         if (fetchedDeal?.item?.photos?.[0]) {
-          const url = await getSignedUrl(fetchedDeal.item.photos[0]);
+          const url = await getSignedUrlCached(fetchedDeal.item.photos[0]);
           setImageUrl(url);
         }
       } catch (error) {

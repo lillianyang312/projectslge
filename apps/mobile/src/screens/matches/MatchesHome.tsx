@@ -14,7 +14,7 @@ import { Text, Button, Card, Badge } from '../../ui/components';
 import { colors, spacing, radius } from '../../ui/tokens';
 import { Match } from '../../types/models';
 import { getMyMatches } from '../../services/matchingService';
-import { getSignedUrl } from '../../services/imageService';
+import { getSignedUrlCached } from '../../services/imageService';
 import { useAuthStore } from '../../state/authStore';
 
 type Props = NativeStackScreenProps<MatchesStackParamList, 'MatchesHome'>;
@@ -113,7 +113,7 @@ function MatchCard({ match, currentUserId, onPress }: MatchCardProps) {
 
   useEffect(() => {
     if (match.item?.image_path) {
-      getSignedUrl(match.item.image_path).then(setImageUrl);
+      getSignedUrlCached(match.item.image_path).then(setImageUrl);
     }
   }, [match]);
 

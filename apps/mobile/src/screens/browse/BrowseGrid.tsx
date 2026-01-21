@@ -16,7 +16,7 @@ import { Text } from '../../ui/components';
 import { colors, spacing, radius, typography } from '../../ui/tokens';
 import { semanticSearch, SearchResultItem } from '../../services/searchService';
 import { useAuthStore } from '../../state/authStore';
-import { getSignedUrl } from '../../services/imageService';
+import { getSignedUrlCached } from '../../services/imageService';
 
 type Props = NativeStackScreenProps<SwipeStackParamList, 'SwipeMain'>;
 
@@ -32,14 +32,14 @@ export default function BrowseGridScreen({ navigation }: Props) {
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const user = useAuthStore((state) => state.user);
 
-  // Load signed URLs for item photos
+  // Load signed URLs for item photos (using cached signing)
   const loadImageUrls = useCallback(async (items: SearchResultItem[]) => {
     const newUrls: Record<string, string> = {};
 
     await Promise.all(
       items.map(async (item) => {
         if (item.photos && item.photos.length > 0) {
-          const url = await getSignedUrl(item.photos[0]);
+          const url = await getSignedUrlCached(item.photos[0]);
           if (url) {
             newUrls[item.id] = url;
           }

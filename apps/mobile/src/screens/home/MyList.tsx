@@ -18,7 +18,7 @@ import { colors, spacing, radius, typography, shadows } from '../../ui/tokens';
 import { useItemsStore } from '../../state/itemsStore';
 import { useAuthStore } from '../../state/authStore';
 import { getMyItems, deleteItem, Item } from '../../services/itemsService';
-import { getSignedUrl } from '../../services/imageService';
+import { getSignedUrlCached } from '../../services/imageService';
 
 type Props = NativeStackScreenProps<ListStackParamList, 'MyList'>;
 
@@ -84,11 +84,11 @@ export default function MyListScreen({ navigation }: Props) {
         console.log('[MyList] Successfully fetched items:', data.length, data);
         setSupabaseItems(data);
 
-        // Fetch signed URLs for thumbnails
+        // Fetch signed URLs for thumbnails (using cached URLs)
         const urlMap: Record<string, string> = {};
         for (const item of data) {
           if (item.photos?.[0]) {
-            const url = await getSignedUrl(item.photos[0]);
+            const url = await getSignedUrlCached(item.photos[0]);
             if (url) {
               urlMap[item.id] = url;
             }

@@ -28,7 +28,7 @@ import {
   completeDeal,
 } from '../../services/dealsService';
 import { useAuthStore } from '../../state/authStore';
-import { getSignedUrl } from '../../services/imageService';
+import { getSignedUrlCached } from '../../services/imageService';
 
 type Props = NativeStackScreenProps<DealsStackParamList, 'DealChat'>;
 
@@ -106,9 +106,9 @@ export default function DealChatScreen({ navigation, route }: Props) {
       setDeal(fetchedDeal);
       setMessages(fetchedMessages);
 
-      // Load item image
+      // Load item image (using cached signed URL)
       if (fetchedDeal?.item?.photos?.[0]) {
-        const url = await getSignedUrl(fetchedDeal.item.photos[0]);
+        const url = await getSignedUrlCached(fetchedDeal.item.photos[0]);
         setImageUrl(url);
       }
     } catch (error) {

@@ -18,11 +18,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
 import { ListStackParamList } from '../../navigation/types';
-import { Text, Button, Input, Card, Header, Pill } from '../../ui/components';
+import { Text, Button, Input, Card, Header, Pill, Badge } from '../../ui/components';
 import { colors, spacing, radius, typography } from '../../ui/tokens';
 import { useItemsStore, SellIntent } from '../../state/itemsStore';
 import { useAuthStore } from '../../state/authStore';
-import { uploadImage, analyzeImages, getSignedUrl } from '../../services/imageService';
+import { uploadImage, analyzeImages, getSignedUrlCached } from '../../services/imageService';
 import type { AnalyzeImageResponse } from '../../types/analyzeImage';
 import { isNeedsClarificationResponse } from '../../schemas/clarification_schema';
 
@@ -108,8 +108,8 @@ export default function ItemDetailsScreen({ navigation }: Props) {
           const successfulUploads = uploadResults.filter(r => !r.error && r.path);
 
           if (successfulUploads.length > 0) {
-            // Get signed URLs for all uploaded images
-            const signedUrlPromises = successfulUploads.map(r => getSignedUrl(r.path));
+            // Get signed URLs for all uploaded images (using cached signing)
+            const signedUrlPromises = successfulUploads.map(r => getSignedUrlCached(r.path));
             const signedUrls = await Promise.all(signedUrlPromises);
 
             // Filter out null URLs

@@ -15,7 +15,7 @@ import { colors, spacing, radius } from '../../ui/tokens';
 import { Item } from '../../types/models';
 import { getSwipeToBuyFeed, recordSwipeAction, createMatch } from '../../services/matchingService';
 import { evaluateOurTake } from '../../services/ourTakeService';
-import { getSignedUrl } from '../../services/imageService';
+import { getSignedUrlCached } from '../../services/imageService';
 import { useAuthStore } from '../../state/authStore';
 
 type Props = NativeStackScreenProps<SwipeStackParamList, 'SwipeBuy'>;
@@ -47,7 +47,7 @@ export default function SwipeBuyScreen({ navigation }: Props) {
   }
 
   async function loadImage(item: Item) {
-    const url = await getSignedUrl(item.image_path);
+    const url = await getSignedUrlCached(item.image_path);
     setImageUrl(url);
   }
 

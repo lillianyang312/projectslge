@@ -17,7 +17,7 @@ import { colors, spacing, radius, typography } from '../../ui/tokens';
 import { useItemsStore } from '../../state/itemsStore';
 import { useAuthStore } from '../../state/authStore';
 import { getItemById, updateItem, deleteItem, Item } from '../../services/itemsService';
-import { getSignedUrl } from '../../services/imageService';
+import { getSignedUrlCached } from '../../services/imageService';
 import { getDealsByItemId, getQuestionsForItem, getDealsWithExpiration, acceptOffer, ItemQuestion } from '../../services/dealsService';
 import { Deal } from '../../types/models';
 import SellerDashboard from './SellerDashboard';
@@ -91,9 +91,9 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
         const { data } = await getItemById(itemId);
         if (data) {
           setSupabaseItem(data);
-          // Get signed URL for the image if it exists
+          // Get signed URL for the image if it exists (using cache)
           if (data.photos?.[0]) {
-            const url = await getSignedUrl(data.photos[0]);
+            const url = await getSignedUrlCached(data.photos[0]);
             setImageUrl(url);
           }
         }
