@@ -17,3 +17,10 @@ export const CONFIDENCE_THRESHOLDS = {
   LOW_MAX: 0.59,
 } as const;
 
+/**
+ * Browse / pagination
+ */
+export const BROWSE_PAGE_SIZE = 3;
+
+export const INBOX_PAGE_SIZE = 3;
+

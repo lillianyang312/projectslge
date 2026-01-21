@@ -16,7 +16,7 @@ import { Text, Card, Badge } from '../../ui/components';
 import { colors, spacing, radius } from '../../ui/tokens';
 import { useAuthStore } from '../../state/authStore';
 import { getMyDeals, getMessages } from '../../services/dealsService';
-import { getSignedUrlCached } from '../../services/imageService';
+import { getSignedUrl } from '../../services/imageService';
 import { Deal, Message } from '../../types/models';
 
 type Props = NativeStackScreenProps<InboxStackParamList, 'InboxHome'>;
@@ -108,10 +108,10 @@ export default function InboxHomeScreen({ navigation }: Props) {
           const lastMessage = messages[messages.length - 1];
           const isSelling = deal.seller_id === user.id;
 
-          // Get image URL (using cached signed URL)
+          // Get image URL
           let imageUrl: string | undefined;
           if (deal.item?.photos?.[0]) {
-            imageUrl = await getSignedUrlCached(deal.item.photos[0]) || undefined;
+            imageUrl = await getSignedUrl(deal.item.photos[0]) || undefined;
           }
 
           // Determine badge
