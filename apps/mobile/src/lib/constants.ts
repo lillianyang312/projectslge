@@ -20,7 +20,7 @@ export const CONFIDENCE_THRESHOLDS = {
 /**
  * Browse / pagination
  */
-export const BROWSE_PAGE_SIZE = 3;
+export const BROWSE_PAGE_SIZE = 20;
 
-export const INBOX_PAGE_SIZE = 3;
+export const INBOX_PAGE_SIZE = 20;
 
