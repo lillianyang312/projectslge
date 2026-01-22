@@ -22,6 +22,7 @@
     "@types/js-yaml": "^4.0.9",
     "@types/react": "~19.1.10",
     "expo": "~54.0.31",
+    "expo-document-picker": "~14.0.8",
     "expo-file-system": "^19.0.21",
     "expo-font": "^14.0.10",
     "expo-image-manipulator": "~14.0.8",

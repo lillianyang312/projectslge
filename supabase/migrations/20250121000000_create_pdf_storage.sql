@@ -1,0 +1,26 @@
+-- Create PDF storage bucket for senior sales
+-- This migration sets up the item-pdfs bucket for storing PDF files
+
+-- Note: This is a documentation file for storage setup
+-- Actual bucket creation should be done via Supabase Dashboard or CLI:
+--
+-- Via Supabase CLI:
+-- ```
+-- supabase storage create-bucket item-pdfs --public false
+-- ```
+--
+-- Via Dashboard:
+-- 1. Go to Storage section
+-- 2. Create new bucket named 'item-pdfs'
+-- 3. Set as private (not public)
+-- 4. Enable RLS policies as needed
+--
+-- RLS Policy (allow users to upload their own PDFs):
+-- CREATE POLICY "Users can upload PDFs to their own folder"
+-- ON storage.objects FOR INSERT
+-- WITH CHECK (bucket_id = 'item-pdfs' AND (auth.uid())::text = (storage.foldername(name))[1]);
+--
+-- RLS Policy (allow users to read their own PDFs):
+-- CREATE POLICY "Users can read their own PDFs"
+-- ON storage.objects FOR SELECT
+-- USING (bucket_id = 'item-pdfs' AND (auth.uid())::text = (storage.foldername(name))[1]);
