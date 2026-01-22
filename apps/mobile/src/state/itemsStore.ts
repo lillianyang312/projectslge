@@ -31,6 +31,33 @@ export type Item = {
 // Sell intent type
 export type SellIntent = 'Maybe' | 'If good offer' | 'Want gone';
 
+// Bulk upload item type
+export interface BulkUploadItem {
+  id: string;
+  imageUris: string[];
+  // AI-analyzed
+  title?: string;
+  category?: string;
+  condition?: string;
+  // User-verified
+  verifiedTitle?: string;
+  verifiedCategory?: string;
+  verifiedCondition?: string;
+  // Category-specific
+  categoryFields?: Record<string, any>;
+  // Additional notes
+  notes?: string;
+  // Pricing
+  estimatedPriceMin?: number;
+  estimatedPriceMax?: number;
+  minimumPrice?: number;
+  priceConfidence?: number;
+  priceReasoning?: string;
+  // Status
+  isVerified: boolean;
+  isPriceConfirmed: boolean;
+}
+
 // Draft type for creating new listings
 export type DraftListing = Partial<OriginalListingData> & {
   imageUri?: string;
@@ -52,6 +79,12 @@ type ItemsStore = {
   draft: DraftListing | null;
   // Error state
   error: string | null;
+
+  // Bulk upload state
+  bulkPhotos: string[];
+  bulkItems: BulkUploadItem[];
+  currentItemIndex: number;
+
   // Actions
   seedDemoItems: () => void;
   seedDemoListings: () => void;
@@ -63,6 +96,18 @@ type ItemsStore = {
   updateListing: (id: string, updates: Partial<Listing>) => ValidationResult<Listing>;
   setError: (error: string | null) => void;
   clearError: () => void;
+
+  // Bulk upload actions
+  setBulkPhotos: (photos: string[]) => void;
+  addBulkPhoto: (photo: string) => void;
+  removeBulkPhoto: (photo: string) => void;
+  createItemGroup: (photoUris: string[]) => string; // Returns new item id
+  ungroupItem: (itemId: string) => void;
+  updateBulkItem: (itemId: string, updates: Partial<BulkUploadItem>) => void;
+  setCurrentItemIndex: (index: number) => void;
+  clearBulkUpload: () => void;
+  autoGroupUnassignedPhotos: () => void;
+  commitBulkItems: (sellerId: string) => ValidationResult<Listing[]>;
 };
 
 export const useItemsStore = create<ItemsStore>((set, get) => ({
@@ -70,6 +115,11 @@ export const useItemsStore = create<ItemsStore>((set, get) => ({
   items: [],
   draft: null,
   error: null,
+
+  // Bulk upload initial state
+  bulkPhotos: [],
+  bulkItems: [],
+  currentItemIndex: 0,
 
   seedDemoItems: () => {
     const { items } = get();
@@ -487,6 +537,174 @@ export const useItemsStore = create<ItemsStore>((set, get) => ({
 
   clearError: () => {
     set({ error: null });
+  },
+
+  // Bulk upload actions
+  setBulkPhotos: (photos: string[]) => {
+    set({ bulkPhotos: photos });
+  },
+
+  addBulkPhoto: (photo: string) => {
+    const { bulkPhotos } = get();
+    if (!bulkPhotos.includes(photo)) {
+      set({ bulkPhotos: [...bulkPhotos, photo] });
+    }
+  },
+
+  removeBulkPhoto: (photo: string) => {
+    const { bulkPhotos, bulkItems } = get();
+    // Remove from unassigned photos
+    const updatedPhotos = bulkPhotos.filter((p) => p !== photo);
+    // Also remove from any items that contain this photo
+    const updatedItems = bulkItems.map((item) => ({
+      ...item,
+      imageUris: item.imageUris.filter((uri) => uri !== photo),
+    })).filter((item) => item.imageUris.length > 0); // Remove empty items
+
+    set({ bulkPhotos: updatedPhotos, bulkItems: updatedItems });
+  },
+
+  createItemGroup: (photoUris: string[]): string => {
+    const { bulkPhotos, bulkItems } = get();
+    const newItemId = `bulk-item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    const newItem: BulkUploadItem = {
+      id: newItemId,
+      imageUris: photoUris,
+      isVerified: false,
+      isPriceConfirmed: false,
+    };
+
+    // Remove grouped photos from unassigned pool
+    const remainingPhotos = bulkPhotos.filter((p) => !photoUris.includes(p));
+
+    set({
+      bulkPhotos: remainingPhotos,
+      bulkItems: [...bulkItems, newItem],
+    });
+
+    return newItemId;
+  },
+
+  ungroupItem: (itemId: string) => {
+    const { bulkPhotos, bulkItems } = get();
+    const item = bulkItems.find((i) => i.id === itemId);
+
+    if (item) {
+      // Return photos to unassigned pool
+      const updatedPhotos = [...bulkPhotos, ...item.imageUris];
+      const updatedItems = bulkItems.filter((i) => i.id !== itemId);
+
+      set({
+        bulkPhotos: updatedPhotos,
+        bulkItems: updatedItems,
+      });
+    }
+  },
+
+  updateBulkItem: (itemId: string, updates: Partial<BulkUploadItem>) => {
+    const { bulkItems } = get();
+    const updatedItems = bulkItems.map((item) =>
+      item.id === itemId ? { ...item, ...updates } : item
+    );
+    set({ bulkItems: updatedItems });
+  },
+
+  setCurrentItemIndex: (index: number) => {
+    set({ currentItemIndex: index });
+  },
+
+  clearBulkUpload: () => {
+    set({
+      bulkPhotos: [],
+      bulkItems: [],
+      currentItemIndex: 0,
+    });
+  },
+
+  autoGroupUnassignedPhotos: () => {
+    const { bulkPhotos, bulkItems } = get();
+
+    if (bulkPhotos.length === 0) return;
+
+    // Create individual items for each unassigned photo
+    const newItems: BulkUploadItem[] = bulkPhotos.map((photo) => ({
+      id: `bulk-item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      imageUris: [photo],
+      isVerified: false,
+      isPriceConfirmed: false,
+    }));
+
+    set({
+      bulkPhotos: [],
+      bulkItems: [...bulkItems, ...newItems],
+    });
+  },
+
+  commitBulkItems: (sellerId: string): ValidationResult<Listing[]> => {
+    const { bulkItems, listings } = get();
+
+    // Validate all items are verified and price confirmed
+    const unverifiedItems = bulkItems.filter((item) => !item.isVerified);
+    if (unverifiedItems.length > 0) {
+      return {
+        success: false,
+        error: new ListingValidationError([
+          { field: 'isVerified', message: `${unverifiedItems.length} item(s) need verification` },
+        ]),
+      };
+    }
+
+    const unconfirmedPrices = bulkItems.filter((item) => !item.isPriceConfirmed);
+    if (unconfirmedPrices.length > 0) {
+      return {
+        success: false,
+        error: new ListingValidationError([
+          { field: 'isPriceConfirmed', message: `${unconfirmedPrices.length} item(s) need price confirmation` },
+        ]),
+      };
+    }
+
+    const now = Date.now();
+    const newListings: Listing[] = bulkItems.map((item, index) => ({
+      id: `listing-${now}-${index}`,
+      phase: ListingPhase.ORIGINAL,
+      original: {
+        title: item.verifiedTitle || item.title || 'Untitled Item',
+        category: item.verifiedCategory || item.category || 'General',
+        description: item.notes || '',
+        condition: item.verifiedCondition || item.condition,
+        notes: item.notes,
+        imageUris: item.imageUris,
+        intent: 'owned',
+      },
+      sellerId,
+      createdAt: now + index, // Ensure unique timestamps
+      updatedAt: now + index,
+      isActive: true,
+      visibility: 'public',
+    }));
+
+    // Validate all new listings
+    for (const listing of newListings) {
+      const validation = validateListingSafe(listing);
+      if (validation.success === false) {
+        return {
+          success: false,
+          error: validation.error,
+        };
+      }
+    }
+
+    set({
+      listings: [...newListings, ...listings],
+      bulkPhotos: [],
+      bulkItems: [],
+      currentItemIndex: 0,
+      error: null,
+    });
+
+    return { success: true, data: newListings };
   },
 }));
 

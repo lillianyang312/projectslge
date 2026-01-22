@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import type { SellIntent } from '../state/itemsStore';
 
 /**
  * Request body for price estimation
@@ -10,6 +11,9 @@ export interface EstimatePriceRequest {
   description?: string;
   pricePurchased?: number;
   photoUrls?: string[];
+  // New fields for bulk upload
+  sellIntent?: SellIntent;
+  categoryFields?: Record<string, any>;
 }
 
 /**
@@ -34,6 +38,7 @@ export async function estimatePrice(
       title: request.title,
       category: request.category,
       condition: request.condition,
+      sellIntent: request.sellIntent,
     });
 
     const { data, error } = await supabase.functions.invoke('estimatePrice', {
@@ -50,5 +55,37 @@ export async function estimatePrice(
   } catch (err) {
     console.error('[pricingService] Exception in estimatePrice:', err);
     return null;
+  }
+}
+
+/**
+ * Calculate display range based on sell intent
+ * - 'Want gone': Wider range, can go 20% below minimum
+ * - 'If good offer': Standard range
+ * - 'Maybe': Narrower range, 10% higher floor
+ */
+export function calculateDisplayRange(
+  baseMin: number,
+  baseMax: number,
+  sellIntent: SellIntent
+): { displayMin: number; displayMax: number } {
+  switch (sellIntent) {
+    case 'Want gone':
+      // Wider range, can go 20% below minimum
+      return {
+        displayMin: Math.round(baseMin * 0.8),
+        displayMax: Math.round(baseMax * 1.1),
+      };
+    case 'If good offer':
+      // Standard range
+      return { displayMin: baseMin, displayMax: baseMax };
+    case 'Maybe':
+      // Narrower range, 10% higher floor
+      return {
+        displayMin: Math.round(baseMin * 1.1),
+        displayMax: baseMax,
+      };
+    default:
+      return { displayMin: baseMin, displayMax: baseMax };
   }
 }

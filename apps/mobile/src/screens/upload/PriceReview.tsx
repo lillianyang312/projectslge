@@ -6,16 +6,23 @@ import {
   ScrollView,
   Image,
   Alert,
+  Pressable,
+  TextInput,
+  Modal,
+  Dimensions,
+  StatusBar,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ListStackParamList } from '../../navigation/types';
-import { Text, Button, Input, Card, Header, Badge } from '../../ui/components';
-import { colors, spacing, radius, shadows } from '../../ui/tokens';
+import { Text, Button, Header } from '../../ui/components';
+import { colors, spacing, radius, typography } from '../../ui/tokens';
 import { useItemsStore } from '../../state/itemsStore';
 import { useAuthStore } from '../../state/authStore';
 import { createItem } from '../../services/itemsService';
-import { uploadImage } from '../../services/imageService';
+import { uploadImageGroup } from '../../services/imageService';
 import { estimatePrice } from '../../services/pricingService';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 type Props = NativeStackScreenProps<ListStackParamList, 'PriceReview'>;
 
@@ -32,6 +39,8 @@ export default function PriceReviewScreen({ navigation }: Props) {
   const [loadingPrice, setLoadingPrice] = useState(true);
   const [priceConfidence, setPriceConfidence] = useState(0);
   const [priceReasoning, setPriceReasoning] = useState('');
+  const [showFullscreenPhoto, setShowFullscreenPhoto] = useState(false);
+  const [fullscreenImageUri, setFullscreenImageUri] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchPricingEstimate = async () => {
@@ -112,29 +121,22 @@ export default function PriceReviewScreen({ navigation }: Props) {
     fetchPricingEstimate();
   }, [draft?.title, draft?.category, draft?.condition]);
 
-  const handleEdit = () => {
-    navigation.goBack();
-  };
-
   const handleAddToList = async () => {
     setSubmitting(true);
 
     try {
       // If user is authenticated, save to Supabase
       if (user) {
-        // 1. Upload all images to Supabase Storage
-        const photoPaths: string[] = [];
+        // 1. Upload all images as a group to Supabase Storage
         const imagesToUpload = draft?.imageUris || (draft?.imageUri ? [draft.imageUri] : []);
 
-        for (const imageUri of imagesToUpload) {
-          const uploadResult = await uploadImage(imageUri, user.id);
-          if (uploadResult.error) {
-            console.warn('Image upload failed:', uploadResult.error);
-            // Continue without this image - not critical
-          } else if (uploadResult.path) {
-            photoPaths.push(uploadResult.path);
-          }
+        const { paths: photoPaths, groupId, errors } = await uploadImageGroup(imagesToUpload, user.id);
+
+        if (errors.length > 0) {
+          console.warn('Some images failed to upload:', errors);
         }
+
+        console.log(`[PriceReview] Uploaded ${photoPaths.length} images with groupId: ${groupId}`);
 
         // 2. Create item in Supabase
         console.log('[PriceReview] Creating item with data:', {
@@ -199,126 +201,118 @@ export default function PriceReviewScreen({ navigation }: Props) {
     }
   };
 
-  const getSellIntentLabel = () => {
-    const labels: Record<string, string> = {
-      'keep': 'Want to keep',
-      'might_sell': 'Might sell',
-      'sell': 'Ready to sell',
-    };
-    return labels[draft?.sellIntent || 'might_sell'] || 'Might sell';
+  const openFullscreenPhoto = (uri: string) => {
+    setFullscreenImageUri(uri);
+    setShowFullscreenPhoto(true);
   };
+
+  const images = draft?.imageUris || (draft?.imageUri ? [draft.imageUri] : []);
 
   return (
     <SafeAreaView style={styles.screen}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      {/* Fullscreen Photo Modal */}
+      <Modal
+        visible={showFullscreenPhoto}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowFullscreenPhoto(false)}
+        statusBarTranslucent
+      >
+        <StatusBar backgroundColor="rgba(0,0,0,0.95)" barStyle="light-content" />
+        <View style={styles.fullscreenModal}>
+          <Pressable
+            style={styles.fullscreenCloseArea}
+            onPress={() => setShowFullscreenPhoto(false)}
+          >
+            <Image
+              source={{ uri: fullscreenImageUri || '' }}
+              style={styles.fullscreenImage}
+              resizeMode="contain"
+            />
+          </Pressable>
+          <Pressable
+            style={styles.fullscreenCloseButton}
+            onPress={() => setShowFullscreenPhoto(false)}
+          >
+            <Text style={styles.fullscreenCloseText}>✕</Text>
+          </Pressable>
+        </View>
+      </Modal>
+
+      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="always">
         <Header title="Review & Add" onBack={() => navigation.goBack()} />
 
-        {/* Image Preview - show first image or all images */}
-        {(draft?.imageUri || (draft?.imageUris && draft.imageUris.length > 0)) && (
-          <Card style={styles.imageCard}>
-            <Image
-              source={{ uri: draft?.imageUris?.[0] || draft?.imageUri || '' }}
-              style={styles.image}
-            />
-            {draft?.imageUris && draft.imageUris.length > 1 && (
-              <View style={styles.imageCount}>
-                <Text variant="bodyMedium" size="sm" style={styles.imageCountText}>
-                  +{draft.imageUris.length - 1} more
-                </Text>
-              </View>
-            )}
-          </Card>
-        )}
-
-        {/* Item Summary Card */}
-        <Card style={styles.summaryCard}>
-          <Text variant="headingMedium" size="xl" style={styles.itemTitle}>
-            {draft?.title || 'Untitled Item'}
-          </Text>
-          
-          <View style={styles.badges}>
-            <Badge variant="neutral" text={draft?.condition || 'Good'} />
-            <Badge variant="purple" text={getSellIntentLabel()} />
+        {/* Compact Item Card - horizontal layout */}
+        <View style={styles.itemCard}>
+          <Pressable onPress={() => images[0] && openFullscreenPhoto(images[0])}>
+            <Image source={{ uri: images[0] }} style={styles.thumbnail} />
+          </Pressable>
+          <View style={styles.itemInfo}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.titleScroll}>
+              <Text variant="body" size="sm">
+                {draft?.title || 'Untitled Item'}
+              </Text>
+            </ScrollView>
+            <Text variant="body" size="xs" color="muted">
+              {draft?.condition || 'Good'} • {draft?.category || 'General'}
+            </Text>
           </View>
-
-          {draft?.pricePurchased && (
-            <View style={styles.infoRow}>
-              <Text variant="body" size="sm" color="muted">
-                Price purchased:
-              </Text>
-              <Text variant="bodyMedium" size="md">
-                ${draft.pricePurchased.toFixed(2)}
-              </Text>
-            </View>
-          )}
-
-          {draft?.notes && (
-            <View style={styles.notesSection}>
-              <Text variant="body" size="sm" color="muted" style={styles.notesLabel}>
-                Notes:
-              </Text>
-              <Text variant="body" size="base" color="secondary">
-                {draft.notes}
-              </Text>
-            </View>
-          )}
-        </Card>
+        </View>
 
         {/* Price Section */}
-        <Card style={styles.priceCard}>
-          <View style={styles.estimatedSection}>
-            <Text variant="body" size="sm" color="muted" style={styles.priceLabel}>
-              ESTIMATED VALUE RANGE
-            </Text>
-            {loadingPrice ? (
-              <Text variant="body" size="base" color="muted" style={styles.priceValue}>
-                Loading...
+        <View style={styles.priceSection}>
+          <Text variant="body" size="xs" color="muted" style={styles.priceLabel}>
+            ESTIMATED VALUE
+          </Text>
+          {loadingPrice ? (
+            <Text variant="body" size="base" color="muted">Loading...</Text>
+          ) : (
+            <>
+              <Text style={styles.priceValue}>
+                ${priceRange.min} – ${priceRange.max}
               </Text>
-            ) : (
-              <>
-                <Text variant="heading" size="display" style={styles.priceValue}>
-                  ${priceRange.min} – ${priceRange.max}
+              {priceConfidence > 0 && (
+                <Text variant="body" size="xs" color="muted">
+                  {(priceConfidence * 100).toFixed(0)}% confidence
                 </Text>
-                {priceConfidence > 0 && (
-                  <Text variant="body" size="xs" color="muted" style={styles.priceHint}>
-                    Confidence: {(priceConfidence * 100).toFixed(0)}%
-                  </Text>
-                )}
-                {priceReasoning && (
-                  <Text variant="body" size="xs" color="secondary" style={styles.priceHint}>
-                    {priceReasoning}
-                  </Text>
-                )}
-              </>
-            )}
-          </View>
+              )}
+              {priceReasoning && (
+                <Text variant="body" size="xs" color="muted" style={styles.priceReasoning}>
+                  {priceReasoning}
+                </Text>
+              )}
+            </>
+          )}
+        </View>
 
-          <View style={styles.divider} />
-
-          <View style={styles.minimumSection}>
-            <Input
-              label="Minimum price to sell (optional)"
-              placeholder="$0"
+        {/* Minimum Price Input */}
+        <View style={styles.inputSection}>
+          <Text variant="body" size="sm" color="muted" style={styles.inputLabel}>
+            Your minimum price (optional)
+          </Text>
+          <View style={styles.priceInputRow}>
+            <Text style={styles.dollarSign}>$</Text>
+            <TextInput
+              style={styles.priceInput}
               value={minimumPrice}
               onChangeText={setMinimumPrice}
+              placeholder="0"
+              placeholderTextColor={colors.textMuted}
               keyboardType="numeric"
             />
-            <Text variant="body" size="xs" color="muted" style={styles.minimumHint}>
-              You won't receive offers below this price
-            </Text>
+            {minimumPrice.length > 0 && (
+              <Pressable style={styles.clearInputButton} onPress={() => setMinimumPrice('')}>
+                <Text style={styles.clearInputText}>✕</Text>
+              </Pressable>
+            )}
           </View>
-        </Card>
+          <Text variant="body" size="xs" color="muted">
+            Won't receive offers below this
+          </Text>
+        </View>
 
-        {/* Action Buttons */}
+        {/* Action Button */}
         <View style={styles.actions}>
-          <Button
-            variant="secondary"
-            onPress={handleEdit}
-            style={styles.editBtn}
-          >
-            ← Edit details
-          </Button>
-          
           <Button
             variant="primary"
             onPress={handleAddToList}
@@ -339,67 +333,81 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
   scrollContent: {
-    paddingHorizontal: spacing.xxl,
-    paddingBottom: spacing.xxxl,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.lg,
   },
-  imageCard: {
-    padding: 0,
-    overflow: 'hidden',
-    marginBottom: spacing.xl,
-    position: 'relative',
+  // Fullscreen photo modal
+  fullscreenModal: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  image: {
+  fullscreenCloseArea: {
+    flex: 1,
     width: '100%',
-    aspectRatio: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullscreenImage: {
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT * 0.8,
+  },
+  fullscreenCloseButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullscreenCloseText: {
+    color: '#FFFFFF',
+    fontSize: 24,
+    fontWeight: '300',
+  },
+  // Compact item card
+  itemCard: {
+    backgroundColor: colors.card,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  thumbnail: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.sm,
     backgroundColor: colors.accentSoft,
   },
-  imageCount: {
-    position: 'absolute',
-    bottom: 12,
-    right: 12,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.sm,
+  itemInfo: {
+    flex: 1,
+    gap: 2,
   },
-  imageCountText: {
-    color: '#FFFFFF',
+  titleScroll: {
+    flexGrow: 0,
   },
-  summaryCard: {
-    marginBottom: spacing.xl,
-  },
-  itemTitle: {
-    marginBottom: spacing.md,
-  },
-  badges: {
+  itemMeta: {
     flexDirection: 'row',
-    gap: spacing.sm,
-    flexWrap: 'wrap',
-    marginBottom: spacing.lg,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    gap: spacing.xs,
     alignItems: 'center',
-    paddingTop: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
   },
-  notesSection: {
-    marginTop: spacing.md,
-    paddingTop: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  notesLabel: {
-    marginBottom: spacing.xs,
-  },
-  priceCard: {
-    marginBottom: spacing.xxl,
-  },
-  estimatedSection: {
+  // Price section
+  priceSection: {
     alignItems: 'center',
     paddingVertical: spacing.lg,
+    backgroundColor: colors.card,
+    borderRadius: radius.md,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   priceLabel: {
     textTransform: 'uppercase',
@@ -407,25 +415,55 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   priceValue: {
+    fontSize: 28,
+    fontWeight: '700',
     color: colors.success,
     marginBottom: spacing.xs,
   },
-  priceHint: {
+  priceReasoning: {
+    marginTop: spacing.sm,
     textAlign: 'center',
+    paddingHorizontal: spacing.md,
   },
-  divider: {
-    height: 1,
-    backgroundColor: colors.border,
-    marginVertical: spacing.lg,
+  // Input section
+  inputSection: {
+    marginBottom: spacing.md,
   },
-  minimumSection: {},
-  minimumHint: {
-    marginTop: spacing.xs,
+  inputLabel: {
+    marginBottom: spacing.xs,
+  },
+  priceInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.card,
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  dollarSign: {
+    fontSize: 18,
+    color: colors.textMuted,
+    marginRight: spacing.xs,
+  },
+  priceInput: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    fontSize: 18,
+    color: colors.textPrimary,
+    fontFamily: typography?.fonts?.body || 'DMSans_400Regular',
+  },
+  clearInputButton: {
+    padding: spacing.sm,
+  },
+  clearInputText: {
+    color: colors.textMuted,
+    fontSize: 16,
   },
   actions: {
-    gap: spacing.md,
+    gap: spacing.sm,
   },
-  editBtn: {},
   addBtn: {},
 });
 

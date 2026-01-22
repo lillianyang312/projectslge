@@ -17,19 +17,38 @@ interface UploadImageResult {
 }
 
 /**
+ * Generate a random string for unique filenames
+ */
+function generateRandomId(length: number = 8): string {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
+
+/**
  * Upload an image to Supabase Storage
  * @param localUri - The local file URI from the device
  * @param userId - The authenticated user's ID
+ * @param groupId - Optional group ID for batch uploads (all images in a group share this ID)
+ * @param imageIndex - Optional index within the group
  * @returns Object containing the storage path and optional public URL
  */
 export async function uploadImage(
   localUri: string,
-  userId: string
+  userId: string,
+  groupId?: string,
+  imageIndex?: number
 ): Promise<UploadImageResult> {
   try {
     const timestamp = Date.now();
-    // Always use .jpg since we compress to JPEG format
-    const fileName = `${timestamp}.jpg`;
+    const randomSuffix = generateRandomId(6);
+    // Create unique filename: timestamp_randomSuffix.jpg OR groupId_index.jpg for grouped uploads
+    const fileName = groupId && imageIndex !== undefined
+      ? `${groupId}_${imageIndex}.jpg`
+      : `${timestamp}_${randomSuffix}.jpg`;
     const path = `${userId}/${fileName}`;
 
     console.log('Starting image compression...');
@@ -56,12 +75,12 @@ export async function uploadImage(
     const byteArray = new Uint8Array(byteNumbers);
 
     console.log('Uploading image of size:', byteArray.byteLength, 'bytes');
-    // Upload to Supabase Storage
+    // Upload to Supabase Storage - use upsert to handle potential conflicts
     const { error: uploadError } = await supabase.storage
       .from(BUCKET_NAME)
       .upload(path, byteArray, {
         contentType: 'image/jpeg',
-        upsert: false,
+        upsert: true,
       });
 
     if (uploadError) {
@@ -75,6 +94,47 @@ export async function uploadImage(
     console.error('Error uploading image:', error);
     return { path: '', error: error.message };
   }
+}
+
+/**
+ * Upload multiple images as a group with a shared group ID
+ * All images contribute to the unique group identifier
+ * @param localUris - Array of local file URIs
+ * @param userId - The authenticated user's ID
+ * @returns Object containing array of storage paths and the group ID
+ */
+export async function uploadImageGroup(
+  localUris: string[],
+  userId: string
+): Promise<{ paths: string[]; groupId: string; errors: string[] }> {
+  // Generate a unique group ID based on timestamp + random + image count
+  const timestamp = Date.now();
+  const randomPart = generateRandomId(8);
+  const groupId = `${timestamp}_${randomPart}_${localUris.length}img`;
+
+  console.log(`Uploading group of ${localUris.length} images with groupId: ${groupId}`);
+
+  const paths: string[] = [];
+  const errors: string[] = [];
+
+  // Upload all images in parallel with group ID
+  const uploadPromises = localUris.map((uri, index) =>
+    uploadImage(uri, userId, groupId, index)
+  );
+
+  const results = await Promise.all(uploadPromises);
+
+  results.forEach((result, index) => {
+    if (result.error) {
+      errors.push(`Image ${index + 1}: ${result.error}`);
+    } else if (result.path) {
+      paths.push(result.path);
+    }
+  });
+
+  console.log(`Group upload complete: ${paths.length}/${localUris.length} successful`);
+
+  return { paths, groupId, errors };
 }
 
 /**

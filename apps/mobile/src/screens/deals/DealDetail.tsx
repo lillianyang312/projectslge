@@ -24,6 +24,11 @@ import { getSignedUrlCached } from '../../services/imageService';
 type Props = NativeStackScreenProps<DealsStackParamList, 'DealDetail'>;
 type TabNavProp = BottomTabNavigationProp<AppTabsParamList>;
 
+// Helper to check if deal is accepted (profile visible)
+function isDealAccepted(status: string): boolean {
+  return ['agreed', 'logistics', 'completed'].includes(status);
+}
+
 // Category to emoji mapping
 const CATEGORY_EMOJI: Record<string, string> = {
   'Electronics': '📱',
@@ -182,6 +187,25 @@ export default function DealDetailScreen({ navigation, route }: Props) {
     );
   };
 
+  const handleViewProfile = (userId: string) => {
+    // Navigate to profile screen
+    navigation.navigate('Profile', { userId });
+  };
+
+  // Get counterparty info (the other party in the deal)
+  const getCounterpartyInfo = () => {
+    if (!deal) return { name: 'Anonymous', id: null };
+
+    const isAccepted = isDealAccepted(deal.status);
+    const counterparty = isSelling ? deal.buyer : deal.seller;
+
+    if (isAccepted && counterparty?.display_name) {
+      return { name: counterparty.display_name, id: counterparty.id };
+    }
+
+    return { name: 'Anonymous', id: null };
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.screen}>
@@ -205,6 +229,8 @@ export default function DealDetailScreen({ navigation, route }: Props) {
   const itemTitle = deal.item?.title || 'Untitled Item';
   const itemCategory = deal.item?.category || 'Other';
   const emoji = getEmojiForCategory(itemCategory);
+  const counterparty = getCounterpartyInfo();
+  const isAccepted = isDealAccepted(deal.status);
 
   // Price display logic
   const priceLabel = deal.agreed_price ? 'Agreed price' : 'Proposed price';
@@ -268,10 +294,28 @@ export default function DealDetailScreen({ navigation, route }: Props) {
             <Text variant="body" size="sm" color="secondary">
               {isSelling ? 'Buyer' : 'Seller'}
             </Text>
-            <Text variant="bodyMedium" size="md">
-              Anonymous
-            </Text>
+            {isAccepted && counterparty.id ? (
+              <Pressable onPress={() => handleViewProfile(counterparty.id!)}>
+                <Text variant="bodyMedium" size="md" style={styles.profileLink}>
+                  {counterparty.name} →
+                </Text>
+              </Pressable>
+            ) : (
+              <Text variant="bodyMedium" size="md">
+                {counterparty.name}
+              </Text>
+            )}
           </View>
+          {deal.interested_for && (
+            <View style={styles.agentRow}>
+              <Text variant="body" size="sm" color="secondary">
+                Interested for
+              </Text>
+              <Text variant="bodyMedium" size="md">
+                {deal.interested_for}
+              </Text>
+            </View>
+          )}
           <View style={styles.agentRow}>
             <Text variant="body" size="sm" color="secondary">
               Status
@@ -393,5 +437,9 @@ const styles = StyleSheet.create({
   },
   cancelButton: {
     marginTop: spacing.md,
+  },
+  profileLink: {
+    color: colors.accent,
+    textDecorationLine: 'underline',
   },
 });

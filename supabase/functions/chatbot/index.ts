@@ -118,6 +118,26 @@ The deal progresses through these stages in order:
 3. LOGISTICS - After finalization, coordinate pickup/delivery details
 4. COMPLETED - Pickup confirmed, transaction done
 
+AUTO-ANSWER OBVIOUS QUESTIONS:
+When a buyer asks questions about the item that are ALREADY in the item context data you have, answer directly without bothering the seller:
+- "What condition is it in?" → Answer from the Condition field
+- "What category is this?" → Answer from the Category field
+- "How much is it?" / "What's the price?" → Provide the estimated value range
+- "Any notes/details about it?" → Share the item notes if available
+- "What's the lowest you'll accept?" → Only share if seller has set a minimum price
+
+Only forward questions to the seller if:
+- The question is NOT answered by the available item data
+- The question requires the seller's subjective opinion
+- The question is about something specific not in the listing
+
+COMPETITIVE BIDDING - PROMPT TO RAISE OFFERS:
+When you detect COMPETING OFFERS in the context:
+- If the buyer's offer is EQUAL TO OR LOWER than the highest competing offer, actively encourage them to raise their bid
+- Say something like: "Just so you know, there's already an offer of $X on this item. You might want to consider offering more to increase your chances!"
+- If their offer is HIGHER than all competing offers, congratulate them: "Great news - your offer of $X is currently the highest bid!"
+- When a new higher offer comes in, proactively notify other buyers: "Heads up! Someone just offered $X for this item. Would you like to raise your offer?"
+
 CRITICAL INFORMATION TO TRACK:
 For BOTH buyer AND seller, always ensure they know:
 - Current offer amount (who offered what)
@@ -193,11 +213,23 @@ Be concise and action-oriented. Guide users toward completing the transaction ef
 export interface DbItemRow {
   id: string;
   label?: string;
+  title?: string;
   category?: string;
+  condition?: string;
+  notes?: string;
+  description?: string;
   market_value_min?: number | null;
   market_value_max?: number | null;
   user_min_price?: number | null;
   user_max_price?: number | null;
+  estimated_value_min?: number | null;
+  estimated_value_max?: number | null;
+}
+
+export interface CompetingOffer {
+  dealId: string;
+  buyerId: string;
+  currentOffer: number | null;
 }
 
 export interface DbDealRow {
@@ -225,6 +257,7 @@ function createServiceClient() {
 async function fetchDbContext(context?: ChatbotContext): Promise<{
   item?: DbItemRow;
   deal?: DbDealRow;
+  competingOffers?: CompetingOffer[];
 }> {
   if (!context) return {};
 
@@ -234,11 +267,12 @@ async function fetchDbContext(context?: ChatbotContext): Promise<{
   const { itemId, dealId } = context;
   let item: DbItemRow | undefined;
   let deal: DbDealRow | undefined;
+  let competingOffers: CompetingOffer[] = [];
 
   if (dealId) {
     const { data } = await client
       .from("deals")
-      .select("id, item_id, current_offer, agreed_price")
+      .select("id, item_id, current_offer, agreed_price, buyer_id")
       .eq("id", dealId)
       .maybeSingle();
     if (data) {
@@ -248,38 +282,63 @@ async function fetchDbContext(context?: ChatbotContext): Promise<{
 
   const resolvedItemId = itemId || deal?.item_id;
   if (resolvedItemId) {
+    // Fetch item with more details for auto-answering questions
     const { data } = await client
       .from("items")
       .select(
-        "id, label, category, market_value_min, market_value_max, user_min_price, user_max_price",
+        "id, title, label, category, condition, notes, estimated_value_min, estimated_value_max, market_value_min, market_value_max, user_min_price, user_max_price",
       )
       .eq("id", resolvedItemId)
       .maybeSingle();
     if (data) {
       item = data as DbItemRow;
     }
+
+    // Fetch competing offers on the same item (for prompting to raise bids)
+    const { data: otherDeals } = await client
+      .from("deals")
+      .select("id, buyer_id, current_offer")
+      .eq("item_id", resolvedItemId)
+      .eq("status", "negotiating")
+      .not("id", "eq", dealId || "");
+
+    if (otherDeals) {
+      competingOffers = otherDeals.map((d) => ({
+        dealId: d.id,
+        buyerId: d.buyer_id,
+        currentOffer: d.current_offer,
+      }));
+    }
   }
 
-  return { item, deal };
+  return { item, deal, competingOffers };
 }
 
 /**
  * Build a summary string from item and deal context
  * Exported for testing
  */
-export function buildDbContextSummary(item?: DbItemRow, deal?: DbDealRow): string {
+export function buildDbContextSummary(item?: DbItemRow, deal?: DbDealRow, competingOffers?: CompetingOffer[]): string {
   if (!item && !deal) return "";
 
   const parts: string[] = [];
 
   if (item) {
-    const label = item.label || "this item";
-    const category = item.category ? ` (${item.category})` : "";
-    parts.push(`ITEM: ${label}${category}.`);
+    const title = item.title || item.label || "this item";
+    const category = item.category ? ` (Category: ${item.category})` : "";
+    const condition = item.condition ? ` Condition: ${item.condition}.` : "";
+    parts.push(`ITEM: "${title}"${category}.${condition}`);
 
-    if (item.market_value_min != null && item.market_value_max != null) {
+    // Include notes/description for auto-answering questions
+    if (item.notes) {
+      parts.push(`Item notes: ${item.notes}`);
+    }
+
+    const minValue = item.estimated_value_min || item.market_value_min;
+    const maxValue = item.estimated_value_max || item.market_value_max;
+    if (minValue != null && maxValue != null) {
       parts.push(
-        `Estimated market value range is $${item.market_value_min} - $${item.market_value_max}.`,
+        `Estimated market value range is $${minValue} - $${maxValue}.`,
       );
     }
     if (item.user_min_price != null) {
@@ -296,6 +355,18 @@ export function buildDbContextSummary(item?: DbItemRow, deal?: DbDealRow): strin
     }
     if (deal.agreed_price != null) {
       parts.push(`Agreed deal price (if any) is $${deal.agreed_price}.`);
+    }
+  }
+
+  // Include competing offers info for prompting bid raises
+  if (competingOffers && competingOffers.length > 0) {
+    const activeOffers = competingOffers.filter((o) => o.currentOffer != null);
+    if (activeOffers.length > 0) {
+      const highestOffer = Math.max(...activeOffers.map((o) => o.currentOffer!));
+      parts.push(`COMPETING OFFERS: There are ${competingOffers.length} other interested buyers.`);
+      parts.push(`The highest competing offer on this item is $${highestOffer}.`);
+    } else {
+      parts.push(`OTHER INTEREST: ${competingOffers.length} other buyer(s) have expressed interest but haven't made offers yet.`);
     }
   }
 
@@ -637,16 +708,18 @@ export async function handleChatbotRequest(req: Request): Promise<Response> {
     // Fetch any referenced Supabase objects (items, deals) so we can
     // provide grounded numeric context to the LLM.
     console.log("🔍 [chatbot] Fetching database context:", context);
-    const { item, deal } = await fetchDbContext(context);
+    const { item, deal, competingOffers } = await fetchDbContext(context);
     console.log("📊 [chatbot] Database context fetched:", {
       hasItem: !!item,
       itemId: item?.id,
-      itemLabel: item?.label,
+      itemTitle: item?.title || item?.label,
+      itemCondition: item?.condition,
       hasDeal: !!deal,
       dealId: deal?.id,
+      competingOffersCount: competingOffers?.length || 0,
     });
 
-    const dbContextSummary = buildDbContextSummary(item, deal);
+    const dbContextSummary = buildDbContextSummary(item, deal, competingOffers);
     console.log("📝 [chatbot] Database context summary:", {
       summaryLength: dbContextSummary.length,
       summary: dbContextSummary.substring(0, 200) + (dbContextSummary.length > 200 ? "..." : ""),

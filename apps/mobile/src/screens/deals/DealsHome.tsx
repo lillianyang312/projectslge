@@ -69,7 +69,16 @@ function getDealMeta(deal: Deal, isSelling: boolean): string {
     return isSelling ? `Sold for $${deal.agreed_price}` : `Accepted at $${deal.agreed_price}`;
   }
   if (deal.current_offer) {
-    return isSelling ? `Offer: $${deal.current_offer}` : `Your bid: $${deal.current_offer}`;
+    const bidText = isSelling ? `Offer: $${deal.current_offer}` : `Your bid: $${deal.current_offer}`;
+    // Add interested_for info for buyers
+    if (!isSelling && deal.interested_for) {
+      return `${bidText} · ${deal.interested_for}`;
+    }
+    return bidText;
+  }
+  // Show interested_for for interest without bid
+  if (!isSelling && deal.interested_for) {
+    return `Interest sent · ${deal.interested_for}`;
   }
   return isSelling ? 'Awaiting offer' : 'Interest sent';
 }
@@ -152,6 +161,26 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
       return deal.buyer_id === user?.id;
     }
   });
+
+  // Separate pending purchases (accepted deals) from active bids
+  const pendingPurchases = filteredDeals.filter(deal =>
+    mode === 'buying' && ['agreed', 'logistics'].includes(deal.status)
+  );
+
+  const activeBids = filteredDeals.filter(deal =>
+    mode === 'buying' ? deal.status === 'negotiating' : true
+  );
+
+  // For selling mode, separate by status as well
+  const pendingSales = filteredDeals.filter(deal =>
+    mode === 'selling' && ['agreed', 'logistics'].includes(deal.status)
+  );
+
+  const activeOffers = filteredDeals.filter(deal =>
+    mode === 'selling' ? deal.status === 'negotiating' : true
+  );
+
+  const completedDeals = filteredDeals.filter(deal => deal.status === 'completed');
 
   const sectionLabel = mode === 'selling' ? 'Pending sales' : 'Bids you\'ve sent';
 
@@ -248,7 +277,42 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
             <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
           }
         >
-          {filteredDeals.map(renderDealCard)}
+          {/* Pending Purchases/Sales (Accepted deals) - shown at top */}
+          {mode === 'buying' && pendingPurchases.length > 0 && (
+            <>
+              {pendingPurchases.map(renderDealCard)}
+              {activeBids.length > 0 && (
+                <Text variant="body" size="sm" color="secondary" style={styles.activeBidsLabel}>
+                  Active bids
+                </Text>
+              )}
+            </>
+          )}
+
+          {mode === 'selling' && pendingSales.length > 0 && (
+            <>
+              {pendingSales.map(renderDealCard)}
+              {activeOffers.length > 0 && (
+                <Text variant="body" size="sm" color="secondary" style={styles.activeBidsLabel}>
+                  Incoming offers
+                </Text>
+              )}
+            </>
+          )}
+
+          {/* Active Bids/Offers (Still negotiating) */}
+          {mode === 'buying' && activeBids.map(renderDealCard)}
+          {mode === 'selling' && activeOffers.filter(d => d.status === 'negotiating').map(renderDealCard)}
+
+          {/* Completed Deals */}
+          {completedDeals.length > 0 && (
+            <>
+              <Text variant="body" size="sm" color="secondary" style={styles.completedLabel}>
+                Completed
+              </Text>
+              {completedDeals.map(renderDealCard)}
+            </>
+          )}
         </ScrollView>
       )}
     </SafeAreaView>
@@ -328,5 +392,14 @@ const styles = StyleSheet.create({
   },
   itemName: {
     marginBottom: 4,
+  },
+  activeBidsLabel: {
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
+  },
+  completedLabel: {
+    marginTop: spacing.lg,
+    marginBottom: spacing.md,
+    opacity: 0.6,
   },
 });

@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Keyboard,
   Image,
+  Dimensions,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { SwipeStackParamList } from '../../navigation/types';
@@ -18,6 +19,13 @@ import { semanticSearch, SearchResultItem } from '../../services/searchService';
 import { useAuthStore } from '../../state/authStore';
 import { getSignedUrlCached } from '../../services/imageService';
 import { BROWSE_PAGE_SIZE } from '../../lib/constants';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const NUM_COLUMNS = 3;
+const GRID_PADDING = spacing.xxl;
+const ITEM_GAP = spacing.md;
+// Calculate exact item size: (screen width - padding - gaps) / columns
+const ITEM_SIZE = (SCREEN_WIDTH - (GRID_PADDING * 2) - (ITEM_GAP * (NUM_COLUMNS - 1))) / NUM_COLUMNS;
 
 type Props = NativeStackScreenProps<SwipeStackParamList, 'SwipeMain'>;
 
@@ -33,7 +41,7 @@ export default function BrowseGridScreen({ navigation }: Props) {
   const [hasSearched, setHasSearched] = useState(false);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
 
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const user = useAuthStore((state) => state.user);
 
   // Load signed URLs for item photos (using cached signing)
@@ -54,18 +62,20 @@ export default function BrowseGridScreen({ navigation }: Props) {
     setImageUrls(prev => ({ ...prev, ...newUrls }));
   }, []);
 
-  // Load initial items from database (excluding current user's items)
+  // Load initial items from database (excluding current user's items and sold items)
   const loadInitialItems = useCallback(async () => {
     setLoading(true);
     try {
       console.log('📦 [BrowseGrid] Loading all items, excluding user:', user?.id);
       const response = await semanticSearch('', BROWSE_PAGE_SIZE, user?.id, undefined);
-      setDisplayItems(response.results);
+      // Filter out sold items (completed deals) - server should already filter, but double-check client-side
+      const availableItems = response.results.filter(item => item.dealStatus !== 'completed');
+      setDisplayItems(availableItems);
       setCursor(response.nextCursor);
       setHasMore(response.hasMore ?? true);
-      console.log('✅ [BrowseGrid] Loaded', response.results.length, 'items');
+      console.log('✅ [BrowseGrid] Loaded', availableItems.length, 'available items');
       // Load images for items
-      loadImageUrls(response.results);
+      loadImageUrls(availableItems);
     } catch (error) {
       console.error('❌ [BrowseGrid] Error loading items:', error);
       setDisplayItems([]);
@@ -101,18 +111,20 @@ export default function BrowseGridScreen({ navigation }: Props) {
       console.log('🔍 [BrowseGrid] Searching for:', query);
       const response = await semanticSearch(query, BROWSE_PAGE_SIZE, user?.id, undefined);
 
-      setDisplayItems(response.results.length > 0 ? response.results : []);
+      // Filter out sold items (completed deals) - server should already filter, but double-check client-side
+      const availableItems = response.results.filter(item => item.dealStatus !== 'completed');
+      setDisplayItems(availableItems.length > 0 ? availableItems : []);
       setInterpretation(response.interpretation);
       setSuggestedCategories(response.suggestedCategories);
       setCursor(response.nextCursor);
       setHasMore(response.hasMore ?? true);
       // Load images for search results
-      if (response.results.length > 0) {
-        loadImageUrls(response.results);
+      if (availableItems.length > 0) {
+        loadImageUrls(availableItems);
       }
 
       console.log('✅ [BrowseGrid] Search complete:', {
-        resultCount: response.results.length,
+        resultCount: availableItems.length,
         interpretation: response.interpretation,
       });
     } catch (error) {
@@ -317,13 +329,6 @@ export default function BrowseGridScreen({ navigation }: Props) {
             </View>
           )}
         </View>
-        {hasSearched && item.matchReason && (
-          <View style={styles.matchReasonContainer}>
-            <Text variant="body" size="xs" color="secondary" numberOfLines={2}>
-              {item.matchReason}
-            </Text>
-          </View>
-        )}
       </Pressable>
     );
   };
@@ -551,8 +556,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   galleryItem: {
-    flex: 1,
-    aspectRatio: 1,
+    width: ITEM_SIZE,
+    height: ITEM_SIZE,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
@@ -620,13 +625,5 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '700',
     textTransform: 'uppercase',
-  },
-  matchReasonContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    padding: 4,
   },
 });

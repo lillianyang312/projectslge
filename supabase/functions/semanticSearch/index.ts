@@ -147,35 +147,47 @@ async function fetchItemsFromDatabase(opts: {
   const fetchedCount = items?.length || 0;
   console.log(`📦 [semanticSearch] Fetched ${fetchedCount} items from database`);
 
-  // Fetch active deals for these items to show pending status
+  // Pagination setup
   const pageItems = (items || []).slice(0, opts.limit);
   const hasMore = fetchedCount > opts.limit;
   const last = pageItems[pageItems.length - 1] as unknown as { id: string; created_at: string } | undefined;
   const nextCursor = last ? { created_at: last.created_at, id: last.id } : undefined;
 
+  // Fetch all deals for these items to track status and filter sold items
   const itemIds = pageItems.map(i => i.id);
   let dealStatusMap: Record<string, string> = {};
+  let soldItemIds: Set<string> = new Set();
 
   if (itemIds.length > 0) {
+    // Fetch all deals (including completed) to know which items are sold
     const { data: deals } = await supabase
       .from('deals')
       .select('item_id, status')
-      .in('item_id', itemIds)
-      .not('status', 'in', '("completed","cancelled")');
+      .in('item_id', itemIds);
 
     if (deals) {
-      dealStatusMap = deals.reduce((acc, deal) => {
-        // Only track the first active deal per item
-        if (!acc[deal.item_id]) {
-          acc[deal.item_id] = deal.status;
+      deals.forEach(deal => {
+        // Track sold items (completed deals)
+        if (deal.status === 'completed') {
+          soldItemIds.add(deal.item_id);
         }
-        return acc;
-      }, {} as Record<string, string>);
+        // Track active deal status (not completed/cancelled) for badge display
+        if (!dealStatusMap[deal.item_id] &&
+            deal.status !== 'completed' &&
+            deal.status !== 'cancelled') {
+          dealStatusMap[deal.item_id] = deal.status;
+        }
+      });
     }
   }
 
+  console.log(`🚫 [semanticSearch] Filtering out ${soldItemIds.size} sold items`);
+
+  // Filter out sold items and map to result format
+  const availableItems = pageItems.filter(item => !soldItemIds.has(item.id));
+
   return {
-    items: pageItems.map(item => ({
+    items: availableItems.map(item => ({
       id: item.id,
       title: item.title || 'Untitled Item',
       category: item.category || 'Other',

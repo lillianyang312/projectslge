@@ -5,7 +5,6 @@ import {
   SafeAreaView,
   ScrollView,
   Pressable,
-  Switch,
   Alert,
   ActivityIndicator,
 } from 'react-native';
@@ -20,6 +19,8 @@ type Props = NativeStackScreenProps<ProfileStackParamList, 'Profile'>;
 
 interface UserProfile {
   full_name: string;
+  first_name: string | null;
+  last_name: string | null;
   gender: string;
   phone_number: string;
   harvard_email: string;
@@ -27,6 +28,8 @@ interface UserProfile {
   house: string;
   dorm_building: string | null;
   dorm_room: string | null;
+  dorm_location: string | null;
+  payment_preference: string | null;
   login_preference: string;
   email_verified: boolean;
   created_at: string;
@@ -35,11 +38,6 @@ interface UserProfile {
 export default function ProfileHomeScreen({ navigation }: Props) {
   const user = useAuthStore((state) => state.user);
   const signOut = useAuthStore((state) => state.signOut);
-  const biometricAvailable = useAuthStore((state) => state.biometricAvailable);
-  const biometricEnabled = useAuthStore((state) => state.biometricEnabled);
-  const biometricType = useAuthStore((state) => state.biometricType);
-  const enableBiometric = useAuthStore((state) => state.enableBiometric);
-  const disableBiometric = useAuthStore((state) => state.disableBiometric);
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -88,37 +86,6 @@ export default function ProfileHomeScreen({ navigation }: Props) {
         },
       ]
     );
-  };
-
-  const getBiometricLabel = () => {
-    switch (biometricType) {
-      case 'facial':
-        return 'Face ID';
-      case 'fingerprint':
-        return 'Touch ID';
-      default:
-        return 'Biometric login';
-    }
-  };
-
-  const handleBiometricToggle = async (value: boolean) => {
-    if (value) {
-      Alert.prompt(
-        'Enable ' + getBiometricLabel(),
-        'Enter your password to enable biometric login',
-        async (password) => {
-          if (password && profile) {
-            const { error } = await enableBiometric(profile.harvard_email, password);
-            if (error) {
-              Alert.alert('Error', error.message);
-            }
-          }
-        },
-        'secure-text'
-      );
-    } else {
-      await disableBiometric();
-    }
   };
 
   const formatPhoneNumber = (phone: string) => {
@@ -205,9 +172,17 @@ export default function ProfileHomeScreen({ navigation }: Props) {
                 </View>
               )}
               {profile.dorm_room && (
-                <View style={[styles.infoRow, styles.infoRowLast]}>
+                <View style={styles.infoRow}>
                   <Text variant="body" size="sm" color="secondary">Room</Text>
                   <Text variant="body" size="sm">{profile.dorm_room}</Text>
+                </View>
+              )}
+              {profile.dorm_location && (
+                <View style={[styles.infoRow, styles.infoRowLast]}>
+                  <Text variant="body" size="sm" color="secondary">Meetup location</Text>
+                  <Text variant="body" size="sm" numberOfLines={2} style={styles.locationText}>
+                    {profile.dorm_location}
+                  </Text>
                 </View>
               )}
             </View>
@@ -230,45 +205,25 @@ export default function ProfileHomeScreen({ navigation }: Props) {
                 </View>
               )}
             </View>
+
+            {/* Payment Preferences */}
+            {profile.payment_preference && (
+              <>
+                <Text variant="bodyMedium" size="sm" style={styles.sectionTitle}>
+                  Payment
+                </Text>
+
+                <View style={styles.infoCard}>
+                  <View style={[styles.infoRow, styles.infoRowLast]}>
+                    <Text variant="body" size="sm" color="secondary">Accepted</Text>
+                    <Text variant="body" size="sm">
+                      {profile.payment_preference.split(',').join(', ')}
+                    </Text>
+                  </View>
+                </View>
+              </>
+            )}
           </>
-        )}
-
-        {/* Section: Security */}
-        <Text variant="bodyMedium" size="sm" style={styles.sectionTitle}>
-          Security
-        </Text>
-
-        {/* Biometric login toggle */}
-        {biometricAvailable && (
-          <View style={styles.settingRow}>
-            <View style={styles.settingInfo}>
-              <Text variant="body" size="sm">
-                {getBiometricLabel()}
-              </Text>
-              <Text variant="body" size="xs" color="secondary">
-                Sign in quickly with {biometricType === 'facial' ? 'your face' : 'your fingerprint'}
-              </Text>
-            </View>
-            <Switch
-              value={biometricEnabled}
-              onValueChange={handleBiometricToggle}
-              trackColor={{ false: colors.border, true: colors.accent }}
-              thumbColor={colors.card}
-            />
-          </View>
-        )}
-
-        {!biometricAvailable && (
-          <View style={styles.settingRow}>
-            <View style={styles.settingInfo}>
-              <Text variant="body" size="sm" color="secondary">
-                Biometric login
-              </Text>
-              <Text variant="body" size="xs" color="muted">
-                Not available on this device
-              </Text>
-            </View>
-          </View>
         )}
 
         {/* Sign out */}
@@ -358,19 +313,10 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     marginLeft: spacing.md,
   },
-  settingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-  },
-  settingInfo: {
+  locationText: {
     flex: 1,
+    textAlign: 'right',
+    marginLeft: spacing.md,
   },
   signOutBtn: {
     marginTop: spacing.lg,

@@ -254,7 +254,7 @@ export default function VerifyEmailScreen({ navigation, route }: Props) {
         const { data: authData, error: signUpError } = await supabase.auth.signUp({
           email: signupData.harvardEmail,
           password: generateSecurePassword(),
-          options: { data: { full_name: signupData.fullName } },
+          options: { data: { full_name: `${signupData.firstName} ${signupData.lastName}`.trim() } },
         });
 
         if (signUpError) {
@@ -271,9 +271,14 @@ export default function VerifyEmailScreen({ navigation, route }: Props) {
         }
 
         if (authData.user) {
+          // Construct full name from first and last name
+          const fullName = `${signupData.firstName} ${signupData.lastName}`.trim();
+
           const { error: profileError } = await supabase.from('user_profiles').insert({
             id: authData.user.id,
-            full_name: signupData.fullName,
+            full_name: fullName,
+            first_name: signupData.firstName,
+            last_name: signupData.lastName,
             gender: signupData.gender,
             phone_number: signupData.phone,
             harvard_email: signupData.harvardEmail,
@@ -281,6 +286,8 @@ export default function VerifyEmailScreen({ navigation, route }: Props) {
             house: signupData.house,
             dorm_building: signupData.dormBuilding || null,
             dorm_room: signupData.dormRoom || null,
+            dorm_location: signupData.dormLocation || null,
+            payment_preference: signupData.paymentPreference || null,
             login_preference: signupData.loginPreference,
             email_verified: true,
           });

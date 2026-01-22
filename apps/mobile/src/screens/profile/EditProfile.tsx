@@ -29,6 +29,9 @@ const harvardHouses = [
 const currentYear = new Date().getFullYear();
 const graduationYears = Array.from({ length: 8 }, (_, i) => String(currentYear - 2 + i));
 
+const paymentOptions = ['Cash', 'Zelle', 'Venmo'] as const;
+type PaymentMethod = typeof paymentOptions[number];
+
 export default function EditProfileScreen({ navigation }: Props) {
   const user = useAuthStore((state) => state.user);
 
@@ -36,12 +39,15 @@ export default function EditProfileScreen({ navigation }: Props) {
   const [saving, setSaving] = useState(false);
 
   // Form fields
-  const [fullName, setFullName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('');
   const [graduationYear, setGraduationYear] = useState('');
   const [house, setHouse] = useState('');
   const [dormBuilding, setDormBuilding] = useState('');
   const [dormRoom, setDormRoom] = useState('');
+  const [dormLocation, setDormLocation] = useState('');
+  const [paymentPreferences, setPaymentPreferences] = useState<PaymentMethod[]>([]);
 
   // Dropdowns
   const [showHouseDropdown, setShowHouseDropdown] = useState(false);
@@ -51,6 +57,7 @@ export default function EditProfileScreen({ navigation }: Props) {
   const phoneInputRef = useRef<RNTextInput>(null);
   const buildingInputRef = useRef<RNTextInput>(null);
   const roomInputRef = useRef<RNTextInput>(null);
+  const dormLocationInputRef = useRef<RNTextInput>(null);
 
   useEffect(() => {
     fetchProfile();
@@ -72,12 +79,26 @@ export default function EditProfileScreen({ navigation }: Props) {
       if (error) {
         console.error('Error fetching profile:', error);
       } else if (data) {
-        setFullName(data.full_name || '');
+        // Handle first/last name - fallback to splitting full_name if separate fields not set
+        if (data.first_name) {
+          setFirstName(data.first_name);
+          setLastName(data.last_name || '');
+        } else if (data.full_name) {
+          const nameParts = data.full_name.split(' ');
+          setFirstName(nameParts[0] || '');
+          setLastName(nameParts.slice(1).join(' ') || '');
+        }
         setPhone(formatPhoneNumber(data.phone_number || ''));
         setGraduationYear(data.graduation_year?.toString() || '');
         setHouse(data.house || '');
         setDormBuilding(data.dorm_building || '');
         setDormRoom(data.dorm_room || '');
+        setDormLocation(data.dorm_location || '');
+        // Parse payment preferences from comma-separated string
+        if (data.payment_preference) {
+          const prefs = data.payment_preference.split(',').map((p: string) => p.trim()) as PaymentMethod[];
+          setPaymentPreferences(prefs.filter(p => paymentOptions.includes(p)));
+        }
       }
     } catch (err) {
       console.error('Failed to fetch profile:', err);
@@ -121,11 +142,25 @@ export default function EditProfileScreen({ navigation }: Props) {
     setShowYearDropdown(false);
   };
 
+  const togglePaymentPreference = (method: PaymentMethod) => {
+    setPaymentPreferences(prev => {
+      if (prev.includes(method)) {
+        return prev.filter(p => p !== method);
+      }
+      return [...prev, method];
+    });
+  };
+
   const handleSave = async () => {
     Keyboard.dismiss();
 
-    if (!fullName.trim()) {
-      Alert.alert('Error', 'Please enter your full name');
+    if (!firstName.trim()) {
+      Alert.alert('Error', 'Please enter your first name');
+      return;
+    }
+
+    if (!lastName.trim()) {
+      Alert.alert('Error', 'Please enter your last name');
       return;
     }
 
@@ -148,15 +183,20 @@ export default function EditProfileScreen({ navigation }: Props) {
     setSaving(true);
 
     try {
+      const fullName = `${firstName.trim()} ${lastName.trim()}`;
       const { error } = await supabase
         .from('user_profiles')
         .update({
-          full_name: fullName.trim(),
+          full_name: fullName,
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
           phone_number: phoneDigits || null,
           graduation_year: parseInt(graduationYear),
           house,
           dorm_building: dormBuilding.trim() || null,
           dorm_room: dormRoom.trim() || null,
+          dorm_location: dormLocation.trim() || null,
+          payment_preference: paymentPreferences.length > 0 ? paymentPreferences.join(',') : null,
         })
         .eq('id', user?.id);
 
@@ -204,15 +244,31 @@ export default function EditProfileScreen({ navigation }: Props) {
         showsVerticalScrollIndicator={false}
         onScrollBeginDrag={closeDropdowns}
       >
-        <Input
-          label="Full name"
-          placeholder="Your full name"
-          value={fullName}
-          onChangeText={setFullName}
-          autoCapitalize="words"
-          autoComplete="name"
-          onFocus={closeDropdowns}
-        />
+        {/* Name Row */}
+        <View style={styles.rowInputs}>
+          <View style={styles.halfInput}>
+            <Input
+              label="First name"
+              placeholder="First name"
+              value={firstName}
+              onChangeText={setFirstName}
+              autoCapitalize="words"
+              autoComplete="given-name"
+              onFocus={closeDropdowns}
+            />
+          </View>
+          <View style={styles.halfInput}>
+            <Input
+              label="Last name"
+              placeholder="Last name"
+              value={lastName}
+              onChangeText={setLastName}
+              autoCapitalize="words"
+              autoComplete="family-name"
+              onFocus={closeDropdowns}
+            />
+          </View>
+        </View>
 
         <Input
           ref={phoneInputRef}
@@ -324,6 +380,49 @@ export default function EditProfileScreen({ navigation }: Props) {
                 scrollToInput(roomInputRef);
               }}
             />
+          </View>
+        </View>
+
+        {/* Dorm Location - full address for sharing during scheduling */}
+        <Input
+          ref={dormLocationInputRef}
+          label="Dorm location (for meetups)"
+          placeholder="e.g. Adams House, B-entry, 3rd floor"
+          value={dormLocation}
+          onChangeText={setDormLocation}
+          onFocus={() => {
+            closeDropdowns();
+            scrollToInput(dormLocationInputRef);
+          }}
+        />
+
+        {/* Payment Preferences */}
+        <View style={styles.paymentSection}>
+          <Text variant="body" size="sm" color="secondary" style={styles.label}>
+            Payment preferences
+          </Text>
+          <Text variant="body" size="xs" color="muted" style={styles.paymentHint}>
+            Select all payment methods you accept
+          </Text>
+          <View style={styles.paymentOptions}>
+            {paymentOptions.map((method) => (
+              <Pressable
+                key={method}
+                style={[
+                  styles.paymentOption,
+                  paymentPreferences.includes(method) && styles.paymentOptionSelected,
+                ]}
+                onPress={() => togglePaymentPreference(method)}
+              >
+                <Text
+                  variant={paymentPreferences.includes(method) ? 'bodyMedium' : 'body'}
+                  size="sm"
+                  style={paymentPreferences.includes(method) ? styles.paymentOptionTextSelected : undefined}
+                >
+                  {method}
+                </Text>
+              </Pressable>
+            ))}
           </View>
         </View>
 
@@ -448,5 +547,31 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.border,
     backgroundColor: colors.bg,
+  },
+  paymentSection: {
+    marginBottom: spacing.lg,
+  },
+  paymentHint: {
+    marginBottom: spacing.sm,
+  },
+  paymentOptions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  paymentOption: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.card,
+    alignItems: 'center',
+  },
+  paymentOptionSelected: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  paymentOptionTextSelected: {
+    color: '#FFFFFF',
   },
 });

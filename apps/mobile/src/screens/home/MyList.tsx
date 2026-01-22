@@ -3,7 +3,7 @@ import {
   View,
   StyleSheet,
   SafeAreaView,
-  FlatList,
+  ScrollView,
   Pressable,
   Modal,
   Alert,
@@ -17,8 +17,9 @@ import { Text, Card, Badge, FAB } from '../../ui/components';
 import { colors, spacing, radius, typography, shadows } from '../../ui/tokens';
 import { useItemsStore } from '../../state/itemsStore';
 import { useAuthStore } from '../../state/authStore';
-import { getMyItems, deleteItem, Item } from '../../services/itemsService';
+import { getMyActiveItems, getMyGoneItems, deleteItem, markItemAsSold, markItemAsRemoved, restoreItem, Item, ItemStatus } from '../../services/itemsService';
 import { getSignedUrlCached } from '../../services/imageService';
+import { getTopBidsForItems } from '../../services/dealsService';
 
 type Props = NativeStackScreenProps<ListStackParamList, 'MyList'>;
 
@@ -62,41 +63,88 @@ const initialDemoItems = [
   },
 ];
 
+type ListTab = 'live' | 'gone';
+
 export default function MyListScreen({ navigation }: Props) {
   const listings = useItemsStore((state) => state.listings);
   const seedDemoListings = useItemsStore((state) => state.seedDemoListings);
   const user = useAuthStore((state) => state.user);
-  
+
   const [demoItems, setDemoItems] = useState(initialDemoItems);
   const [supabaseItems, setSupabaseItems] = useState<Item[]>([]);
+  const [goneItems, setGoneItems] = useState<Item[]>([]);
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>({});
+  const [topBidsMap, setTopBidsMap] = useState<Record<string, { topBid: number | undefined; interestedCount: number; bidStatus: 'accept' | 'consider' | 'low' | undefined }>>({});
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showMenu, setShowMenu] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [activeTab, setActiveTab] = useState<ListTab>('live');
 
   // Fetch items from Supabase
   const fetchItems = useCallback(async () => {
     if (user) {
       console.log('[MyList] Fetching items from Supabase...');
-      const { data, error } = await getMyItems();
-      if (!error && data) {
-        console.log('[MyList] Successfully fetched items:', data.length, data);
-        setSupabaseItems(data);
+
+      // Fetch both active and gone items
+      const [activeResult, goneResult] = await Promise.all([
+        getMyActiveItems(),
+        getMyGoneItems(),
+      ]);
+
+      if (!activeResult.error && activeResult.data) {
+        console.log('[MyList] Successfully fetched active items:', activeResult.data.length);
+        setSupabaseItems(activeResult.data);
 
         // Fetch signed URLs for thumbnails (using cached URLs)
-        const urlMap: Record<string, string> = {};
-        for (const item of data) {
-          if (item.photos?.[0]) {
+        const urlMap: Record<string, string> = { ...thumbnailUrls };
+        for (const item of activeResult.data) {
+          if (item.photos?.[0] && !urlMap[item.id]) {
             const url = await getSignedUrlCached(item.photos[0]);
             if (url) {
               urlMap[item.id] = url;
             }
           }
         }
+
+        // Fetch top bids for all active items
+        if (activeResult.data.length > 0) {
+          const itemIds = activeResult.data.map(item => item.id);
+          const minPrices: Record<string, number | undefined> = {};
+          const estimatedMaxPrices: Record<string, number | undefined> = {};
+
+          for (const item of activeResult.data) {
+            minPrices[item.id] = item.min_price;
+            estimatedMaxPrices[item.id] = item.estimated_value_max;
+          }
+
+          const bidsData = await getTopBidsForItems(itemIds, minPrices, estimatedMaxPrices);
+          setTopBidsMap(bidsData);
+          console.log('[MyList] Top bids fetched:', bidsData);
+        }
+
+        // Also fetch thumbnails for gone items
+        if (!goneResult.error && goneResult.data) {
+          for (const item of goneResult.data) {
+            if (item.photos?.[0] && !urlMap[item.id]) {
+              const url = await getSignedUrl(item.photos[0]);
+              if (url) {
+                urlMap[item.id] = url;
+              }
+            }
+          }
+        }
+
         setThumbnailUrls(urlMap);
-      } else if (error) {
-        console.error('[MyList] Error fetching items:', error);
+      } else if (activeResult.error) {
+        console.error('[MyList] Error fetching active items:', activeResult.error);
+      }
+
+      if (!goneResult.error && goneResult.data) {
+        console.log('[MyList] Successfully fetched gone items:', goneResult.data.length);
+        setGoneItems(goneResult.data);
+      } else if (goneResult.error) {
+        console.error('[MyList] Error fetching gone items:', goneResult.error);
       }
     } else {
       console.log('[MyList] No user, skipping fetch');
@@ -142,7 +190,24 @@ export default function MyListScreen({ navigation }: Props) {
     }));
 
   // Convert Supabase items to display format
-  const supabaseDisplayItems = supabaseItems.map((item) => ({
+  const supabaseDisplayItems = supabaseItems.map((item) => {
+    const bidInfo = topBidsMap[item.id];
+    return {
+      id: item.id,
+      emoji: '📦',
+      title: item.title,
+      category: item.category,
+      interestedCount: bidInfo?.interestedCount || 0,
+      topBid: bidInfo?.topBid,
+      bidStatus: bidInfo?.bidStatus,
+      imageUri: thumbnailUrls[item.id] || null,
+      isLocal: false,
+      status: item.status || 'active',
+    };
+  });
+
+  // Convert gone items to display format
+  const goneDisplayItems = goneItems.map((item) => ({
     id: item.id,
     emoji: '📦',
     title: item.title,
@@ -152,6 +217,7 @@ export default function MyListScreen({ navigation }: Props) {
     bidStatus: undefined,
     imageUri: thumbnailUrls[item.id] || null,
     isLocal: false,
+    status: item.status as ItemStatus,
   }));
 
   // Combine all items: Supabase items first, then local items
@@ -173,7 +239,7 @@ export default function MyListScreen({ navigation }: Props) {
 
   const handleDeleteSelected = async () => {
     if (selectedIds.size === 0) return;
-    
+
     Alert.alert(
       'Delete Items',
       `Are you sure you want to delete ${selectedIds.size} item${selectedIds.size > 1 ? 's' : ''}?`,
@@ -190,19 +256,58 @@ export default function MyListScreen({ navigation }: Props) {
                 await deleteItem(id);
               }
             }
-            
+
             // Delete demo items locally
             setDemoItems(prev => prev.filter(item => !selectedIds.has(item.id)));
-            
+
             // Refresh Supabase items
             await fetchItems();
-            
+
             setSelectedIds(new Set());
             setIsEditMode(false);
           },
         },
       ]
     );
+  };
+
+  const handleMarkAsSold = async (id: string) => {
+    Alert.alert(
+      'Mark as Sold',
+      'This will move the item to your "Gone" section.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Mark as Sold',
+          onPress: async () => {
+            await markItemAsSold(id);
+            await fetchItems();
+          },
+        },
+      ]
+    );
+  };
+
+  const handleMarkAsRemoved = async (id: string) => {
+    Alert.alert(
+      'Mark as Removed',
+      'This will move the item to your "Gone" section.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Mark as Removed',
+          onPress: async () => {
+            await markItemAsRemoved(id);
+            await fetchItems();
+          },
+        },
+      ]
+    );
+  };
+
+  const handleRestoreItem = async (id: string) => {
+    await restoreItem(id);
+    await fetchItems();
   };
 
   const exitEditMode = () => {
@@ -222,13 +327,43 @@ export default function MyListScreen({ navigation }: Props) {
             Your items and top bids
           </Text>
         </View>
-        
+
         {/* Three dots menu button */}
         <Pressable
           style={styles.menuButton}
           onPress={() => setShowMenu(true)}
         >
           <Text style={styles.menuDots}>⋯</Text>
+        </Pressable>
+      </View>
+
+      {/* Tab switcher - Live / Gone */}
+      <View style={styles.tabsContainer}>
+        <Pressable
+          style={[styles.tabBtn, activeTab === 'live' && styles.tabBtnActive]}
+          onPress={() => setActiveTab('live')}
+        >
+          <Text
+            variant="bodyMedium"
+            size="sm"
+            color={activeTab === 'live' ? undefined : 'secondary'}
+            style={activeTab === 'live' ? styles.tabBtnTextActive : undefined}
+          >
+            Live ({displayItems.length})
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[styles.tabBtn, activeTab === 'gone' && styles.tabBtnGone]}
+          onPress={() => setActiveTab('gone')}
+        >
+          <Text
+            variant="bodyMedium"
+            size="sm"
+            color={activeTab === 'gone' ? undefined : 'secondary'}
+            style={activeTab === 'gone' ? styles.tabBtnTextGone : undefined}
+          >
+            Gone ({goneDisplayItems.length})
+          </Text>
         </Pressable>
       </View>
 
@@ -279,104 +414,189 @@ export default function MyListScreen({ navigation }: Props) {
         </Pressable>
       </Modal>
 
-      {displayItems.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Text variant="heading" size="xxxl" style={styles.emptyIcon}>
-            📦
-          </Text>
-          <Text variant="headingMedium" size="heading3" style={styles.emptyTitle}>
-            No items yet
-          </Text>
-          <Text
-            variant="body"
-            size="lg"
-            color="secondary"
-            style={styles.emptyMessage}
+      {/* Live Tab Content */}
+      {activeTab === 'live' && (
+        displayItems.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text variant="heading" size="xxxl" style={styles.emptyIcon}>
+              📦
+            </Text>
+            <Text variant="headingMedium" size="heading3" style={styles.emptyTitle}>
+              No items yet
+            </Text>
+            <Text
+              variant="body"
+              size="lg"
+              color="secondary"
+              style={styles.emptyMessage}
+            >
+              Tap the + button to upload your first item
+            </Text>
+          </View>
+        ) : (
+          <ScrollView
+            contentContainerStyle={styles.list}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            }
           >
-            Tap the + button to upload your first item
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-          data={displayItems}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
-          renderItem={({ item }) => {
-            const isSelected = selectedIds.has(item.id);
+            {displayItems.map((item) => {
+              const isSelected = selectedIds.has(item.id);
 
-            return (
+              return (
+                <Pressable
+                  key={item.id}
+                  onPress={() => {
+                    if (isEditMode) {
+                      toggleSelection(item.id);
+                    } else {
+                      navigation.navigate('ItemDetail', { itemId: item.id });
+                    }
+                  }}
+                  onLongPress={() => {
+                    if (!isEditMode) {
+                      Alert.alert(
+                        item.title,
+                        'What would you like to do?',
+                        [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Mark as Sold', onPress: () => handleMarkAsSold(item.id) },
+                          { text: 'Mark as Removed', onPress: () => handleMarkAsRemoved(item.id) },
+                        ]
+                      );
+                    }
+                  }}
+                >
+                  <Card style={[styles.card, isSelected && styles.cardSelected]}>
+                    <View style={styles.itemCard}>
+                      {/* Delete X button in edit mode */}
+                      {isEditMode && (
+                        <Pressable
+                          style={[
+                            styles.deleteCircle,
+                            isSelected && styles.deleteCircleSelected,
+                          ]}
+                          onPress={() => toggleSelection(item.id)}
+                        >
+                          <Text style={[
+                            styles.deleteX,
+                            isSelected && styles.deleteXSelected,
+                          ]}>
+                            {isSelected ? '✓' : ''}
+                          </Text>
+                        </Pressable>
+                      )}
+                      <View style={styles.itemThumb}>
+                        {item.imageUri ? (
+                          <Image source={{ uri: item.imageUri }} style={styles.itemImage} />
+                        ) : (
+                          <Text style={styles.itemIcon}>{item.emoji}</Text>
+                        )}
+                      </View>
+                      <View style={styles.itemInfo}>
+                        <Text variant="bodyMedium" size="lg" style={styles.itemName}>
+                          {item.title}
+                        </Text>
+                        <Text variant="body" size="base" color="secondary">
+                          {item.category} · {item.interestedCount} interested
+                        </Text>
+                      </View>
+                      {!isEditMode && (
+                        <View style={styles.itemBid}>
+                          <Text variant="body" size="xs" color="muted" style={styles.itemBidLabel}>
+                            Top bid
+                          </Text>
+                          <Text
+                            variant="heading"
+                            size="xxl"
+                            color={
+                              item.bidStatus === 'accept' ? 'success' :
+                              item.bidStatus === 'consider' ? 'warning' :
+                              item.bidStatus === 'low' ? 'danger' :
+                              'muted'
+                            }
+                            style={styles.itemBidValue}
+                          >
+                            {item.topBid ? `$${item.topBid}` : '—'}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </Card>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        )
+      )}
+
+      {/* Gone Tab Content */}
+      {activeTab === 'gone' && (
+        goneDisplayItems.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text variant="heading" size="xxxl" style={styles.emptyIcon}>
+              🏷️
+            </Text>
+            <Text variant="headingMedium" size="heading3" style={styles.emptyTitle}>
+              No gone items
+            </Text>
+            <Text
+              variant="body"
+              size="lg"
+              color="secondary"
+              style={styles.emptyMessage}
+            >
+              Sold or removed items will appear here
+            </Text>
+          </View>
+        ) : (
+          <ScrollView
+            contentContainerStyle={styles.list}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            }
+          >
+            {goneDisplayItems.map((item) => (
               <Pressable
-                onPress={() => {
-                  if (isEditMode) {
-                    toggleSelection(item.id);
-                  } else {
-                    navigation.navigate('ItemDetail', { itemId: item.id });
-                  }
+                key={item.id}
+                onPress={() => navigation.navigate('ItemDetail', { itemId: item.id })}
+                onLongPress={() => {
+                  Alert.alert(
+                    item.title,
+                    'Would you like to restore this item?',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Restore to Live', onPress: () => handleRestoreItem(item.id) },
+                    ]
+                  );
                 }}
               >
-                <Card style={[styles.card, isSelected && styles.cardSelected]}>
+                <Card style={[styles.card, styles.goneCard]}>
                   <View style={styles.itemCard}>
-                    {/* Delete X button in edit mode */}
-                    {isEditMode && (
-                      <Pressable
-                        style={[
-                          styles.deleteCircle,
-                          isSelected && styles.deleteCircleSelected,
-                        ]}
-                        onPress={() => toggleSelection(item.id)}
-                      >
-                        <Text style={[
-                          styles.deleteX,
-                          isSelected && styles.deleteXSelected,
-                        ]}>
-                          {isSelected ? '✓' : ''}
-                        </Text>
-                      </Pressable>
-                    )}
-                    <View style={styles.itemThumb}>
+                    <View style={[styles.itemThumb, styles.goneThumb]}>
                       {item.imageUri ? (
-                        <Image source={{ uri: item.imageUri }} style={styles.itemImage} />
+                        <Image source={{ uri: item.imageUri }} style={[styles.itemImage, styles.goneImage]} />
                       ) : (
                         <Text style={styles.itemIcon}>{item.emoji}</Text>
                       )}
                     </View>
                     <View style={styles.itemInfo}>
-                      <Text variant="bodyMedium" size="lg" style={styles.itemName}>
+                      <Text variant="bodyMedium" size="lg" style={styles.itemName} color="secondary">
                         {item.title}
                       </Text>
-                      <Text variant="body" size="base" color="secondary">
-                        {item.category} · {item.interestedCount} interested
+                      <Text variant="body" size="base" color="muted">
+                        {item.category} · {item.status === 'sold' ? 'Sold' : 'Removed'}
                       </Text>
                     </View>
-                    {!isEditMode && (
-                      <View style={styles.itemBid}>
-                        <Text variant="body" size="xs" color="muted" style={styles.itemBidLabel}>
-                          Top bid
-                        </Text>
-                        <Text
-                          variant="heading"
-                          size="xxl"
-                          color={
-                            item.bidStatus === 'accept' ? 'success' :
-                            item.bidStatus === 'consider' ? 'warning' :
-                            item.bidStatus === 'low' ? 'danger' :
-                            'muted'
-                          }
-                          style={styles.itemBidValue}
-                        >
-                          {item.topBid ? `$${item.topBid}` : '—'}
-                        </Text>
-                      </View>
-                    )}
+                    <Badge variant={item.status === 'sold' ? 'success' : 'default'}>
+                      {item.status === 'sold' ? 'Sold' : 'Gone'}
+                    </Badge>
                   </View>
                 </Card>
               </Pressable>
-            );
-          }}
-        />
+            ))}
+          </ScrollView>
+        )
       )}
 
       {/* Floating Action Button - ONLY entry point for Upload */}
@@ -412,6 +632,36 @@ const styles = StyleSheet.create({
     fontSize: 24,
     color: colors.textPrimary,
     fontWeight: '600',
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: spacing.xxl,
+    marginBottom: spacing.lg,
+    gap: spacing.xs,
+  },
+  tabBtn: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    alignItems: 'center',
+  },
+  tabBtnActive: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  tabBtnGone: {
+    backgroundColor: colors.textSecondary,
+    borderColor: colors.textSecondary,
+  },
+  tabBtnTextActive: {
+    color: '#FFFFFF',
+  },
+  tabBtnTextGone: {
+    color: '#FFFFFF',
   },
   editHeader: {
     flexDirection: 'row',
@@ -538,5 +788,18 @@ const styles = StyleSheet.create({
   },
   itemBidValue: {
     // Font size handled by variant="heading" size="xxl"
+  },
+  sectionHeader: {
+    marginBottom: spacing.md,
+    marginTop: spacing.md,
+  },
+  goneCard: {
+    opacity: 0.7,
+  },
+  goneThumb: {
+    backgroundColor: colors.border,
+  },
+  goneImage: {
+    opacity: 0.7,
   },
 });

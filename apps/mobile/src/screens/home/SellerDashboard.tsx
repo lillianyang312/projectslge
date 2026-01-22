@@ -8,10 +8,14 @@ import {
   ActivityIndicator,
   Alert,
   Keyboard,
+  Image,
 } from 'react-native';
+import { useNavigation, CommonActions } from '@react-navigation/native';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { Text, Card, Badge, Button } from '../../ui/components';
 import { colors, spacing, radius, typography } from '../../ui/tokens';
 import { Deal } from '../../types/models';
+import { AppTabsParamList, DealsStackParamList } from '../../navigation/types';
 import {
   ItemQuestion,
   getQuestionsForItem,
@@ -21,6 +25,7 @@ import {
   cancelDeal,
 } from '../../services/dealsService';
 import { updateItem } from '../../services/itemsService';
+import { getSignedUrl } from '../../services/imageService';
 import {
   evaluateOffer,
   getExpirationText,
@@ -33,6 +38,8 @@ import { Item } from '../../services/itemsService';
 import { useFocusEffect } from '@react-navigation/native';
 import { useChatLLM } from '../../hooks/useChatLLM';
 import { formatMessageTime, generateMessageId, type ChatMessage } from '../../services/chatService';
+
+type TabNavProp = BottomTabNavigationProp<AppTabsParamList>;
 
 interface SellerDashboardProps {
   item: Item;
@@ -60,12 +67,36 @@ export default function SellerDashboard({
   onAcceptOffer,
   sellIntent,
 }: SellerDashboardProps) {
-  const [offersExpanded, setOffersExpanded] = useState(true);
-  const [questionsExpanded, setQuestionsExpanded] = useState(true);
+  const tabNavigation = useNavigation<TabNavProp>();
+
+  // Check for pending deal (accepted but not yet completed)
+  const pendingDeal = deals.find(d => ['agreed', 'logistics'].includes(d.status));
+  const hasPendingDeal = !!pendingDeal;
+
+  console.log('📦 [SellerDashboard] Total deals:', deals.length, 'Pending deal:', hasPendingDeal);
+
+  // When there's a pending deal, collapse offers/questions by default (they become "history")
+  const [offersExpanded, setOffersExpanded] = useState(!hasPendingDeal);
+  const [questionsExpanded, setQuestionsExpanded] = useState(!hasPendingDeal);
+  const [showHistory, setShowHistory] = useState(false);
   const [chatExpanded, setChatExpanded] = useState(true);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
   const [submittingReply, setSubmittingReply] = useState(false);
+  const [pendingDealImageUrl, setPendingDealImageUrl] = useState<string | null>(null);
+
+  // Load pending deal image
+  useEffect(() => {
+    async function loadPendingDealImage() {
+      if (pendingDeal?.item?.photos?.[0]) {
+        const url = await getSignedUrl(pendingDeal.item.photos[0]);
+        setPendingDealImageUrl(url);
+      }
+    }
+    if (pendingDeal) {
+      loadPendingDealImage();
+    }
+  }, [pendingDeal?.id]);
 
   // Agent chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -191,13 +222,23 @@ Be concise and helpful. Focus on actionable recommendations. If you suggest an a
     setChatInput(action);
   };
 
-  // Filter active offers (non-question deals with offers)
+  // Filter active offers (non-question deals with offers that are still negotiating)
   const activeOffers = deals.filter(
     (d) => d.current_offer && !d.is_question && d.status === 'negotiating'
   );
 
+  // All offers for history (includes declined, cancelled etc - excludes the pending deal)
+  const allPreviousOffers = deals.filter(
+    (d) => d.current_offer && !d.is_question && d.id !== pendingDeal?.id
+  );
+
   // Unanswered questions
   const unansweredQuestions = questions.filter((q) => !q.isAnswered);
+
+  // Show history toggle when there's a pending deal and there are previous offers/questions
+  const hasHistoryContent = allPreviousOffers.length > 0 || questions.length > 0;
+
+  console.log('📦 [SellerDashboard] Active offers:', activeOffers.length, 'All previous offers:', allPreviousOffers.length, 'Questions:', questions.length, 'Show history toggle:', hasPendingDeal && hasHistoryContent);
 
   const topOffer = getBestOffer(activeOffers);
   const buyerCount = countInterestedBuyers(deals);
@@ -255,6 +296,80 @@ Be concise and helpful. Focus on actionable recommendations. If you suggest an a
     );
   };
 
+  const handleNavigateToDeal = (dealId: string) => {
+    // Navigate to the Deals tab and then to DealChat
+    tabNavigation.navigate('Deals', {
+      screen: 'DealChat',
+      params: { dealId },
+    } as any);
+  };
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'agreed': return 'Agreed';
+      case 'logistics': return 'Scheduling';
+      case 'completed': return 'Complete';
+      default: return status;
+    }
+  };
+
+  const getStatusBadgeVariant = (status: string): 'success' | 'warning' | 'purple' | 'neutral' => {
+    switch (status) {
+      case 'agreed': return 'success';
+      case 'logistics': return 'warning';
+      case 'completed': return 'success';
+      default: return 'neutral';
+    }
+  };
+
+  const renderPendingDealCard = () => {
+    if (!pendingDeal) return null;
+
+    console.log('📦 [SellerDashboard] Pending deal:', pendingDeal.id, 'status:', pendingDeal.status);
+    console.log('📦 [SellerDashboard] Pending deal buyer:', pendingDeal.buyer);
+    const buyerName = pendingDeal.buyer?.display_name || 'Buyer';
+    console.log('📦 [SellerDashboard] Display name:', buyerName);
+    const agreedPrice = pendingDeal.agreed_price || pendingDeal.current_offer;
+
+    return (
+      <Pressable onPress={() => handleNavigateToDeal(pendingDeal.id)}>
+        <Card style={styles.pendingDealCard}>
+          <View style={styles.pendingDealHeader}>
+            <View style={styles.pendingDealThumb}>
+              {pendingDealImageUrl ? (
+                <Image
+                  source={{ uri: pendingDealImageUrl }}
+                  style={styles.pendingDealImage}
+                  resizeMode="cover"
+                />
+              ) : (
+                <Text style={styles.pendingDealEmoji}>📦</Text>
+              )}
+            </View>
+            <View style={styles.pendingDealInfo}>
+              <Text variant="bodyMedium" size="md" numberOfLines={1}>
+                Selling to {buyerName}
+              </Text>
+              <Text variant="body" size="sm" color="success">
+                ${agreedPrice}
+              </Text>
+            </View>
+            <Badge variant={getStatusBadgeVariant(pendingDeal.status)}>
+              {getStatusLabel(pendingDeal.status)}
+            </Badge>
+          </View>
+          <View style={styles.pendingDealAction}>
+            <Text variant="body" size="sm" color="accent">
+              {pendingDeal.status === 'agreed'
+                ? 'Tap to finalize pickup schedule →'
+                : 'Tap to view pickup details →'}
+            </Text>
+          </View>
+        </Card>
+      </Pressable>
+    );
+  };
+
   const renderOfferCard = (deal: Deal) => {
     const recommendation = evaluateOffer(
       deal.current_offer || 0,
@@ -266,6 +381,10 @@ Be concise and helpful. Focus on actionable recommendations. If you suggest an a
     const expirationText = getExpirationText(deal.expires_at);
     const lastActiveText = getLastActiveText(deal.updated_at);
     const buyerName = deal.buyer?.display_name || 'Buyer';
+    const interestedForText = deal.interested_for;
+
+    // Find questions from this buyer
+    const buyerQuestions = questions.filter(q => q.buyerId === deal.buyer_id);
 
     return (
       <Card key={deal.id} style={styles.offerCard}>
@@ -282,6 +401,11 @@ Be concise and helpful. Focus on actionable recommendations. If you suggest an a
         </View>
 
         <View style={styles.offerMeta}>
+          {interestedForText && (
+            <Text variant="body" size="xs" color="accent">
+              Interested for {interestedForText}
+            </Text>
+          )}
           {expirationText && (
             <Text variant="body" size="xs" color="muted">
               {expirationText}
@@ -292,13 +416,42 @@ Be concise and helpful. Focus on actionable recommendations. If you suggest an a
           </Text>
         </View>
 
+        {/* Buyer's Questions - aggregated under their offer */}
+        {buyerQuestions.length > 0 && (
+          <View style={styles.buyerQuestionsContainer}>
+            <Text variant="body" size="xs" color="muted" style={styles.buyerQuestionsLabel}>
+              Questions from this buyer:
+            </Text>
+            {buyerQuestions.map((q) => (
+              <View key={q.id} style={styles.buyerQuestionItem}>
+                <Text variant="body" size="sm" style={styles.buyerQuestionText}>
+                  "{q.questionText}"
+                </Text>
+                {q.isAnswered ? (
+                  <Pressable onPress={() => handleNavigateToDeal(q.dealId)}>
+                    <Text variant="body" size="xs" color="success">
+                      ✓ View →
+                    </Text>
+                  </Pressable>
+                ) : (
+                  <Pressable onPress={() => handleNavigateToDeal(q.dealId)}>
+                    <Text variant="body" size="xs" color="accent">
+                      Reply →
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
+            ))}
+          </View>
+        )}
+
         <View style={styles.offerActions}>
           <Pressable
             style={styles.viewDetailsBtn}
-            onPress={() => onViewDeal(deal.id)}
+            onPress={() => handleNavigateToDeal(deal.id)}
           >
             <Text variant="bodyMedium" size="sm" color="primary">
-              View Details
+              Chat
             </Text>
           </Pressable>
           <Pressable
@@ -351,133 +504,178 @@ Be concise and helpful. Focus on actionable recommendations. If you suggest an a
           </View>
         )}
 
-        {!question.isAnswered && (
-          <>
-            {isReplying ? (
-              <View style={styles.replyInputContainer}>
-                <TextInput
-                  style={styles.replyInput}
-                  placeholder="Type your reply..."
-                  placeholderTextColor={colors.textMuted}
-                  value={replyText}
-                  onChangeText={setReplyText}
-                  multiline
-                />
-                <View style={styles.replyActions}>
+        {/* Action buttons */}
+        <View style={styles.questionActions}>
+          {!question.isAnswered && (
+            <>
+              {isReplying ? (
+                <View style={styles.replyInputContainer}>
+                  <TextInput
+                    style={styles.replyInput}
+                    placeholder="Type your reply..."
+                    placeholderTextColor={colors.textMuted}
+                    value={replyText}
+                    onChangeText={setReplyText}
+                    multiline
+                  />
+                  <View style={styles.replyActions}>
+                    <Pressable
+                      style={styles.cancelReplyBtn}
+                      onPress={() => {
+                        setReplyingTo(null);
+                        setReplyText('');
+                      }}
+                    >
+                      <Text variant="body" size="sm" color="secondary">
+                        Cancel
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.sendReplyBtn}
+                      onPress={() => handleReplySubmit(question.id)}
+                      disabled={submittingReply || !replyText.trim()}
+                    >
+                      {submittingReply ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <Text variant="bodyMedium" size="sm" style={styles.sendBtnText}>
+                          Send
+                        </Text>
+                      )}
+                    </Pressable>
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.questionActionRow}>
                   <Pressable
-                    style={styles.cancelReplyBtn}
-                    onPress={() => {
-                      setReplyingTo(null);
-                      setReplyText('');
-                    }}
+                    style={styles.replyBtn}
+                    onPress={() => setReplyingTo(question.id)}
                   >
-                    <Text variant="body" size="sm" color="secondary">
-                      Cancel
+                    <Text variant="bodyMedium" size="sm" color="primary">
+                      Quick Reply
                     </Text>
                   </Pressable>
                   <Pressable
-                    style={styles.sendReplyBtn}
-                    onPress={() => handleReplySubmit(question.id)}
-                    disabled={submittingReply || !replyText.trim()}
+                    style={styles.chatBtn}
+                    onPress={() => handleNavigateToDeal(question.dealId)}
                   >
-                    {submittingReply ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
-                    ) : (
-                      <Text variant="bodyMedium" size="sm" style={styles.sendBtnText}>
-                        Send
-                      </Text>
-                    )}
+                    <Text variant="bodyMedium" size="sm" color="accent">
+                      Open Chat →
+                    </Text>
                   </Pressable>
                 </View>
-              </View>
-            ) : (
-              <Pressable
-                style={styles.replyBtn}
-                onPress={() => setReplyingTo(question.id)}
-              >
-                <Text variant="bodyMedium" size="sm" color="primary">
-                  Reply
-                </Text>
-              </Pressable>
-            )}
-          </>
-        )}
+              )}
+            </>
+          )}
+          {question.isAnswered && (
+            <Pressable
+              style={styles.viewChatBtn}
+              onPress={() => handleNavigateToDeal(question.dealId)}
+            >
+              <Text variant="bodyMedium" size="sm" color="accent">
+                View Full Chat →
+              </Text>
+            </Pressable>
+          )}
+        </View>
       </Card>
     );
   };
 
   return (
     <View style={styles.container}>
-      {/* Summary Header */}
-      <Card style={styles.summaryCard}>
-        <View style={styles.summaryRow}>
-          <View style={styles.summaryItem}>
-            <Text variant="body" size="sm" color="muted">
-              Top Offer
-            </Text>
-            <Text variant="headingMedium" size="xl" color={topOffer ? 'primary' : 'secondary'}>
-              {topOffer ? `$${topOffer}` : 'No offers'}
-            </Text>
-          </View>
-          <View style={styles.summaryDivider} />
-          <View style={styles.summaryItem}>
-            <Text variant="body" size="sm" color="muted">
-              Interested Buyers
-            </Text>
-            <Text variant="headingMedium" size="xl">
-              {buyerCount}
-            </Text>
-          </View>
-        </View>
-      </Card>
+      {/* Pending Deal Card - shown at top when deal is accepted */}
+      {hasPendingDeal && renderPendingDealCard()}
 
-      {/* Offers Section */}
-      <Pressable
-        style={styles.sectionHeader}
-        onPress={() => setOffersExpanded(!offersExpanded)}
-      >
-        <Text variant="bodyMedium" size="md">
-          {offersExpanded ? '▼' : '▶'} OFFERS ({activeOffers.length})
-        </Text>
-      </Pressable>
-
-      {offersExpanded && (
-        <View style={styles.sectionContent}>
-          {activeOffers.length === 0 ? (
-            <Text variant="body" size="sm" color="muted" style={styles.emptyText}>
-              No offers yet. Share your listing to attract buyers!
-            </Text>
-          ) : (
-            activeOffers.map(renderOfferCard)
-          )}
-        </View>
+      {/* Summary Header - only show when no pending deal */}
+      {!hasPendingDeal && (
+        <Card style={styles.summaryCard}>
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryItem}>
+              <Text variant="body" size="sm" color="muted">
+                Top Offer
+              </Text>
+              <Text variant="headingMedium" size="xl" color={topOffer ? 'primary' : 'secondary'}>
+                {topOffer ? `$${topOffer}` : 'No offers'}
+              </Text>
+            </View>
+            <View style={styles.summaryDivider} />
+            <View style={styles.summaryItem}>
+              <Text variant="body" size="sm" color="muted">
+                Interested Buyers
+              </Text>
+              <Text variant="headingMedium" size="xl">
+                {buyerCount}
+              </Text>
+            </View>
+          </View>
+        </Card>
       )}
 
-      {/* Questions Section */}
-      <Pressable
-        style={styles.sectionHeader}
-        onPress={() => setQuestionsExpanded(!questionsExpanded)}
-      >
-        <View style={styles.sectionTitleRow}>
-          <Text variant="bodyMedium" size="md">
-            {questionsExpanded ? '▼' : '▶'} QUESTIONS ({questions.length})
+      {/* History Toggle - shown when deal is pending and there are previous offers/questions */}
+      {hasPendingDeal && hasHistoryContent && (
+        <Pressable
+          style={styles.historyToggle}
+          onPress={() => setShowHistory(!showHistory)}
+        >
+          <Text variant="body" size="sm" color="accent">
+            {showHistory ? 'Hide' : 'Show'} negotiation history ({allPreviousOffers.length} offers, {questions.length} questions)
           </Text>
-          {unansweredQuestions.length > 0 && (
-            <Badge variant="warning" text={`${unansweredQuestions.length} new`} />
-          )}
-        </View>
-      </Pressable>
+          <Text style={styles.historyIcon}>{showHistory ? '▲' : '▼'}</Text>
+        </Pressable>
+      )}
 
-      {questionsExpanded && (
-        <View style={styles.sectionContent}>
-          {questions.length === 0 ? (
-            <Text variant="body" size="sm" color="muted" style={styles.emptyText}>
-              No questions yet.
+      {/* Offers Section - collapsed into history when pending deal exists */}
+      {(!hasPendingDeal || showHistory) && (
+        <>
+          <Pressable
+            style={styles.sectionHeader}
+            onPress={() => setOffersExpanded(!offersExpanded)}
+          >
+            <Text variant="bodyMedium" size="md">
+              {offersExpanded ? '▼' : '▶'} {hasPendingDeal ? 'PREVIOUS OFFERS' : 'OFFERS'} ({hasPendingDeal ? allPreviousOffers.length : activeOffers.length})
             </Text>
-          ) : (
-            questions.map(renderQuestionCard)
+          </Pressable>
+
+          {offersExpanded && (
+            <View style={styles.sectionContent}>
+              {(hasPendingDeal ? allPreviousOffers : activeOffers).length === 0 ? (
+                <Text variant="body" size="sm" color="muted" style={styles.emptyText}>
+                  No offers yet. Share your listing to attract buyers!
+                </Text>
+              ) : (
+                (hasPendingDeal ? allPreviousOffers : activeOffers).map(renderOfferCard)
+              )}
+            </View>
           )}
-        </View>
+
+          {/* Questions Section */}
+          <Pressable
+            style={styles.sectionHeader}
+            onPress={() => setQuestionsExpanded(!questionsExpanded)}
+          >
+            <View style={styles.sectionTitleRow}>
+              <Text variant="bodyMedium" size="md">
+                {questionsExpanded ? '▼' : '▶'} QUESTIONS ({questions.length})
+              </Text>
+              {unansweredQuestions.length > 0 && (
+                <Badge variant="warning" text={`${unansweredQuestions.length} new`} />
+              )}
+            </View>
+          </Pressable>
+
+          {questionsExpanded && (
+            <View style={styles.sectionContent}>
+              {questions.length === 0 ? (
+                <Text variant="body" size="sm" color="muted" style={styles.emptyText}>
+                  No questions yet.
+                </Text>
+              ) : (
+                questions.map(renderQuestionCard)
+              )}
+            </View>
+          )}
+        </>
       )}
 
       {/* Agent Chat Section */}
@@ -627,6 +825,57 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  // Pending Deal Card Styles
+  pendingDealCard: {
+    marginBottom: spacing.lg,
+    backgroundColor: colors.successSoft,
+  },
+  pendingDealHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  pendingDealThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.sm,
+    backgroundColor: colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  pendingDealImage: {
+    width: '100%',
+    height: '100%',
+  },
+  pendingDealEmoji: {
+    fontSize: 20,
+  },
+  pendingDealInfo: {
+    flex: 1,
+  },
+  pendingDealAction: {
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0, 0, 0, 0.1)',
+  },
+  // History Toggle
+  historyToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    backgroundColor: colors.accentSoft,
+    marginBottom: spacing.md,
+    borderRadius: radius.md,
+  },
+  historyIcon: {
+    fontSize: 10,
+    color: colors.accent,
+  },
   summaryCard: {
     marginBottom: spacing.lg,
   },
@@ -679,6 +928,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.md,
     marginBottom: spacing.md,
+  },
+  buyerQuestionsContainer: {
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.sm,
+    padding: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  buyerQuestionsLabel: {
+    marginBottom: spacing.xs,
+  },
+  buyerQuestionItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingVertical: spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 0, 0, 0.05)',
+  },
+  buyerQuestionText: {
+    flex: 1,
+    fontStyle: 'italic',
+    marginRight: spacing.sm,
   },
   offerActions: {
     flexDirection: 'row',
@@ -743,11 +1014,34 @@ const styles = StyleSheet.create({
   replyText: {
     marginTop: spacing.xs,
   },
+  questionActions: {
+    marginTop: spacing.sm,
+  },
+  questionActionRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
   replyBtn: {
+    flex: 1,
     paddingVertical: spacing.sm,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.border,
+    borderRadius: radius.sm,
+  },
+  chatBtn: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.accent,
+    borderRadius: radius.sm,
+  },
+  viewChatBtn: {
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.accent,
     borderRadius: radius.sm,
   },
   replyInputContainer: {

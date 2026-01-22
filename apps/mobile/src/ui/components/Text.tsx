@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text as RNText, TextProps as RNTextProps, StyleSheet } from 'react-native';
+import { Text as RNText, TextProps as RNTextProps, StyleSheet, Platform } from 'react-native';
 import { colors, typography } from '../tokens';
 
 type TextVariant = 'body' | 'bodyMedium' | 'bodySemiBold' | 'heading' | 'headingMedium' | 'headingSemiBold';
@@ -58,5 +58,9 @@ export function Text({
 const styles = StyleSheet.create({
   base: {
     color: colors.textPrimary,
+    // Improve font rendering
+    ...(Platform.OS === 'android' && {
+      includeFontPadding: false,
+    }),
   },
 });

@@ -26,7 +26,8 @@ const genderOptions: { value: Gender; label: string }[] = [
 ];
 
 export default function SignupStep1Screen({ navigation }: Props) {
-  const [fullName, setFullName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [gender, setGender] = useState<Gender>('');
   const [phone, setPhone] = useState('');
   const [error, setError] = useState('');
@@ -51,8 +52,13 @@ export default function SignupStep1Screen({ navigation }: Props) {
     Keyboard.dismiss();
     setError('');
 
-    if (!fullName.trim()) {
-      setError('Please enter your full name');
+    if (!firstName.trim()) {
+      setError('Please enter your first name');
+      return;
+    }
+
+    if (!lastName.trim()) {
+      setError('Please enter your last name');
       return;
     }
 
@@ -68,7 +74,8 @@ export default function SignupStep1Screen({ navigation }: Props) {
     }
 
     navigation.navigate('SignupStep2', {
-      fullName: fullName.trim(),
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
       gender,
       phone: phoneDigits,
     });
@@ -111,12 +118,22 @@ export default function SignupStep1Screen({ navigation }: Props) {
           ) : null}
 
           <Input
-            label="Full name"
-            placeholder="Your full name"
-            value={fullName}
-            onChangeText={setFullName}
+            label="First name"
+            placeholder="Your first name"
+            value={firstName}
+            onChangeText={setFirstName}
             autoCapitalize="words"
-            autoComplete="name"
+            autoComplete="given-name"
+            returnKeyType="next"
+          />
+
+          <Input
+            label="Last name"
+            placeholder="Your last name"
+            value={lastName}
+            onChangeText={setLastName}
+            autoCapitalize="words"
+            autoComplete="family-name"
             returnKeyType="next"
           />
 

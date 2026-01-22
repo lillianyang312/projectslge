@@ -4,8 +4,13 @@ import { UploadStackParamList } from '../types';
 
 // Import screens
 import UploadScreen from '../../screens/upload/Upload';
-import ClarificationScreen from '../../screens/upload/Clarification';
-import ConfirmAddToListScreen from '../../screens/upload/ConfirmAddToList';
+import ItemDetailsScreen from '../../screens/upload/ItemDetails';
+import PriceReviewScreen from '../../screens/upload/PriceReview';
+// Bulk upload screens
+import ItemGroupingScreen from '../../screens/upload/ItemGrouping';
+import ItemVerificationScreen from '../../screens/upload/ItemVerification';
+import BulkPriceReviewScreen from '../../screens/upload/BulkPriceReview';
+import BulkSummaryScreen from '../../screens/upload/BulkSummary';
 
 const Stack = createNativeStackNavigator<UploadStackParamList>();
 
@@ -19,8 +24,13 @@ export default function UploadStack() {
       }}
     >
       <Stack.Screen name="Upload" component={UploadScreen} />
-      <Stack.Screen name="Clarification" component={ClarificationScreen} />
-      <Stack.Screen name="ConfirmAddToList" component={ConfirmAddToListScreen} />
+      <Stack.Screen name="ItemDetails" component={ItemDetailsScreen} />
+      <Stack.Screen name="PriceReview" component={PriceReviewScreen} />
+      {/* Bulk upload screens */}
+      <Stack.Screen name="ItemGrouping" component={ItemGroupingScreen} />
+      <Stack.Screen name="ItemVerification" component={ItemVerificationScreen} />
+      <Stack.Screen name="BulkPriceReview" component={BulkPriceReviewScreen} />
+      <Stack.Screen name="BulkSummary" component={BulkSummaryScreen} />
     </Stack.Navigator>
   );
 }

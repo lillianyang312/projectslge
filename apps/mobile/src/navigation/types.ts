@@ -17,8 +17,8 @@ export type RootStackParamList = {
 export type AuthStackParamList = {
   Welcome: undefined;
   Login: undefined;          // Email + biometric/code login
-  SignupStep1: undefined;    // Name, gender, phone
-  SignupStep2: { fullName: string; gender: string; phone: string };    // Harvard email, year, house, dorm
+  SignupStep1: undefined;    // First name, last name, gender, phone
+  SignupStep2: { firstName: string; lastName: string; gender: string; phone: string };    // Harvard email, year, house, dorm
   VerifyEmail: { email: string; signupData?: SignupData };  // Email verification code entry
   // Legacy screens (kept for compatibility)
   Auth: undefined;
@@ -28,7 +28,8 @@ export type AuthStackParamList = {
 
 // Signup data passed between screens
 export type SignupData = {
-  fullName: string;
+  firstName: string;
+  lastName: string;
   gender: string;
   phone: string;
   harvardEmail: string;
@@ -36,7 +37,9 @@ export type SignupData = {
   house: string;
   dormBuilding: string;
   dormRoom: string;
-  loginPreference: 'biometric' | 'email_code';
+  dormLocation: string;
+  paymentPreference: string;
+  loginPreference: 'email_code';
 };
 
 // Bottom tabs - matches HTML spec exactly
@@ -57,6 +60,11 @@ export type ListStackParamList = {
   ItemDetails: undefined;  // New screen for condition, intent, price, delivery, notes
   PriceReview: undefined;  // Shows estimated price and min price with add button
   ChatThread: { conversationId: string };  // Chat with buyers
+  // Bulk upload screens
+  ItemGrouping: undefined;  // Gradescope-style photo grouping
+  ItemVerification: { itemIndex?: number };  // Per-item verification with dynamic category fields
+  BulkPriceReview: { itemIndex?: number };  // Per-item price review
+  BulkSummary: undefined;  // Final review before batch submission
 };
 
 // Home tab stack (alias for backward compatibility)
@@ -74,6 +82,11 @@ export type UploadStackParamList = {
   Upload: undefined;
   ItemDetails: undefined;  // New screen for condition, intent, price, delivery, notes
   PriceReview: undefined;  // Shows estimated price and min price with add button
+  // Bulk upload screens
+  ItemGrouping: undefined;
+  ItemVerification: { itemIndex?: number };
+  BulkPriceReview: { itemIndex?: number };
+  BulkSummary: undefined;
 };
 
 // Swipe stack (single screen with internal toggle)
@@ -100,6 +113,7 @@ export type DealsStackParamList = {
   Shipping: { dealId: string };
   Conversations: undefined;
   ChatThread: { conversationId: string };
+  Profile: { userId: string };  // View counterparty profile after deal acceptance
 };
 
 // Inbox stack

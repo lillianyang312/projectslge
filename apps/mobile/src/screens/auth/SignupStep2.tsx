@@ -21,8 +21,6 @@ import { supabase } from '../../lib/supabase';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'SignupStep2'>;
 
-type LoginPreference = 'biometric' | 'email_code';
-
 const harvardHouses = [
   'Adams', 'Cabot', 'Currier', 'Dunster', 'Eliot', 'Kirkland',
   'Leverett', 'Lowell', 'Mather', 'Pforzheimer', 'Quincy', 'Winthrop',
@@ -32,15 +30,19 @@ const harvardHouses = [
 const currentYear = new Date().getFullYear();
 const graduationYears = Array.from({ length: 5 }, (_, i) => String(currentYear + i));
 
+const paymentOptions = ['Cash', 'Zelle', 'Venmo'] as const;
+type PaymentMethod = typeof paymentOptions[number];
+
 export default function SignupStep2Screen({ navigation, route }: Props) {
-  const { fullName, gender, phone } = route.params;
+  const { firstName, lastName, gender, phone } = route.params;
 
   const [harvardEmail, setHarvardEmail] = useState('');
   const [graduationYear, setGraduationYear] = useState('');
   const [house, setHouse] = useState('');
   const [dormBuilding, setDormBuilding] = useState('');
   const [dormRoom, setDormRoom] = useState('');
-  const [loginPreference, setLoginPreference] = useState<LoginPreference>('biometric');
+  const [dormLocation, setDormLocation] = useState('');
+  const [paymentPreferences, setPaymentPreferences] = useState<PaymentMethod[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -49,6 +51,15 @@ export default function SignupStep2Screen({ navigation, route }: Props) {
   const [showHouseModal, setShowHouseModal] = useState(false);
 
   const scrollViewRef = useRef<ScrollView>(null);
+
+  const togglePaymentPreference = (method: PaymentMethod) => {
+    setPaymentPreferences(prev => {
+      if (prev.includes(method)) {
+        return prev.filter(p => p !== method);
+      }
+      return [...prev, method];
+    });
+  };
 
   const validateHarvardEmail = (email: string): boolean => {
     const harvardDomains = [
@@ -107,7 +118,8 @@ export default function SignupStep2Screen({ navigation, route }: Props) {
     }
 
     const signupData: SignupData = {
-      fullName,
+      firstName,
+      lastName,
       gender,
       phone,
       harvardEmail: normalizedEmail,
@@ -115,7 +127,9 @@ export default function SignupStep2Screen({ navigation, route }: Props) {
       house,
       dormBuilding: dormBuilding.trim(),
       dormRoom: dormRoom.trim(),
-      loginPreference,
+      dormLocation: dormLocation.trim(),
+      paymentPreference: paymentPreferences.join(','),
+      loginPreference: 'email_code',
     };
 
     setLoading(false);
@@ -252,29 +266,39 @@ export default function SignupStep2Screen({ navigation, route }: Props) {
             </View>
           </View>
 
+          <Input
+            label="Meetup location (optional)"
+            placeholder="e.g. Adams House, B-entry, 3rd floor"
+            value={dormLocation}
+            onChangeText={setDormLocation}
+          />
+
           <View style={styles.inputGroup}>
             <Text variant="body" size="sm" color="secondary" style={styles.label}>
-              Login method
+              Payment preferences (optional)
             </Text>
-            <View style={styles.loginOptions}>
-              <Pressable
-                style={[styles.loginOption, loginPreference === 'biometric' && styles.loginOptionSelected]}
-                onPress={() => setLoginPreference('biometric')}
-              >
-                <Text style={styles.loginOptionIcon}>👤</Text>
-                <Text variant={loginPreference === 'biometric' ? 'bodyMedium' : 'body'} size="sm">
-                  Face ID
-                </Text>
-              </Pressable>
-              <Pressable
-                style={[styles.loginOption, loginPreference === 'email_code' && styles.loginOptionSelected]}
-                onPress={() => setLoginPreference('email_code')}
-              >
-                <Text style={styles.loginOptionIcon}>📧</Text>
-                <Text variant={loginPreference === 'email_code' ? 'bodyMedium' : 'body'} size="sm">
-                  Email code
-                </Text>
-              </Pressable>
+            <Text variant="body" size="xs" color="muted" style={styles.paymentHint}>
+              Select how you prefer to receive payments
+            </Text>
+            <View style={styles.paymentOptions}>
+              {paymentOptions.map((method) => (
+                <Pressable
+                  key={method}
+                  style={[
+                    styles.paymentOption,
+                    paymentPreferences.includes(method) && styles.paymentOptionSelected,
+                  ]}
+                  onPress={() => togglePaymentPreference(method)}
+                >
+                  <Text
+                    variant={paymentPreferences.includes(method) ? 'bodyMedium' : 'body'}
+                    size="sm"
+                    style={paymentPreferences.includes(method) ? styles.paymentOptionTextSelected : undefined}
+                  >
+                    {method}
+                  </Text>
+                </Pressable>
+              ))}
             </View>
           </View>
 
@@ -441,28 +465,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     height: 48,
   },
-  loginOptions: {
-    flexDirection: 'row',
-    gap: spacing.md,
+  paymentHint: {
+    marginBottom: spacing.sm,
   },
-  loginOption: {
-    flex: 1,
+  paymentOptions: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
     gap: spacing.sm,
+  },
+  paymentOption: {
+    flex: 1,
     paddingVertical: spacing.md,
-    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
+    borderRadius: radius.md,
     backgroundColor: colors.card,
+    alignItems: 'center',
   },
-  loginOptionSelected: {
+  paymentOptionSelected: {
+    backgroundColor: colors.accent,
     borderColor: colors.accent,
-    backgroundColor: colors.accentSoft,
   },
-  loginOptionIcon: {
-    fontSize: 18,
+  paymentOptionTextSelected: {
+    color: '#FFFFFF',
   },
   spacer: {
     height: 100,

@@ -11,6 +11,7 @@ import {
   Alert,
   ActivityIndicator,
   Image,
+  Modal,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { DealsStackParamList } from '../../navigation/types';
@@ -26,6 +27,8 @@ import {
   makeOffer,
   setLogistics,
   completeDeal,
+  getUserSchedulingInfo,
+  markDealAsRead,
 } from '../../services/dealsService';
 import { useAuthStore } from '../../state/authStore';
 import { getSignedUrlCached } from '../../services/imageService';
@@ -86,9 +89,21 @@ export default function DealChatScreen({ navigation, route }: Props) {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [selectedTimes, setSelectedTimes] = useState<string[]>([]);
+  const [scheduleNote, setScheduleNote] = useState('');
+  const [actionLoading, setActionLoading] = useState<string | null>(null); // Track which action is loading
 
   const isSelling = deal?.seller_id === user?.id;
   const otherPartyLabel = isSelling ? 'Buyer' : 'Seller';
+
+  // Check if deal is in accepted state (post-negotiation)
+  const isAccepted = deal && ['agreed', 'logistics', 'completed'].includes(deal.status);
+
+  // Get the counterparty name for display in header
+  const counterpartyName = isSelling
+    ? (deal?.buyer?.display_name || 'Buyer')
+    : (deal?.seller?.display_name || 'Seller');
 
   // Load deal and messages
   useEffect(() => {
@@ -105,6 +120,11 @@ export default function DealChatScreen({ navigation, route }: Props) {
 
       setDeal(fetchedDeal);
       setMessages(fetchedMessages);
+
+      // Mark deal as read when opening chat
+      if (user?.id && fetchedDeal) {
+        markDealAsRead(dealId, user.id);
+      }
 
       // Load item image (using cached signed URL)
       if (fetchedDeal?.item?.photos?.[0]) {
@@ -146,7 +166,7 @@ export default function DealChatScreen({ navigation, route }: Props) {
   };
 
   const handleAcceptOffer = async () => {
-    if (!deal || !user) return;
+    if (!deal || !user || actionLoading) return;
 
     Alert.alert(
       'Accept Offer',
@@ -156,15 +176,25 @@ export default function DealChatScreen({ navigation, route }: Props) {
         {
           text: 'Accept',
           onPress: async () => {
-            const success = await acceptOffer(deal.id, user.id);
-            if (success) {
-              // Reload deal to get updated status
-              const updatedDeal = await getDealById(dealId);
-              setDeal(updatedDeal);
+            setActionLoading('accept');
+            try {
+              const success = await acceptOffer(deal.id, user.id);
+              if (success) {
+                // Reload deal to get updated status
+                const updatedDeal = await getDealById(dealId);
+                setDeal(updatedDeal);
 
-              // Reload messages to see system message
-              const updatedMessages = await getMessages(dealId);
-              setMessages(updatedMessages);
+                // Reload messages to see system message
+                const updatedMessages = await getMessages(dealId);
+                setMessages(updatedMessages);
+              } else {
+                Alert.alert('Error', 'Failed to accept offer. Please try again.');
+              }
+            } catch (error) {
+              console.error('Error accepting offer:', error);
+              Alert.alert('Error', 'Something went wrong. Please try again.');
+            } finally {
+              setActionLoading(null);
             }
           },
         },
@@ -172,38 +202,104 @@ export default function DealChatScreen({ navigation, route }: Props) {
     );
   };
 
-  const handleFinalizeDeal = async () => {
+  const handleFinalizeDeal = () => {
     if (!deal) return;
-
-    Alert.alert(
-      'Finalize Deal',
-      `Confirm the deal at $${deal.agreed_price || deal.current_offer}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Finalize',
-          onPress: async () => {
-            // Move to logistics phase
-            await setLogistics(deal.id, { delivery_method: 'pickup' });
-
-            // Reload deal
-            const updatedDeal = await getDealById(dealId);
-            setDeal(updatedDeal);
-
-            // Add agent message about scheduling
-            await sendAgentMessage(
-              dealId,
-              "Great! The deal is finalized. Now let's schedule the pickup. When are you available?"
-            );
-
-            // Reload messages
-            const updatedMessages = await getMessages(dealId);
-            setMessages(updatedMessages);
-          },
-        },
-      ]
-    );
+    setShowScheduleModal(true);
   };
+
+  const handleTimeSelect = (time: string) => {
+    setSelectedTimes(prev => {
+      if (prev.includes(time)) {
+        return prev.filter(t => t !== time);
+      }
+      return [...prev, time];
+    });
+  };
+
+  const handleSubmitSchedule = async () => {
+    if (!deal || !user || actionLoading) return;
+
+    setActionLoading('schedule');
+    try {
+      // Move to logistics phase
+      const logisticsSuccess = await setLogistics(deal.id, { delivery_method: 'pickup' });
+      if (!logisticsSuccess) {
+        Alert.alert('Error', 'Failed to update deal. Please try again.');
+        return;
+      }
+
+      // Reload deal
+      const updatedDeal = await getDealById(dealId);
+      setDeal(updatedDeal);
+
+      // Fetch seller's profile info for scheduling coordination
+      const sellerInfo = await getUserSchedulingInfo(deal.seller_id);
+
+      // Compose schedule message
+      let scheduleMsg = "Great! The deal is finalized. Let's schedule the pickup.\n\n";
+
+      if (selectedTimes.length > 0) {
+        scheduleMsg += `You're available: ${selectedTimes.join(', ')}.\n\n`;
+      }
+
+      // Add seller's location and payment info if this is the seller initiating scheduling
+      if (isSelling && sellerInfo) {
+        if (sellerInfo.dormLocation) {
+          scheduleMsg += `📍 Suggested meetup location: ${sellerInfo.dormLocation}\n`;
+        }
+        if (sellerInfo.paymentPreference) {
+          scheduleMsg += `💳 Accepted payment: ${sellerInfo.paymentPreference.split(',').join(', ')}\n`;
+        }
+        scheduleMsg += '\nPlease confirm if this location and payment method work for you.';
+      } else if (!isSelling && sellerInfo) {
+        // Buyer is scheduling - show seller's info to buyer
+        if (sellerInfo.dormLocation) {
+          scheduleMsg += `📍 Seller's suggested meetup: ${sellerInfo.dormLocation}\n`;
+        }
+        if (sellerInfo.paymentPreference) {
+          scheduleMsg += `💳 Seller accepts: ${sellerInfo.paymentPreference.split(',').join(', ')}\n`;
+        }
+      }
+
+      if (scheduleNote) {
+        scheduleMsg += `\n\nNote: ${scheduleNote}`;
+      }
+
+      scheduleMsg += "\n\nWaiting for the other party to confirm.";
+
+      // Add agent message about scheduling
+      await sendAgentMessage(dealId, scheduleMsg);
+
+      // If user selected times, send as message
+      if (selectedTimes.length > 0) {
+        await sendMessage(dealId, user.id, `I'm available: ${selectedTimes.join(', ')}`, 'text');
+      }
+
+      // Reload messages
+      const updatedMessages = await getMessages(dealId);
+      setMessages(updatedMessages);
+
+      // Close modal and reset
+      setShowScheduleModal(false);
+      setSelectedTimes([]);
+      setScheduleNote('');
+    } catch (error) {
+      console.error('Error submitting schedule:', error);
+      Alert.alert('Error', 'Failed to submit schedule. Please try again.');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Suggested times for scheduling
+  const suggestedTimes = [
+    'Today, afternoon',
+    'Today, evening',
+    'Tomorrow morning',
+    'Tomorrow afternoon',
+    'This weekend',
+    'Next week',
+  ];
 
   const handleSchedulePickup = async (time: string, location: string) => {
     if (!deal) return;
@@ -230,7 +326,7 @@ export default function DealChatScreen({ navigation, route }: Props) {
   };
 
   const handleMarkComplete = async () => {
-    if (!deal || !user) return;
+    if (!deal || !user || actionLoading) return;
 
     Alert.alert(
       'Mark as Complete',
@@ -240,15 +336,26 @@ export default function DealChatScreen({ navigation, route }: Props) {
         {
           text: 'Complete',
           onPress: async () => {
-            await completeDeal(deal.id, user.id);
-
-            // Reload
-            const [updatedDeal, updatedMessages] = await Promise.all([
-              getDealById(dealId),
-              getMessages(dealId),
-            ]);
-            setDeal(updatedDeal);
-            setMessages(updatedMessages);
+            setActionLoading('complete');
+            try {
+              const success = await completeDeal(deal.id, user.id);
+              if (success) {
+                // Reload
+                const [updatedDeal, updatedMessages] = await Promise.all([
+                  getDealById(dealId),
+                  getMessages(dealId),
+                ]);
+                setDeal(updatedDeal);
+                setMessages(updatedMessages);
+              } else {
+                Alert.alert('Error', 'Failed to complete deal. Please try again.');
+              }
+            } catch (error) {
+              console.error('Error completing deal:', error);
+              Alert.alert('Error', 'Something went wrong. Please try again.');
+            } finally {
+              setActionLoading(null);
+            }
           },
         },
       ]
@@ -256,6 +363,8 @@ export default function DealChatScreen({ navigation, route }: Props) {
   };
 
   const handleMakeOffer = () => {
+    if (actionLoading) return;
+
     Alert.prompt(
       'Make an Offer',
       'Enter your offer amount:',
@@ -266,16 +375,30 @@ export default function DealChatScreen({ navigation, route }: Props) {
           onPress: async (amount) => {
             if (!amount || !user) return;
             const numAmount = parseInt(amount.replace(/[^0-9]/g, ''), 10);
-            if (numAmount > 0) {
-              await makeOffer(dealId, numAmount, user.id);
+            if (numAmount <= 0) {
+              Alert.alert('Invalid Amount', 'Please enter a valid offer amount.');
+              return;
+            }
 
-              // Reload
-              const [updatedDeal, updatedMessages] = await Promise.all([
-                getDealById(dealId),
-                getMessages(dealId),
-              ]);
-              setDeal(updatedDeal);
-              setMessages(updatedMessages);
+            setActionLoading('offer');
+            try {
+              const success = await makeOffer(dealId, numAmount, user.id);
+              if (success) {
+                // Reload
+                const [updatedDeal, updatedMessages] = await Promise.all([
+                  getDealById(dealId),
+                  getMessages(dealId),
+                ]);
+                setDeal(updatedDeal);
+                setMessages(updatedMessages);
+              } else {
+                Alert.alert('Error', 'Failed to submit offer. Please try again.');
+              }
+            } catch (error) {
+              console.error('Error making offer:', error);
+              Alert.alert('Error', 'Something went wrong. Please try again.');
+            } finally {
+              setActionLoading(null);
             }
           },
         },
@@ -305,8 +428,16 @@ export default function DealChatScreen({ navigation, route }: Props) {
                     From {deal.last_offer_by === deal.buyer_id ? 'buyer' : 'seller'}
                   </Text>
                 </View>
-                <Pressable style={styles.acceptBtn} onPress={handleAcceptOffer}>
-                  <Text style={styles.acceptBtnText}>Accept ${deal.current_offer}</Text>
+                <Pressable
+                  style={[styles.acceptBtn, actionLoading === 'accept' && styles.btnLoading]}
+                  onPress={handleAcceptOffer}
+                  disabled={actionLoading === 'accept'}
+                >
+                  {actionLoading === 'accept' ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.acceptBtnText}>Accept ${deal.current_offer}</Text>
+                  )}
                 </Pressable>
               </View>
             );
@@ -334,8 +465,16 @@ export default function DealChatScreen({ navigation, route }: Props) {
                   No offer yet
                 </Text>
               </View>
-              <Pressable style={styles.offerBtn} onPress={handleMakeOffer}>
-                <Text style={styles.offerBtnText}>Make Offer</Text>
+              <Pressable
+                style={[styles.offerBtn, actionLoading === 'offer' && styles.btnLoading]}
+                onPress={handleMakeOffer}
+                disabled={actionLoading === 'offer'}
+              >
+                {actionLoading === 'offer' ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.offerBtnText}>Make Offer</Text>
+                )}
               </Pressable>
             </View>
           );
@@ -349,11 +488,19 @@ export default function DealChatScreen({ navigation, route }: Props) {
                 Agreed: ${deal.agreed_price}
               </Text>
               <Text variant="body" size="xs" color="secondary">
-                Ready to schedule pickup
+                Ready to finalize schedule
               </Text>
             </View>
-            <Pressable style={styles.finalizeBtn} onPress={handleFinalizeDeal}>
-              <Text style={styles.finalizeBtnText}>Schedule Pickup</Text>
+            <Pressable
+              style={[styles.finalizeBtn, actionLoading === 'schedule' && styles.btnLoading]}
+              onPress={handleFinalizeDeal}
+              disabled={actionLoading === 'schedule'}
+            >
+              {actionLoading === 'schedule' ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.finalizeBtnText}>Finalize Schedule</Text>
+              )}
             </Pressable>
           </View>
         );
@@ -371,8 +518,16 @@ export default function DealChatScreen({ navigation, route }: Props) {
                 </Text>
               )}
             </View>
-            <Pressable style={styles.completeBtn} onPress={handleMarkComplete}>
-              <Text style={styles.completeBtnText}>Mark Complete</Text>
+            <Pressable
+              style={[styles.completeBtn, actionLoading === 'complete' && styles.btnLoading]}
+              onPress={handleMarkComplete}
+              disabled={actionLoading === 'complete'}
+            >
+              {actionLoading === 'complete' ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.completeBtnText}>Mark Complete</Text>
+              )}
             </Pressable>
           </View>
         );
@@ -427,16 +582,25 @@ export default function DealChatScreen({ navigation, route }: Props) {
           <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
             <Text size="xl">←</Text>
           </Pressable>
-          <View style={styles.headerInfo}>
-            <Text variant="headingMedium" size="heading3" numberOfLines={1}>
-              {deal.status === 'completed' || deal.status === 'logistics' || deal.status === 'agreed'
-                ? itemTitle
-                : 'Anonymous'}
-            </Text>
-            <Badge variant={isSelling ? 'warning' : 'purple'}>
-              {isSelling ? 'Selling' : 'Buying'}
-            </Badge>
-          </View>
+          {isAccepted ? (
+            <View style={styles.headerInfo}>
+              <Text variant="headingMedium" size="heading3" numberOfLines={1}>
+                {counterpartyName}
+              </Text>
+              <Badge variant={isSelling ? 'warning' : 'purple'}>
+                {isSelling ? 'Selling' : 'Buying'}
+              </Badge>
+            </View>
+          ) : (
+            <View style={styles.headerInfo}>
+              <Text variant="headingMedium" size="heading3" numberOfLines={1}>
+                Anonymous
+              </Text>
+              <Badge variant={isSelling ? 'warning' : 'purple'}>
+                {isSelling ? 'Selling' : 'Buying'}
+              </Badge>
+            </View>
+          )}
         </View>
 
         {/* Timestamp */}
@@ -477,7 +641,7 @@ export default function DealChatScreen({ navigation, route }: Props) {
           </Badge>
         </View>
 
-        {/* Messages */}
+        {/* Messages - all messages are scrollable */}
         <ScrollView
           ref={scrollViewRef}
           style={styles.messagesContainer}
@@ -529,6 +693,90 @@ export default function DealChatScreen({ navigation, route }: Props) {
           </Pressable>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Schedule Modal */}
+      <Modal
+        visible={showScheduleModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowScheduleModal(false)}
+      >
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Pressable onPress={() => setShowScheduleModal(false)} style={styles.modalCloseBtn}>
+              <Text size="xl">✕</Text>
+            </Pressable>
+            <Text variant="headingMedium" size="lg" style={styles.modalTitle}>
+              Schedule Pickup
+            </Text>
+            <View style={styles.modalCloseBtn} />
+          </View>
+
+          <ScrollView style={styles.modalContent}>
+            {/* Quick Time Selection */}
+            <View style={styles.scheduleSection}>
+              <Text variant="bodyMedium" size="md" style={styles.scheduleSectionTitle}>
+                When are you available?
+              </Text>
+              <Text variant="body" size="sm" color="muted" style={styles.scheduleSectionDesc}>
+                Select all times that work for you
+              </Text>
+
+              <View style={styles.timeOptionsGrid}>
+                {suggestedTimes.map((time) => (
+                  <Pressable
+                    key={time}
+                    style={[
+                      styles.timeOption,
+                      selectedTimes.includes(time) && styles.timeOptionSelected,
+                    ]}
+                    onPress={() => handleTimeSelect(time)}
+                  >
+                    <Text
+                      variant="body"
+                      size="sm"
+                      style={selectedTimes.includes(time) ? styles.timeOptionTextSelected : undefined}
+                    >
+                      {time}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+
+            {/* Additional Notes */}
+            <View style={styles.scheduleSection}>
+              <Text variant="bodyMedium" size="md" style={styles.scheduleSectionTitle}>
+                Additional notes (optional)
+              </Text>
+              <TextInput
+                style={styles.scheduleNoteInput}
+                value={scheduleNote}
+                onChangeText={setScheduleNote}
+                placeholder="e.g., Meet at Science Center..."
+                placeholderTextColor={colors.textMuted}
+                multiline
+                numberOfLines={3}
+              />
+            </View>
+          </ScrollView>
+
+          <View style={styles.modalFooter}>
+            <Pressable
+              style={[
+                styles.submitScheduleBtn,
+                selectedTimes.length === 0 && styles.submitScheduleBtnDisabled,
+              ]}
+              onPress={handleSubmitSchedule}
+              disabled={selectedTimes.length === 0}
+            >
+              <Text style={styles.submitScheduleBtnText}>
+                Finalize Schedule
+              </Text>
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -841,5 +1089,100 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: {
     opacity: 0.5,
+  },
+  btnLoading: {
+    opacity: 0.7,
+  },
+  // Schedule Modal styles
+  modalContainer: {
+    flex: 1,
+    backgroundColor: colors.bg,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  modalCloseBtn: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalTitle: {
+    flex: 1,
+    textAlign: 'center',
+  },
+  modalContent: {
+    flex: 1,
+    paddingHorizontal: spacing.lg,
+  },
+  modalFooter: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    backgroundColor: colors.bg,
+  },
+  scheduleSection: {
+    marginTop: spacing.xl,
+  },
+  scheduleSectionTitle: {
+    marginBottom: spacing.xs,
+  },
+  scheduleSectionDesc: {
+    marginBottom: spacing.md,
+  },
+  timeOptionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  timeOption: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+  },
+  timeOptionSelected: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  timeOptionTextSelected: {
+    color: '#FFFFFF',
+  },
+  scheduleNoteInput: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    fontSize: typography.sizes.md,
+    fontFamily: typography.fonts.body,
+    color: colors.textPrimary,
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  submitScheduleBtn: {
+    backgroundColor: colors.success,
+    borderRadius: radius.pill,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  submitScheduleBtnDisabled: {
+    opacity: 0.5,
+  },
+  submitScheduleBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

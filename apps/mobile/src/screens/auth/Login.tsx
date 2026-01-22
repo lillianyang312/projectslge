@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -11,7 +11,6 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AuthStackParamList } from '../../navigation/types';
 import { Text, Button, Input } from '../../ui/components';
 import { colors, spacing, radius } from '../../ui/tokens';
-import { useAuthStore } from '../../state/authStore';
 import { supabase } from '../../lib/supabase';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
@@ -20,59 +19,6 @@ export default function LoginScreen({ navigation }: Props) {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [hasSavedCreds, setHasSavedCreds] = useState(false);
-
-  const biometricAvailable = useAuthStore((state) => state.biometricAvailable);
-  const biometricEnabled = useAuthStore((state) => state.biometricEnabled);
-  const biometricType = useAuthStore((state) => state.biometricType);
-  const signInWithBiometric = useAuthStore((state) => state.signInWithBiometric);
-  const hasSavedCredentials = useAuthStore((state) => state.hasSavedCredentials);
-
-  useEffect(() => {
-    const checkCreds = async () => {
-      const hasCreds = await hasSavedCredentials();
-      setHasSavedCreds(hasCreds);
-    };
-    checkCreds();
-  }, []);
-
-  const getBiometricIcon = () => {
-    switch (biometricType) {
-      case 'facial':
-        return '👤';
-      case 'fingerprint':
-        return '👆';
-      default:
-        return '🔐';
-    }
-  };
-
-  const getBiometricLabel = () => {
-    switch (biometricType) {
-      case 'facial':
-        return 'Sign in with Face ID';
-      case 'fingerprint':
-        return 'Sign in with Touch ID';
-      default:
-        return 'Sign in with biometrics';
-    }
-  };
-
-  const handleBiometricLogin = async () => {
-    setLoading(true);
-    setError('');
-
-    try {
-      const { error: authError } = await signInWithBiometric();
-      if (authError) {
-        setError(authError.message);
-      }
-    } catch (err: any) {
-      setError(err.message || 'An error occurred');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const validateHarvardEmail = (emailInput: string): boolean => {
     const harvardDomains = [
@@ -137,8 +83,6 @@ export default function LoginScreen({ navigation }: Props) {
     }
   };
 
-  const showBiometricButton = biometricAvailable && biometricEnabled && hasSavedCreds;
-
   return (
     <SafeAreaView style={styles.screen}>
       <View style={styles.header}>
@@ -168,29 +112,6 @@ export default function LoginScreen({ navigation }: Props) {
             </Text>
           </View>
         ) : null}
-
-        {showBiometricButton && (
-          <>
-            <Pressable
-              style={styles.biometricButton}
-              onPress={handleBiometricLogin}
-              disabled={loading}
-            >
-              <Text style={styles.biometricIcon}>{getBiometricIcon()}</Text>
-              <Text variant="bodyMedium" size="sm">
-                {getBiometricLabel()}
-              </Text>
-            </Pressable>
-
-            <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text variant="body" size="sm" color="muted" style={styles.dividerText}>
-                or use email
-              </Text>
-              <View style={styles.dividerLine} />
-            </View>
-          </>
-        )}
 
         <Input
           label="Harvard email"
@@ -281,33 +202,6 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: colors.danger,
-  },
-  biometricButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    backgroundColor: colors.accentSoft,
-    borderRadius: radius.md,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-    marginBottom: spacing.md,
-  },
-  biometricIcon: {
-    fontSize: 20,
-  },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: spacing.lg,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: colors.border,
-  },
-  dividerText: {
-    paddingHorizontal: spacing.md,
   },
   hint: {
     marginTop: -spacing.sm,

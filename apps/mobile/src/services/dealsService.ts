@@ -94,6 +94,7 @@ export async function expressInterest(
         status: 'negotiating',
         current_offer: maxBid || null,
         last_offer_by: maxBid ? buyerId : null,
+        interested_for: interestedFor || null,
       })
       .select(`
         *,
@@ -238,7 +239,7 @@ export async function getDealsByItemId(itemId: string): Promise<Deal[]> {
 }
 
 /**
- * Get a single deal by ID
+ * Get a single deal by ID with buyer/seller profiles
  */
 export async function getDealById(dealId: string): Promise<Deal | null> {
   try {
@@ -252,6 +253,78 @@ export async function getDealById(dealId: string): Promise<Deal | null> {
       .single();
 
     if (error) throw error;
+    if (!deal) return null;
+
+    // Fetch buyer and seller profiles if deal is accepted (agreed, logistics, or completed)
+    const isAccepted = ['agreed', 'logistics', 'completed'].includes(deal.status);
+
+    if (isAccepted) {
+      console.log('📦 [getDealById] Fetching profiles for accepted deal:', dealId);
+
+      // Fetch both profiles
+      const [buyerResult, sellerResult] = await Promise.all([
+        supabase
+          .from('user_profiles')
+          .select('id, full_name, harvard_email, house, graduation_year')
+          .eq('id', deal.buyer_id)
+          .single(),
+        supabase
+          .from('user_profiles')
+          .select('id, full_name, harvard_email, house, graduation_year')
+          .eq('id', deal.seller_id)
+          .single(),
+      ]);
+
+      console.log('📦 [getDealById] Buyer profile result:', buyerResult.data, buyerResult.error);
+      console.log('📦 [getDealById] Seller profile result:', sellerResult.data, sellerResult.error);
+
+      // Handle buyer profile - if not in user_profiles, try to get email from auth
+      if (buyerResult.data) {
+        const buyerDisplayName = buyerResult.data.full_name ||
+          (buyerResult.data.harvard_email ? buyerResult.data.harvard_email.split('@')[0] : 'Buyer');
+        deal.buyer = {
+          id: buyerResult.data.id,
+          email: buyerResult.data.harvard_email || '',
+          display_name: buyerDisplayName,
+          neighborhood: buyerResult.data.house || undefined,
+          created_at: '',
+        };
+        console.log('✅ [getDealById] Set buyer display_name:', buyerDisplayName);
+      } else {
+        // Buyer profile doesn't exist - set a default with their ID
+        console.log('⚠️ [getDealById] Buyer profile not found, using default');
+        deal.buyer = {
+          id: deal.buyer_id,
+          email: '',
+          display_name: 'Buyer',
+          created_at: '',
+        };
+      }
+
+      // Handle seller profile - if not in user_profiles, use default
+      if (sellerResult.data) {
+        const sellerDisplayName = sellerResult.data.full_name ||
+          (sellerResult.data.harvard_email ? sellerResult.data.harvard_email.split('@')[0] : 'Seller');
+        deal.seller = {
+          id: sellerResult.data.id,
+          email: sellerResult.data.harvard_email || '',
+          display_name: sellerDisplayName,
+          neighborhood: sellerResult.data.house || undefined,
+          created_at: '',
+        };
+        console.log('✅ [getDealById] Set seller display_name:', sellerDisplayName);
+      } else {
+        // Seller profile doesn't exist - set a default with their ID
+        console.log('⚠️ [getDealById] Seller profile not found, using default');
+        deal.seller = {
+          id: deal.seller_id,
+          email: '',
+          display_name: 'Seller',
+          created_at: '',
+        };
+      }
+    }
+
     return deal;
   } catch (error) {
     console.error('Error getting deal:', error);
@@ -260,7 +333,7 @@ export async function getDealById(dealId: string): Promise<Deal | null> {
 }
 
 /**
- * Make an offer on a deal
+ * Make an offer on a deal and notify competing buyers if outbid
  */
 export async function makeOffer(
   dealId: string,
@@ -268,6 +341,10 @@ export async function makeOffer(
   userId: string
 ): Promise<boolean> {
   try {
+    // First get the deal to know the item
+    const deal = await getDealById(dealId);
+    if (!deal) return false;
+
     const { error } = await supabase
       .from('deals')
       .update({
@@ -281,10 +358,50 @@ export async function makeOffer(
     // Create message record
     await sendMessage(dealId, userId, `Offered $${amount}`, 'offer', { amount });
 
+    // Notify other buyers who have been outbid
+    await notifyOutbidBuyers(deal.item_id, dealId, amount);
+
     return true;
   } catch (error) {
     console.error('Error making offer:', error);
     return false;
+  }
+}
+
+/**
+ * Notify other buyers when they've been outbid
+ */
+async function notifyOutbidBuyers(
+  itemId: string,
+  currentDealId: string,
+  newOfferAmount: number
+): Promise<void> {
+  try {
+    // Get all other active deals on this item with lower offers
+    const { data: competingDeals, error } = await supabase
+      .from('deals')
+      .select('id, current_offer, buyer_id')
+      .eq('item_id', itemId)
+      .eq('status', 'negotiating')
+      .neq('id', currentDealId);
+
+    if (error || !competingDeals) return;
+
+    // Notify buyers who have been outbid (their offer is lower)
+    for (const deal of competingDeals) {
+      if (deal.current_offer && deal.current_offer < newOfferAmount) {
+        // Send agent message notifying them they've been outbid
+        await sendAgentMessage(
+          deal.id,
+          `Heads up! Someone just made a higher offer of $${newOfferAmount} on this item. Your current offer is $${deal.current_offer}. Would you like to raise your offer to stay competitive?`,
+          { outbidNotification: true, competingOffer: newOfferAmount }
+        );
+        console.log(`[dealsService] Notified buyer ${deal.buyer_id} they were outbid`);
+      }
+    }
+  } catch (error) {
+    console.error('Error notifying outbid buyers:', error);
+    // Don't fail the main operation if notification fails
   }
 }
 
@@ -315,11 +432,26 @@ export async function acceptOffer(dealId: string, userId: string): Promise<boole
       'system'
     );
 
+    // Get seller's scheduling info
+    const sellerInfo = await getUserSchedulingInfo(deal.seller_id);
+
+    // Build agent message with seller info if available
+    let agentMsg = `Deal agreed at $${deal.current_offer}! Now let's arrange logistics.\n\n`;
+
+    if (sellerInfo) {
+      if (sellerInfo.dormLocation) {
+        agentMsg += `📍 Seller's preferred meetup: ${sellerInfo.dormLocation}\n`;
+      }
+      if (sellerInfo.paymentPreference) {
+        agentMsg += `💳 Seller accepts: ${sellerInfo.paymentPreference.split(',').join(', ')}\n`;
+      }
+      if (sellerInfo.dormLocation || sellerInfo.paymentPreference) {
+        agentMsg += `\nSeller, please confirm if this location and payment method are still preferred for this transaction.`;
+      }
+    }
+
     // Create agent message
-    await sendAgentMessage(
-      dealId,
-      `Deal agreed at $${deal.current_offer}! Now let's arrange logistics.`
-    );
+    await sendAgentMessage(dealId, agentMsg);
 
     return true;
   } catch (error) {
@@ -542,6 +674,7 @@ export async function getQuestionsForItem(itemId: string): Promise<ItemQuestion[
 
 /**
  * Get deals with expiration info for a specific item
+ * Includes buyer profiles for accepted deals
  */
 export async function getDealsWithExpiration(itemId: string): Promise<Deal[]> {
   try {
@@ -549,15 +682,64 @@ export async function getDealsWithExpiration(itemId: string): Promise<Deal[]> {
       .from('deals')
       .select(`
         *,
-        item:items(*),
-        buyer:profiles!deals_buyer_id_fkey(id, display_name)
+        item:items(*)
       `)
       .eq('item_id', itemId)
       .not('status', 'eq', 'cancelled')
       .order('updated_at', { ascending: false });
 
     if (error) throw error;
-    return deals || [];
+    if (!deals) return [];
+
+    // Fetch buyer profiles for accepted deals
+    const acceptedDeals = deals.filter(d => ['agreed', 'logistics', 'completed'].includes(d.status));
+    if (acceptedDeals.length > 0) {
+      const buyerIds = acceptedDeals.map(d => d.buyer_id);
+      console.log('📦 [getDealsWithExpiration] Fetching buyer profiles for IDs:', buyerIds);
+
+      const { data: buyerProfiles, error: profileError } = await supabase
+        .from('user_profiles')
+        .select('id, full_name, harvard_email, house')
+        .in('id', buyerIds);
+
+      if (profileError) {
+        console.error('❌ [getDealsWithExpiration] Error fetching buyer profiles:', profileError);
+      }
+
+      console.log('📦 [getDealsWithExpiration] Fetched buyer profiles:', buyerProfiles);
+
+      const profileMap = new Map(buyerProfiles?.map(p => [p.id, p]) || []);
+      for (const deal of deals) {
+        if (['agreed', 'logistics', 'completed'].includes(deal.status)) {
+          const profile = profileMap.get(deal.buyer_id);
+          console.log('📦 [getDealsWithExpiration] Mapping profile for deal:', deal.id, 'buyer:', deal.buyer_id, 'profile:', profile);
+          if (profile) {
+            // Use full_name if available, fallback to email prefix or 'Buyer'
+            const displayName = profile.full_name ||
+              (profile.harvard_email ? profile.harvard_email.split('@')[0] : 'Buyer');
+            deal.buyer = {
+              id: profile.id,
+              email: profile.harvard_email || '',
+              display_name: displayName,
+              neighborhood: profile.house || undefined,
+              created_at: '',
+            };
+            console.log('✅ [getDealsWithExpiration] Set buyer display_name:', displayName);
+          } else {
+            // Buyer profile doesn't exist - set a default
+            console.log('⚠️ [getDealsWithExpiration] Buyer profile not found for:', deal.buyer_id);
+            deal.buyer = {
+              id: deal.buyer_id,
+              email: '',
+              display_name: 'Buyer',
+              created_at: '',
+            };
+          }
+        }
+      }
+    }
+
+    return deals;
   } catch (error) {
     console.error('Error getting deals with expiration:', error);
     return [];
@@ -577,6 +759,163 @@ export async function replyToQuestion(
     return true;
   } catch (error) {
     console.error('Error replying to question:', error);
+    return false;
+  }
+}
+
+/**
+ * Get top bid info for multiple items at once
+ * Returns a map of itemId -> { topBid, interestedCount, bidStatus }
+ */
+export async function getTopBidsForItems(
+  itemIds: string[],
+  minPrices?: Record<string, number | undefined>,
+  estimatedMaxPrices?: Record<string, number | undefined>
+): Promise<Record<string, { topBid: number | undefined; interestedCount: number; bidStatus: 'accept' | 'consider' | 'low' | undefined }>> {
+  if (itemIds.length === 0) return {};
+
+  try {
+    const { data: deals, error } = await supabase
+      .from('deals')
+      .select('item_id, current_offer, status')
+      .in('item_id', itemIds)
+      .not('status', 'eq', 'cancelled');
+
+    if (error) throw error;
+
+    const result: Record<string, { topBid: number | undefined; interestedCount: number; bidStatus: 'accept' | 'consider' | 'low' | undefined }> = {};
+
+    // Initialize all items with default values
+    for (const itemId of itemIds) {
+      result[itemId] = { topBid: undefined, interestedCount: 0, bidStatus: undefined };
+    }
+
+    // Group deals by item and calculate top bid
+    for (const deal of deals || []) {
+      const itemId = deal.item_id;
+      if (!result[itemId]) {
+        result[itemId] = { topBid: undefined, interestedCount: 0, bidStatus: undefined };
+      }
+
+      result[itemId].interestedCount++;
+
+      if (deal.current_offer) {
+        const currentOffer = deal.current_offer;
+        if (!result[itemId].topBid || currentOffer > result[itemId].topBid!) {
+          result[itemId].topBid = currentOffer;
+
+          // Determine bid status based on min price and estimated max
+          const minPrice = minPrices?.[itemId];
+          const estimatedMax = estimatedMaxPrices?.[itemId];
+
+          if (minPrice && currentOffer >= minPrice) {
+            // Bid is at or above minimum price - great!
+            if (estimatedMax && currentOffer >= estimatedMax * 0.9) {
+              result[itemId].bidStatus = 'accept'; // Within 90% of max estimate
+            } else {
+              result[itemId].bidStatus = 'consider';
+            }
+          } else if (minPrice && currentOffer < minPrice) {
+            result[itemId].bidStatus = 'low';
+          } else {
+            // No min price set - use estimated value to determine
+            if (estimatedMax && currentOffer >= estimatedMax * 0.8) {
+              result[itemId].bidStatus = 'accept';
+            } else if (estimatedMax && currentOffer >= estimatedMax * 0.5) {
+              result[itemId].bidStatus = 'consider';
+            } else {
+              result[itemId].bidStatus = 'low';
+            }
+          }
+        }
+      }
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Error getting top bids for items:', error);
+    return {};
+  }
+}
+
+/**
+ * User profile info for scheduling coordination
+ */
+export interface UserSchedulingInfo {
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  dormLocation: string | null;
+  paymentPreference: string | null;
+  house: string | null;
+}
+
+/**
+ * Get user profile info for scheduling coordination
+ */
+export async function getUserSchedulingInfo(userId: string): Promise<UserSchedulingInfo | null> {
+  try {
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .select('full_name, first_name, last_name, dorm_location, payment_preference, house')
+      .eq('id', userId)
+      .single();
+
+    if (error || !data) {
+      console.error('Error fetching user scheduling info:', error);
+      return null;
+    }
+
+    return {
+      firstName: data.first_name || data.full_name?.split(' ')[0] || 'User',
+      lastName: data.last_name || data.full_name?.split(' ').slice(1).join(' ') || '',
+      fullName: data.full_name || 'User',
+      dormLocation: data.dorm_location,
+      paymentPreference: data.payment_preference,
+      house: data.house,
+    };
+  } catch (error) {
+    console.error('Error getting user scheduling info:', error);
+    return null;
+  }
+}
+
+/**
+ * Mark a deal as read by the current user
+ * Updates the appropriate last_read_at field based on whether user is buyer or seller
+ */
+export async function markDealAsRead(dealId: string, userId: string): Promise<boolean> {
+  try {
+    // First, get the deal to determine if user is buyer or seller
+    const { data: deal, error: fetchError } = await supabase
+      .from('deals')
+      .select('buyer_id, seller_id')
+      .eq('id', dealId)
+      .single();
+
+    if (fetchError || !deal) {
+      console.error('Error fetching deal for read marking:', fetchError);
+      return false;
+    }
+
+    const now = new Date().toISOString();
+    const updateField = deal.buyer_id === userId
+      ? { buyer_last_read_at: now }
+      : { seller_last_read_at: now };
+
+    const { error: updateError } = await supabase
+      .from('deals')
+      .update(updateField)
+      .eq('id', dealId);
+
+    if (updateError) {
+      console.error('Error marking deal as read:', updateError);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error in markDealAsRead:', error);
     return false;
   }
 }

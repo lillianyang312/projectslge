@@ -9,6 +9,7 @@ import DealsHomeScreen from '../../screens/deals/DealsHome';
 import DealDetailScreen from '../../screens/deals/DealDetail';
 import OfferScreen from '../../screens/deals/Offer';
 import DealChatScreen from '../../screens/deals/DealChat';
+import UserProfileScreen from '../../screens/deals/UserProfile';
 import PickupDetailsScreen from '../../screens/logistics/PickupDetails';
 import ShippingScreen from '../../screens/logistics/Shipping';
 import ConversationsListScreen from '../../screens/chat/ConversationsList';
@@ -38,6 +39,7 @@ export default function DealsStack() {
       <Stack.Screen name="DealDetail" component={DealDetailScreen} />
       <Stack.Screen name="Offer" component={OfferScreen} />
       <Stack.Screen name="DealChat" component={DealChatScreen} />
+      <Stack.Screen name="Profile" component={UserProfileScreen} />
       <Stack.Screen name="PickupDetails" component={PickupDetailsScreen} />
       <Stack.Screen name="Shipping" component={ShippingScreen} />
       <Stack.Screen name="Conversations" component={ConversationsListScreen} />

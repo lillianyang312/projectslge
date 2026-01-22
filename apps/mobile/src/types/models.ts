@@ -83,6 +83,9 @@ export interface Deal {
   tracking_number?: string;
   expires_at?: string;
   is_question?: boolean;
+  interested_for?: string; // '1 week', '2 weeks', '1 month', 'Flexible'
+  buyer_last_read_at?: string;
+  seller_last_read_at?: string;
   created_at: string;
   updated_at: string;
 

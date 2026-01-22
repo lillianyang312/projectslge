@@ -1,5 +1,8 @@
 import { supabase } from '../lib/supabase';
 
+// Item status types
+export type ItemStatus = 'active' | 'sold' | 'removed';
+
 // Types matching the Supabase schema
 export interface Item {
   id: string;
@@ -11,6 +14,8 @@ export interface Item {
   estimated_value_min?: number;
   estimated_value_max?: number;
   min_price?: number;
+  notes?: string;
+  status?: ItemStatus;
   created_at: string;
 }
 
@@ -22,6 +27,7 @@ export interface CreateItemInput {
   estimated_value_min?: number;
   estimated_value_max?: number;
   min_price?: number;
+  notes?: string;
 }
 
 export interface UpdateItemInput {
@@ -32,6 +38,8 @@ export interface UpdateItemInput {
   estimated_value_min?: number;
   estimated_value_max?: number;
   min_price?: number;
+  notes?: string;
+  status?: ItemStatus;
 }
 
 /**
@@ -58,6 +66,7 @@ export async function createItem(input: CreateItemInput): Promise<{ data: Item |
         estimated_value_min: input.estimated_value_min,
         estimated_value_max: input.estimated_value_max,
         min_price: input.min_price,
+        notes: input.notes,
       })
       .select()
       .single();
@@ -196,6 +205,7 @@ export async function getAllItems(): Promise<{ data: Item[]; error: string | nul
     let query = supabase
       .from('items')
       .select('*')
+      .or('status.is.null,status.eq.active') // Only show active items
       .order('created_at', { ascending: false });
 
     // If user is logged in, exclude their own items
@@ -214,6 +224,153 @@ export async function getAllItems(): Promise<{ data: Item[]; error: string | nul
   } catch (err: any) {
     console.error('Error fetching all items:', err);
     return { data: [], error: err.message };
+  }
+}
+
+/**
+ * Get active items for the current user
+ */
+export async function getMyActiveItems(): Promise<{ data: Item[]; error: string | null }> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return { data: [], error: 'User not authenticated' };
+    }
+
+    const { data, error } = await supabase
+      .from('items')
+      .select('*')
+      .eq('owner_id', user.id)
+      .or('status.is.null,status.eq.active')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching active items:', error);
+      return { data: [], error: error.message };
+    }
+
+    return { data: data || [], error: null };
+  } catch (err: any) {
+    console.error('Error fetching active items:', err);
+    return { data: [], error: err.message };
+  }
+}
+
+/**
+ * Get sold/removed items for the current user (Gone section)
+ */
+export async function getMyGoneItems(): Promise<{ data: Item[]; error: string | null }> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return { data: [], error: 'User not authenticated' };
+    }
+
+    const { data, error } = await supabase
+      .from('items')
+      .select('*')
+      .eq('owner_id', user.id)
+      .in('status', ['sold', 'removed'])
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching gone items:', error);
+      return { data: [], error: error.message };
+    }
+
+    return { data: data || [], error: null };
+  } catch (err: any) {
+    console.error('Error fetching gone items:', err);
+    return { data: [], error: err.message };
+  }
+}
+
+/**
+ * Mark an item as sold
+ */
+export async function markItemAsSold(id: string): Promise<{ error: string | null }> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return { error: 'User not authenticated' };
+    }
+
+    const { error } = await supabase
+      .from('items')
+      .update({ status: 'sold' })
+      .eq('id', id)
+      .eq('owner_id', user.id);
+
+    if (error) {
+      console.error('Error marking item as sold:', error);
+      return { error: error.message };
+    }
+
+    return { error: null };
+  } catch (err: any) {
+    console.error('Error marking item as sold:', err);
+    return { error: err.message };
+  }
+}
+
+/**
+ * Mark an item as removed (no longer have it)
+ */
+export async function markItemAsRemoved(id: string): Promise<{ error: string | null }> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return { error: 'User not authenticated' };
+    }
+
+    const { error } = await supabase
+      .from('items')
+      .update({ status: 'removed' })
+      .eq('id', id)
+      .eq('owner_id', user.id);
+
+    if (error) {
+      console.error('Error marking item as removed:', error);
+      return { error: error.message };
+    }
+
+    return { error: null };
+  } catch (err: any) {
+    console.error('Error marking item as removed:', err);
+    return { error: err.message };
+  }
+}
+
+/**
+ * Restore an item back to active status
+ */
+export async function restoreItem(id: string): Promise<{ error: string | null }> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return { error: 'User not authenticated' };
+    }
+
+    const { error } = await supabase
+      .from('items')
+      .update({ status: 'active' })
+      .eq('id', id)
+      .eq('owner_id', user.id);
+
+    if (error) {
+      console.error('Error restoring item:', error);
+      return { error: error.message };
+    }
+
+    return { error: null };
+  } catch (err: any) {
+    console.error('Error restoring item:', err);
+    return { error: err.message };
   }
 }
 

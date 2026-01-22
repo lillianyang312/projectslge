@@ -32,6 +32,7 @@ interface InboxConversation {
   time: string;
   timeMs: number;
   isUnread: boolean;
+  hasNewBid?: boolean; // For sellers with new bids (orange notification, not action needed)
   isAgent: boolean;
   type: 'selling' | 'buying';
   status: string;
@@ -116,20 +117,40 @@ export default function InboxHomeScreen({ navigation }: Props) {
             imageUrl = (await getSignedUrlCached(firstPhotoPath)) || undefined;
           }
 
+          // Check if user has read the latest messages
+          const userLastRead = isSelling ? deal.seller_last_read_at : deal.buyer_last_read_at;
+          const lastMessageTime = lastMessage?.created_at;
+          const hasUnreadMessages = lastMessageTime && (!userLastRead || new Date(lastMessageTime) > new Date(userLastRead));
+
           // Determine badge
+          // "Action needed" only when:
+          // 1. Pending sale (agreed/logistics) - both parties need to coordinate
+          // 2. Buying and there's an offer from seller to respond to
+          // For sellers receiving bids during negotiation, show "New bid" instead
+          // Badges disappear once the chat has been read
           let badge: InboxConversation['badge'];
-          if (deal.status === 'negotiating') {
-            if (deal.current_offer && deal.last_offer_by !== user.id) {
-              badge = { label: 'Action needed', variant: 'danger' };
-            } else if (isSelling) {
-              badge = { label: 'Selling', variant: 'success' };
+          if (deal.status === 'agreed' || deal.status === 'logistics') {
+            // Pending sale - action needed for scheduling/completion
+            badge = { label: 'Action needed', variant: 'danger' };
+          } else if (deal.status === 'negotiating') {
+            if (isSelling) {
+              // Seller: if there's an offer from buyer and not yet read, show "New bid"
+              if (deal.current_offer && deal.last_offer_by === deal.buyer_id && hasUnreadMessages) {
+                badge = { label: 'New bid', variant: 'warning' };
+              } else {
+                badge = { label: 'Selling', variant: 'success' };
+              }
             } else {
-              badge = { label: 'Buying', variant: 'blue' };
+              // Buyer: if seller made a counter-offer and not yet read, that's action needed
+              if (deal.current_offer && deal.last_offer_by === deal.seller_id && hasUnreadMessages) {
+                badge = { label: 'Action needed', variant: 'danger' };
+              } else if (deal.current_offer && deal.last_offer_by === user.id) {
+                // Buyer made an offer, waiting for seller
+                badge = { label: 'Bid sent', variant: 'blue' };
+              } else {
+                badge = { label: 'Buying', variant: 'blue' };
+              }
             }
-          } else if (deal.status === 'agreed') {
-            badge = { label: 'Agreed', variant: 'purple' };
-          } else if (deal.status === 'logistics') {
-            badge = { label: 'Scheduling', variant: 'warning' };
           } else if (deal.status === 'completed') {
             badge = { label: 'Complete', variant: 'success' };
           } else {
@@ -140,6 +161,10 @@ export default function InboxHomeScreen({ navigation }: Props) {
 
           const updatedAt = lastMessage?.created_at || deal.updated_at;
 
+          // Determine if conversation needs attention (for "Needs Response" section)
+          // Only action-needed items go here, not just any new bid
+          const needsAction = badge?.variant === 'danger';
+
           return {
             id: deal.id,
             dealId: deal.id,
@@ -148,7 +173,8 @@ export default function InboxHomeScreen({ navigation }: Props) {
             preview: lastMessage?.content || 'No messages yet',
             time: formatTimeAgo(updatedAt),
             timeMs: new Date(updatedAt).getTime(),
-            isUnread: deal.status === 'negotiating' && deal.last_offer_by !== user.id && !!deal.current_offer,
+            isUnread: needsAction, // Only truly action-needed items are "unread"
+            hasNewBid: badge?.label === 'New bid', // Track new bids separately
             isAgent: lastMessage?.is_agent || false,
             type: isSelling ? 'selling' : 'buying',
             status: deal.status,
@@ -189,9 +215,14 @@ export default function InboxHomeScreen({ navigation }: Props) {
 
   // Split into sections
   const filteredConvos = filterConversations(conversations);
-  const needsResponse = filteredConvos.filter(c => c.isUnread || c.badge?.variant === 'danger');
-  const recent = filteredConvos.filter(c => !c.isUnread && c.badge?.variant !== 'danger' && c.timeMs > Date.now() - 24 * 60 * 60 * 1000);
-  const earlier = filteredConvos.filter(c => !c.isUnread && c.badge?.variant !== 'danger' && c.timeMs <= Date.now() - 24 * 60 * 60 * 1000);
+  // Action needed: pending sales (agreed/logistics) or counter-offers to buyers
+  const needsResponse = filteredConvos.filter(c => c.isUnread);
+  // New bids: sellers with new offers (shows in separate section with orange indicator)
+  const newBids = filteredConvos.filter(c => !c.isUnread && c.hasNewBid);
+  // Recent: everything else from last 24h
+  const recent = filteredConvos.filter(c => !c.isUnread && !c.hasNewBid && c.timeMs > Date.now() - 24 * 60 * 60 * 1000);
+  // Earlier: older items
+  const earlier = filteredConvos.filter(c => !c.isUnread && !c.hasNewBid && c.timeMs <= Date.now() - 24 * 60 * 60 * 1000);
 
   const filters: { value: FilterType; label: string }[] = [
     { value: 'all', label: 'All' },
@@ -342,13 +373,23 @@ export default function InboxHomeScreen({ navigation }: Props) {
             </View>
           ) : (
             <>
-              {/* Needs Response Section */}
+              {/* Needs Response Section - pending sales and counter-offers */}
               {needsResponse.length > 0 && (
                 <>
                   <Text variant="bodyMedium" size="xs" color="muted" style={styles.sectionHeader}>
-                    ⏰ NEEDS RESPONSE
+                    ⏰ ACTION NEEDED
                   </Text>
                   {needsResponse.map(renderConversation)}
+                </>
+              )}
+
+              {/* New Bids Section - for sellers with new incoming bids */}
+              {newBids.length > 0 && (
+                <>
+                  <Text variant="bodyMedium" size="xs" color="muted" style={styles.sectionHeader}>
+                    💰 NEW BIDS
+                  </Text>
+                  {newBids.map(renderConversation)}
                 </>
               )}
 

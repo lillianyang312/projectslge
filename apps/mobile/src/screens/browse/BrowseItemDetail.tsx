@@ -8,7 +8,12 @@ import {
   Image,
   Alert,
   ActivityIndicator,
+  Modal,
+  Dimensions,
+  StatusBar,
 } from 'react-native';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
@@ -74,6 +79,7 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [showFullscreenPhoto, setShowFullscreenPhoto] = useState(false);
 
   // Fetch item data from Supabase
   useEffect(() => {
@@ -98,17 +104,16 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
         emoji: '📦',
         title: supabaseItem.title,
         category: supabaseItem.category,
-        distance: '~1 mi away',
         marketEstimate: supabaseItem.estimated_value_min && supabaseItem.estimated_value_max
           ? `$${supabaseItem.estimated_value_min} – $${supabaseItem.estimated_value_max}`
           : '$50 – $150',
         condition: supabaseItem.condition || 'Good',
-        description: '',
+        notes: supabaseItem.notes || '',
         minPrice: supabaseItem.min_price,
         estimatedValueMax: supabaseItem.estimated_value_max,
         imageUri: imageUrl,
       }
-    : { ...demoItem, minPrice: undefined as number | undefined, estimatedValueMax: undefined as number | undefined, imageUri: null as string | null };
+    : { ...demoItem, minPrice: undefined as number | undefined, estimatedValueMax: undefined as number | undefined, imageUri: null as string | null, notes: demoItem.description };
 
   // Calculate the likely offer range the seller will accept
   const getLikelyOfferRange = () => {
@@ -128,9 +133,15 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
       return;
     }
 
+    const bidAmount = maxBid ? parseInt(maxBid.replace(/[^0-9]/g, ''), 10) : undefined;
+
+    if (!bidAmount || bidAmount <= 0) {
+      Alert.alert('Bid Required', 'Please enter a bid amount to express interest');
+      return;
+    }
+
     setSubmitting(true);
     try {
-      const bidAmount = maxBid ? parseInt(maxBid.replace(/[^0-9]/g, ''), 10) : undefined;
 
       console.log('📤 Submitting bid:', { itemId, bidAmount, interestedFor });
 
@@ -149,9 +160,7 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
       if (deal) {
         Alert.alert(
           'Success!',
-          bidAmount
-            ? `Your bid of $${bidAmount} has been submitted. The seller will be notified.`
-            : 'Your interest has been submitted. Consider adding a price to get the seller\'s attention!',
+          `Your bid of $${bidAmount} has been submitted. The seller will be notified.`,
           [
             {
               text: 'View Deals',
@@ -251,10 +260,10 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
               </View>
             </Card>
 
-            {/* Max Bid - Compact */}
+            {/* Bid - Compact */}
             <View style={styles.compactInputGroup}>
               <Text variant="body" size="sm" color="secondary" style={styles.compactLabel}>
-                Max bid (optional)
+                Your bid
               </Text>
               <Input
                 placeholder="$0"
@@ -264,7 +273,7 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
                 style={styles.compactInput}
               />
               <Text variant="body" size="xs" color="muted" style={styles.compactHint}>
-                Including a price makes sellers more likely to respond
+                Enter the price you're willing to pay
               </Text>
             </View>
 
@@ -302,7 +311,7 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
 
           {/* Buttons at bottom */}
           <View style={styles.compactButtonArea}>
-            <Button variant="primary" onPress={handleSendInterest} disabled={submitting}>
+            <Button variant="primary" onPress={handleSendInterest} disabled={submitting || !maxBid}>
               {submitting ? 'Submitting...' : 'Submit bid'}
             </Button>
             <Button variant="secondary" onPress={handleAskQuestion} disabled={submitting}>
@@ -316,6 +325,35 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
 
   return (
     <SafeAreaView style={styles.screen}>
+      {/* Fullscreen Photo Modal */}
+      <Modal
+        visible={showFullscreenPhoto}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowFullscreenPhoto(false)}
+        statusBarTranslucent
+      >
+        <StatusBar backgroundColor="rgba(0,0,0,0.95)" barStyle="light-content" />
+        <View style={styles.fullscreenModal}>
+          <Pressable
+            style={styles.fullscreenCloseArea}
+            onPress={() => setShowFullscreenPhoto(false)}
+          >
+            <Image
+              source={{ uri: itemData.imageUri || '' }}
+              style={styles.fullscreenImage}
+              resizeMode="contain"
+            />
+          </Pressable>
+          <Pressable
+            style={styles.fullscreenCloseButton}
+            onPress={() => setShowFullscreenPhoto(false)}
+          >
+            <Text style={styles.fullscreenCloseText}>✕</Text>
+          </Pressable>
+        </View>
+      </Modal>
+
       {/* Header - outside ScrollView to match Express Interest */}
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
@@ -327,22 +365,37 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Item Image */}
-        <View style={styles.detailImage}>
+        {/* Item Image - Tappable for fullscreen */}
+        <Pressable
+          style={styles.detailImage}
+          onPress={() => itemData.imageUri && setShowFullscreenPhoto(true)}
+        >
           {itemData.imageUri ? (
-            <Image source={{ uri: itemData.imageUri }} style={styles.image} resizeMode="cover" />
+            <>
+              <Image source={{ uri: itemData.imageUri }} style={styles.image} resizeMode="cover" />
+              <View style={styles.tapToExpandHint}>
+                <Text style={styles.tapToExpandText}>Tap to view full photo</Text>
+              </View>
+            </>
           ) : (
             <Text style={styles.imageEmoji}>{itemData.emoji}</Text>
           )}
-        </View>
+        </Pressable>
 
         <Text variant="headingMedium" size="heading3" style={styles.detailTitle}>
           {itemData.title}
         </Text>
 
         <Text variant="body" size="md" color="secondary" style={styles.detailCategory}>
-          {itemData.category} · {itemData.distance}
+          {itemData.category}
         </Text>
+
+        {/* Notes section */}
+        {itemData.notes ? (
+          <Text variant="body" size="md" color="secondary" style={styles.notesText}>
+            {itemData.notes}
+          </Text>
+        ) : null}
 
         {/* Agent Summary */}
         <View style={styles.agentSummary}>
@@ -373,12 +426,6 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
             </Text>
           </View>
         </View>
-
-        {itemData.description ? (
-          <Text variant="body" size="md" color="secondary" style={styles.description}>
-            {itemData.description}
-          </Text>
-        ) : null}
 
         <Button variant="primary" onPress={() => setShowBidForm(true)}>
           Express Interest
@@ -452,9 +499,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  description: {
+  notesText: {
     lineHeight: 22,
-    marginBottom: spacing.xl,
+    marginBottom: spacing.lg,
   },
   itemSummaryCard: {
     marginBottom: spacing.xl,
@@ -592,5 +639,54 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
     backgroundColor: colors.bg,
     gap: spacing.sm,
+  },
+  // Fullscreen photo modal styles
+  fullscreenModal: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullscreenCloseArea: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullscreenImage: {
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT * 0.8,
+  },
+  fullscreenCloseButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullscreenCloseText: {
+    color: '#FFFFFF',
+    fontSize: 24,
+    fontWeight: '300',
+  },
+  tapToExpandHint: {
+    position: 'absolute',
+    bottom: 8,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  tapToExpandText: {
+    fontSize: 11,
+    color: '#FFFFFF',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+    overflow: 'hidden',
   },
 });
