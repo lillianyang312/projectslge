@@ -2,6 +2,11 @@ import { supabase } from '../lib/supabase';
 import { readAsStringAsync } from 'expo-file-system/legacy';
 import { AnalyzeImageRequest, AnalyzeImageResponse } from '../types/analyzeImage';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { useAuthStore } from '../state/authStore';
+import {
+  getSignedUrlCachedInternal,
+  GetSignedUrlCachedOptions,
+} from './signedUrlCache';
 
 const BUCKET_NAME = 'item-images';
 
@@ -111,6 +116,53 @@ export async function getSignedUrl(
     console.error('Error getting signed URL:', error);
     return null;
   }
+}
+
+/**
+ * Get a cached signed URL for a private image.
+ *
+ * - Uses a per-user persisted cache so URLs survive app restarts.
+ * - Returns cached URL immediately when fresh.
+ * - When near expiry, returns cached URL and refreshes in background.
+ * - When expired or missing, blocks until a new URL is fetched.
+ */
+export async function getSignedUrlCached(
+  path: string,
+  options?: GetSignedUrlCachedOptions
+): Promise<string | null> {
+  const ttlSeconds = options?.ttlSeconds ?? 3600;
+  const userId = useAuthStore.getState().user?.id || 'anonymous';
+  const cacheKey = `${BUCKET_NAME}:${path}`;
+
+  return getSignedUrlCachedInternal({
+    key: cacheKey,
+    userScope: userId,
+    ttlSeconds,
+    fetcher: () => getSignedUrl(path, ttlSeconds),
+  });
+}
+
+/**
+ * Prefetch signed URLs for a list of image paths.
+ * Returns a map from path to signed URL (for paths that resolved successfully).
+ */
+export async function prefetchSignedUrls(
+  paths: string[],
+  options?: GetSignedUrlCachedOptions
+): Promise<Record<string, string>> {
+  const uniquePaths = Array.from(new Set(paths.filter(Boolean)));
+  const results: Record<string, string> = {};
+
+  await Promise.all(
+    uniquePaths.map(async (p) => {
+      const url = await getSignedUrlCached(p, options);
+      if (url) {
+        results[p] = url;
+      }
+    })
+  );
+
+  return results;
 }
 
 /**

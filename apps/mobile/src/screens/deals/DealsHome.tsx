@@ -17,7 +17,7 @@ import { useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { getMyDeals } from '../../services/dealsService';
 import { useAuthStore } from '../../state/authStore';
 import { Deal } from '../../types/models';
-import { getSignedUrl } from '../../services/imageService';
+import { getSignedUrlCached } from '../../services/imageService';
 
 type Props = NativeStackScreenProps<DealsStackParamList, 'DealsHome'>;
 type DealsRouteProp = RouteProp<AppTabsParamList, 'Deals'>;
@@ -108,12 +108,12 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
       setDeals(fetchedDeals);
       console.log('✅ [DealsHome] Loaded', fetchedDeals.length, 'deals');
 
-      // Load images for items
+      // Load images for items (using cached signed URLs)
       const newUrls: Record<string, string> = {};
       await Promise.all(
         fetchedDeals.map(async (deal) => {
           if (deal.item?.photos && deal.item.photos.length > 0) {
-            const url = await getSignedUrl(deal.item.photos[0]);
+            const url = await getSignedUrlCached(deal.item.photos[0]);
             if (url) {
               newUrls[deal.id] = url;
             }

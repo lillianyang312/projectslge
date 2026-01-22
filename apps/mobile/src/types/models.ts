@@ -20,6 +20,8 @@ export interface Item {
   image_path: string;
   image_url?: string;
   label: string;
+  title?: string;
+  photos?: string[];
   confidence?: number;
   category?: string;
   description?: string;

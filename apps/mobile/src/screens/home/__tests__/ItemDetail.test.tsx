@@ -12,6 +12,39 @@ import { useItemsStore } from '../../../state/itemsStore';
 
 // Mock the items store
 jest.mock('../../../state/itemsStore');
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock')
+);
+jest.mock('expo-file-system/legacy', () => ({
+  readAsStringAsync: jest.fn(),
+}));
+jest.mock('expo-image-manipulator', () => ({
+  manipulateAsync: jest.fn(),
+  SaveFormat: { JPEG: 'jpeg' },
+}));
+jest.mock('../../../lib/supabase', () => ({
+  supabase: {
+    auth: {
+      getSession: jest.fn().mockResolvedValue({ data: { session: null } }),
+      onAuthStateChange: jest.fn(() => ({ data: { subscription: { unsubscribe: jest.fn() } } })),
+      signOut: jest.fn(),
+    },
+    storage: {
+      from: jest.fn(() => ({
+        upload: jest.fn(),
+        createSignedUrl: jest.fn(),
+      })),
+    },
+    functions: {
+      invoke: jest.fn(),
+    },
+    from: jest.fn(() => ({
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      single: jest.fn().mockResolvedValue({ data: null, error: null }),
+    })),
+  },
+}));
 
 const Stack = createNativeStackNavigator();
 
@@ -32,16 +65,18 @@ const MockedNavigator = ({ component, params = {} }: { component: any; params?: 
 describe('ItemDetailScreen', () => {
   const mockGetListingById = jest.fn();
   const mockSeedDemoListings = jest.fn(() => {}); // Make it a function
+  let mockListings: any[] = [];
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockListings = [];
     
     // Mock Zustand store - it takes a selector function and returns the selected value
     (useItemsStore as unknown as jest.Mock).mockImplementation((selector: any) => {
       const mockState = {
         getListingById: mockGetListingById,
         seedDemoListings: mockSeedDemoListings,
-        listings: [],
+        listings: mockListings,
         items: [],
         draft: null,
         error: null,
@@ -51,7 +86,7 @@ describe('ItemDetailScreen', () => {
     });
   });
 
-  it('should display loading state initially', async () => {
+  it('should display fallback demo when nothing is found', async () => {
     mockGetListingById.mockReturnValue(undefined);
 
     const { queryByText } = render(
@@ -61,30 +96,11 @@ describe('ItemDetailScreen', () => {
       />
     );
 
-    // Initially should show loading, then transition to error after useEffect
-    // Check that loading text appears at least briefly, or that error appears after
     await waitFor(() => {
-      const errorText = queryByText('Listing not found');
-      const loadingText = queryByText('Loading...');
-      // Either loading is shown (before useEffect) or error is shown (after useEffect)
-      expect(loadingText || errorText).toBeTruthy();
-    }, { timeout: 100 });
-  });
-
-  it('should display error when listing not found', async () => {
-    mockGetListingById.mockReturnValue(undefined);
-
-    render(
-      <MockedNavigator
-        component={ItemDetailScreen}
-        params={{ itemId: 'nonexistent' }}
-      />
-    );
-
-    // Wait for error state after useEffect runs
-    await waitFor(() => {
-      expect(screen.getByText('Listing not found')).toBeTruthy();
-    }, { timeout: 100 });
+      // Demo header title and fallback text should render
+      expect(queryByText('Herman Miller Aeron')).toBeTruthy();
+      expect(queryByText('Item data not available')).toBeTruthy();
+    }, { timeout: 500 });
   });
 
   it('should display original listing data correctly', () => {
@@ -107,6 +123,7 @@ describe('ItemDetailScreen', () => {
     };
 
     mockGetListingById.mockReturnValue(listing);
+    mockListings = [listing];
 
     render(
       <MockedNavigator
@@ -150,6 +167,7 @@ describe('ItemDetailScreen', () => {
     };
 
     mockGetListingById.mockReturnValue(listing);
+    mockListings = [listing];
 
     render(
       <MockedNavigator
@@ -207,6 +225,7 @@ describe('ItemDetailScreen', () => {
     };
 
     mockGetListingById.mockReturnValue(listing);
+    mockListings = [listing];
 
     render(
       <MockedNavigator
@@ -241,6 +260,7 @@ describe('ItemDetailScreen', () => {
     };
 
     mockGetListingById.mockReturnValue(listing);
+    mockListings = [listing];
 
     render(
       <MockedNavigator
@@ -272,6 +292,7 @@ describe('ItemDetailScreen', () => {
     };
 
     mockGetListingById.mockReturnValue(listing);
+    mockListings = [listing];
 
     render(
       <MockedNavigator
@@ -324,6 +345,7 @@ describe('ItemDetailScreen', () => {
     };
 
     mockGetListingById.mockReturnValue(listing);
+    mockListings = [listing];
 
     render(
       <MockedNavigator

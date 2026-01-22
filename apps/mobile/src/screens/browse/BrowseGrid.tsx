@@ -16,7 +16,8 @@ import { Text } from '../../ui/components';
 import { colors, spacing, radius, typography } from '../../ui/tokens';
 import { semanticSearch, SearchResultItem } from '../../services/searchService';
 import { useAuthStore } from '../../state/authStore';
-import { getSignedUrl } from '../../services/imageService';
+import { getSignedUrlCached } from '../../services/imageService';
+import { BROWSE_PAGE_SIZE } from '../../lib/constants';
 
 type Props = NativeStackScreenProps<SwipeStackParamList, 'SwipeMain'>;
 
@@ -24,6 +25,9 @@ export default function BrowseGridScreen({ navigation }: Props) {
   const [searchQuery, setSearchQuery] = useState('');
   const [displayItems, setDisplayItems] = useState<SearchResultItem[]>([]);
   const [loading, setLoading] = useState(true); // Start with loading
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [cursor, setCursor] = useState<{ created_at: string; id: string } | undefined>(undefined);
   const [interpretation, setInterpretation] = useState('');
   const [suggestedCategories, setSuggestedCategories] = useState<string[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
@@ -32,14 +36,14 @@ export default function BrowseGridScreen({ navigation }: Props) {
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const user = useAuthStore((state) => state.user);
 
-  // Load signed URLs for item photos
+  // Load signed URLs for item photos (using cached signing)
   const loadImageUrls = useCallback(async (items: SearchResultItem[]) => {
     const newUrls: Record<string, string> = {};
 
     await Promise.all(
       items.map(async (item) => {
         if (item.photos && item.photos.length > 0) {
-          const url = await getSignedUrl(item.photos[0]);
+          const url = await getSignedUrlCached(item.photos[0]);
           if (url) {
             newUrls[item.id] = url;
           }
@@ -55,14 +59,18 @@ export default function BrowseGridScreen({ navigation }: Props) {
     setLoading(true);
     try {
       console.log('📦 [BrowseGrid] Loading all items, excluding user:', user?.id);
-      const response = await semanticSearch('', 20, user?.id);
+      const response = await semanticSearch('', BROWSE_PAGE_SIZE, user?.id, undefined);
       setDisplayItems(response.results);
+      setCursor(response.nextCursor);
+      setHasMore(response.hasMore ?? true);
       console.log('✅ [BrowseGrid] Loaded', response.results.length, 'items');
       // Load images for items
       loadImageUrls(response.results);
     } catch (error) {
       console.error('❌ [BrowseGrid] Error loading items:', error);
       setDisplayItems([]);
+      setCursor(undefined);
+      setHasMore(false);
     } finally {
       setLoading(false);
     }
@@ -86,14 +94,18 @@ export default function BrowseGridScreen({ navigation }: Props) {
 
     setLoading(true);
     setHasSearched(true);
+    setCursor(undefined);
+    setHasMore(true);
 
     try {
       console.log('🔍 [BrowseGrid] Searching for:', query);
-      const response = await semanticSearch(query, 12, user?.id);
+      const response = await semanticSearch(query, BROWSE_PAGE_SIZE, user?.id, undefined);
 
       setDisplayItems(response.results.length > 0 ? response.results : []);
       setInterpretation(response.interpretation);
       setSuggestedCategories(response.suggestedCategories);
+      setCursor(response.nextCursor);
+      setHasMore(response.hasMore ?? true);
       // Load images for search results
       if (response.results.length > 0) {
         loadImageUrls(response.results);
@@ -107,6 +119,8 @@ export default function BrowseGridScreen({ navigation }: Props) {
       console.error('❌ [BrowseGrid] Search error:', error);
       setDisplayItems([]);
       setInterpretation('Something went wrong. Please try again.');
+      setCursor(undefined);
+      setHasMore(false);
     } finally {
       setLoading(false);
     }
@@ -160,7 +174,92 @@ export default function BrowseGridScreen({ navigation }: Props) {
     setInterpretation('');
     setSuggestedCategories([]);
     setHasSearched(false);
+    setCursor(undefined);
+      setHasMore(true);
   };
+
+  const fetchMore = useCallback(async () => {
+    // FlatList can call onEndReached multiple times; guard aggressively.
+    if (loading) {
+      console.log('📄 [BrowseGrid] fetchMore: blocked (loading=true)');
+      return;
+    }
+    if (isFetchingMore) {
+      console.log('📄 [BrowseGrid] fetchMore: blocked (isFetchingMore=true)');
+      return;
+    }
+    if (hasMore === false) {
+      console.log('📄 [BrowseGrid] fetchMore: blocked (hasMore=false)');
+      return;
+    }
+
+    // If we don't have a cursor after the first page, fetching more will just refetch page 1.
+    // This typically indicates the backend isn't returning nextCursor/hasMore (e.g. edge function not deployed).
+    if (!cursor && displayItems.length > 0) {
+      console.log('📄 [BrowseGrid] fetchMore: blocked (cursor missing; would refetch page 1)', {
+        totalLoaded: displayItems.length,
+        hasMore,
+      });
+      return;
+    }
+
+    const q = hasSearched ? searchQuery : '';
+    // If we're in "search mode" but query is empty (e.g. user cleared quickly), treat as browse-all.
+    const effectiveQuery = q.trim();
+
+    setIsFetchingMore(true);
+    try {
+      console.log('📄 [BrowseGrid] fetchMore: requesting page', { effectiveQuery, cursor, limit: BROWSE_PAGE_SIZE });
+      const response = await semanticSearch(effectiveQuery, BROWSE_PAGE_SIZE, user?.id, cursor);
+
+      console.log('📄 [BrowseGrid] fetchMore: got page', {
+        resultCount: response.results?.length ?? 0,
+        hasMore: response.hasMore,
+        nextCursor: response.nextCursor,
+      });
+
+      if (response.results?.length) {
+        setDisplayItems(prev => {
+          const seen = new Set(prev.map(i => i.id));
+          const dedupedAppend = response.results.filter(i => !seen.has(i.id));
+          if (dedupedAppend.length !== response.results.length) {
+            console.log('📄 [BrowseGrid] fetchMore: deduped items', {
+              appended: dedupedAppend.length,
+              received: response.results.length,
+            });
+          }
+          return [...prev, ...dedupedAppend];
+        });
+        loadImageUrls(response.results);
+      }
+
+      setCursor(response.nextCursor);
+      setHasMore(response.hasMore ?? true);
+    } catch (error) {
+      console.error('❌ [BrowseGrid] Error fetching more:', error);
+      // Keep existing items; stop further paging until next refresh/search
+      setHasMore(false);
+    } finally {
+      setIsFetchingMore(false);
+    }
+  }, [loading, isFetchingMore, hasMore, hasSearched, searchQuery, cursor, user?.id, loadImageUrls]);
+
+  const handleEndReached = useCallback(
+    (info: { distanceFromEnd: number }) => {
+      console.log('📄 [BrowseGrid] onEndReached fired', {
+        distanceFromEnd: info?.distanceFromEnd,
+        totalLoaded: displayItems.length,
+        hasMore,
+        cursor,
+        loading,
+        isFetchingMore,
+        hasSearched,
+        searchQuery,
+      });
+      fetchMore();
+    },
+    [fetchMore, displayItems.length, hasMore, cursor, loading, isFetchingMore, hasSearched, searchQuery]
+  );
 
   // Format price range display
   const formatPriceRange = (item: SearchResultItem) => {
@@ -320,6 +419,15 @@ export default function BrowseGridScreen({ navigation }: Props) {
           renderItem={renderItem}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          onEndReached={handleEndReached}
+          onEndReachedThreshold={0.6}
+          ListFooterComponent={
+            isFetchingMore ? (
+              <View style={styles.footerLoading}>
+                <ActivityIndicator size="small" color={colors.accent} />
+              </View>
+            ) : null
+          }
         />
       )}
     </SafeAreaView>
@@ -434,6 +542,9 @@ const styles = StyleSheet.create({
   grid: {
     paddingHorizontal: spacing.xxl,
     paddingBottom: 100,
+  },
+  footerLoading: {
+    paddingVertical: spacing.lg,
   },
   row: {
     gap: spacing.md,

@@ -16,7 +16,7 @@ import { SwipeStackParamList, AppTabsParamList } from '../../navigation/types';
 import { Text, Button, Input, Card } from '../../ui/components';
 import { colors, spacing, radius, typography } from '../../ui/tokens';
 import { getItemById, Item } from '../../services/itemsService';
-import { getSignedUrl } from '../../services/imageService';
+import { getSignedUrlCached } from '../../services/imageService';
 import { expressInterest } from '../../services/dealsService';
 import { useAuthStore } from '../../state/authStore';
 
@@ -82,7 +82,7 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
       if (data) {
         setSupabaseItem(data);
         if (data.photos?.[0]) {
-          const url = await getSignedUrl(data.photos[0]);
+          const url = await getSignedUrlCached(data.photos[0]);
           setImageUrl(url);
         }
       }

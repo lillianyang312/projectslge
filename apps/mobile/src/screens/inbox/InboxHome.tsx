@@ -16,7 +16,7 @@ import { Text, Card, Badge } from '../../ui/components';
 import { colors, spacing, radius } from '../../ui/tokens';
 import { useAuthStore } from '../../state/authStore';
 import { getMyDeals, getMessages } from '../../services/dealsService';
-import { getSignedUrl } from '../../services/imageService';
+import { getSignedUrlCached } from '../../services/imageService';
 import { Deal, Message } from '../../types/models';
 
 type Props = NativeStackScreenProps<InboxStackParamList, 'InboxHome'>;
@@ -110,8 +110,10 @@ export default function InboxHomeScreen({ navigation }: Props) {
 
           // Get image URL
           let imageUrl: string | undefined;
-          if (deal.item?.photos?.[0]) {
-            imageUrl = await getSignedUrl(deal.item.photos[0]) || undefined;
+          const firstPhotoPath = deal.item?.photos?.[0];
+          if (firstPhotoPath) {
+            // Use cached signed URLs to avoid redundant requests and keep URLs fresh
+            imageUrl = (await getSignedUrlCached(firstPhotoPath)) || undefined;
           }
 
           // Determine badge
@@ -203,60 +205,67 @@ export default function InboxHomeScreen({ navigation }: Props) {
     navigation.navigate('DealChat', { dealId });
   };
 
-  const renderConversation = (convo: InboxConversation) => (
-    <Pressable key={convo.id} onPress={() => handleConversationPress(convo.dealId)}>
-      <Card style={[styles.messageCard, convo.isUnread && styles.messageCardUnread]}>
-        <View style={styles.inboxCard}>
-          <View style={styles.itemThumb}>
-            {convo.imageUrl ? (
-              <Image source={{ uri: convo.imageUrl }} style={styles.thumbImage} resizeMode="cover" />
-            ) : (
-              <Text style={styles.itemEmoji}>{convo.emoji}</Text>
-            )}
-          </View>
-          <View style={styles.inboxInfo}>
-            {/* Item name as main title with badge */}
-            <View style={styles.inboxName}>
-              <Text variant="bodyMedium" size="md" style={styles.inboxNameText} numberOfLines={1}>
-                {convo.itemName}
-              </Text>
-              {convo.badge && (
-                <Badge variant={convo.badge.variant} style={styles.inlineBadge}>
-                  {convo.badge.label}
-                </Badge>
+  const renderConversation = (convo: InboxConversation) => {
+    const cardStyle = StyleSheet.flatten([
+      styles.messageCard,
+      convo.isUnread ? styles.messageCardUnread : undefined,
+    ]);
+
+    return (
+      <Pressable key={convo.id} onPress={() => handleConversationPress(convo.dealId)}>
+        <Card style={cardStyle}>
+          <View style={styles.inboxCard}>
+            <View style={styles.itemThumb}>
+              {convo.imageUrl ? (
+                <Image source={{ uri: convo.imageUrl }} style={styles.thumbImage} resizeMode="cover" />
+              ) : (
+                <Text style={styles.itemEmoji}>{convo.emoji}</Text>
               )}
             </View>
-            {/* Status */}
-            <Text
-              variant="body"
-              size="xs"
-              color="muted"
-              numberOfLines={1}
-              style={styles.statusText}
-            >
-              {convo.type === 'selling' ? 'Selling' : 'Buying'} · {convo.status}
-            </Text>
-            {/* Message preview */}
-            <Text
-              variant="body"
-              size="xs"
-              color={convo.isAgent ? 'purple' : 'secondary'}
-              numberOfLines={1}
-              style={styles.inboxPreview}
-            >
-              {convo.isAgent ? '🤖 ' : ''}{convo.preview}
-            </Text>
+            <View style={styles.inboxInfo}>
+              {/* Item name as main title with badge */}
+              <View style={styles.inboxName}>
+                <Text variant="bodyMedium" size="md" style={styles.inboxNameText} numberOfLines={1}>
+                  {convo.itemName}
+                </Text>
+                {convo.badge && (
+                  <Badge variant={convo.badge.variant} style={styles.inlineBadge}>
+                    {convo.badge.label}
+                  </Badge>
+                )}
+              </View>
+              {/* Status */}
+              <Text
+                variant="body"
+                size="xs"
+                color="muted"
+                numberOfLines={1}
+                style={styles.statusText}
+              >
+                {convo.type === 'selling' ? 'Selling' : 'Buying'} · {convo.status}
+              </Text>
+              {/* Message preview */}
+              <Text
+                variant="body"
+                size="xs"
+                color={convo.isAgent ? 'purple' : 'secondary'}
+                numberOfLines={1}
+                style={styles.inboxPreview}
+              >
+                {convo.isAgent ? '🤖 ' : ''}{convo.preview}
+              </Text>
+            </View>
+            <View style={styles.inboxMeta}>
+              <Text variant="body" size="xs" color="muted" style={styles.inboxTime}>
+                {convo.time}
+              </Text>
+              {convo.isUnread && <View style={styles.unreadDot} />}
+            </View>
           </View>
-          <View style={styles.inboxMeta}>
-            <Text variant="body" size="xs" color="muted" style={styles.inboxTime}>
-              {convo.time}
-            </Text>
-            {convo.isUnread && <View style={styles.unreadDot} />}
-          </View>
-        </View>
-      </Card>
-    </Pressable>
-  );
+        </Card>
+      </Pressable>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -292,7 +301,7 @@ export default function InboxHomeScreen({ navigation }: Props) {
               key={filter.value}
               style={[
                 styles.filterBtn,
-                activeFilter === filter.value && getFilterStyle(),
+                activeFilter === filter.value ? getFilterStyle() : undefined,
               ]}
               onPress={() => setActiveFilter(filter.value)}
             >
@@ -300,7 +309,7 @@ export default function InboxHomeScreen({ navigation }: Props) {
                 variant="bodyMedium"
                 size="sm"
                 color={activeFilter === filter.value ? undefined : 'secondary'}
-                style={activeFilter === filter.value && getTextStyle()}
+                style={activeFilter === filter.value ? getTextStyle() : undefined}
               >
                 {filter.label}
               </Text>

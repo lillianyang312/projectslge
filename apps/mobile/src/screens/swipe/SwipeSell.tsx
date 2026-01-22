@@ -14,7 +14,7 @@ import { Text, Button, Card, Badge } from '../../ui/components';
 import { colors, spacing, radius } from '../../ui/tokens';
 import { Item } from '../../types/models';
 import { getSwipeToSellFeed, recordSwipeAction, createMatch } from '../../services/matchingService';
-import { getSignedUrl } from '../../services/imageService';
+import { getSignedUrlCached } from '../../services/imageService';
 import { evaluateOurTake } from '../../services/ourTakeService';
 import { useAuthStore } from '../../state/authStore';
 
@@ -52,7 +52,7 @@ export default function SwipeSellScreen({ navigation }: Props) {
   }
 
   async function loadImage(item: Item) {
-    const url = await getSignedUrl(item.image_path);
+    const url = await getSignedUrlCached(item.image_path);
     setMyItemImageUrl(url);
   }
 

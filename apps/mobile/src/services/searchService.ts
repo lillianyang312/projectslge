@@ -19,6 +19,8 @@ export interface SearchResponse {
   results: SearchResultItem[];
   interpretation: string;
   suggestedCategories: string[];
+  nextCursor?: { created_at: string; id: string };
+  hasMore: boolean;
 }
 
 /**
@@ -32,13 +34,14 @@ export interface SearchResponse {
 export async function semanticSearch(
   query: string,
   limit: number = 10,
-  excludeUserId?: string
+  excludeUserId?: string,
+  cursor?: { created_at: string; id: string }
 ): Promise<SearchResponse> {
-  console.log('🔍 [searchService] Starting semantic search:', { query, limit, excludeUserId });
+  console.log('🔍 [searchService] Starting semantic search:', { query, limit, excludeUserId, cursor });
 
   try {
     const { data, error } = await supabase.functions.invoke('semanticSearch', {
-      body: { query, limit, excludeUserId },
+      body: { query, limit, excludeUserId, cursor },
     });
 
     if (error) {
@@ -60,6 +63,8 @@ export async function semanticSearch(
       results: [],
       interpretation: 'Search failed. Please try again.',
       suggestedCategories: [],
+      nextCursor: undefined,
+      hasMore: false,
     };
   }
 }
