@@ -100,7 +100,8 @@ export default function InboxHomeScreen({ navigation }: Props) {
     }
 
     try {
-      const deals = await getMyDeals(user.id);
+      const response = await getMyDeals(user.id);
+      const deals = response.deals;
 
       // Build conversations from deals with their last messages
       const convos: InboxConversation[] = await Promise.all(

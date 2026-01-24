@@ -28,7 +28,8 @@ export default function AppTabs() {
     }
 
     try {
-      const deals = await getMyDeals(user.id);
+      const response = await getMyDeals(user.id);
+      const deals = response.deals;
       // Count deals that need response: negotiating with offer from other party
       const needsResponse = deals.filter(deal => {
         return deal.status === 'negotiating' &&

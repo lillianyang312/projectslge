@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   StyleSheet,
   SafeAreaView,
-  ScrollView,
+  FlatList,
   Pressable,
   ActivityIndicator,
   RefreshControl,
@@ -14,10 +14,11 @@ import { DealsStackParamList, AppTabsParamList } from '../../navigation/types';
 import { Text, Card, Badge, ToggleGroup } from '../../ui/components';
 import { colors, spacing, radius } from '../../ui/tokens';
 import { useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
-import { getMyDeals } from '../../services/dealsService';
+import { getMyDeals, DealsCursor } from '../../services/dealsService';
 import { useAuthStore } from '../../state/authStore';
 import { Deal } from '../../types/models';
 import { getSignedUrlCached } from '../../services/imageService';
+import { INBOX_PAGE_SIZE } from '../../lib/constants';
 
 type Props = NativeStackScreenProps<DealsStackParamList, 'DealsHome'>;
 type DealsRouteProp = RouteProp<AppTabsParamList, 'Deals'>;
@@ -97,25 +98,74 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
+  const [cursor, setCursor] = useState<DealsCursor | undefined>(undefined);
+  const [hasMore, setHasMore] = useState(true);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
+  const fetchingMoreRef = useRef(false);
+  const cursorRef = useRef<DealsCursor | undefined>(undefined);
+  const loadingRef = useRef(false);
+  const initialLoadRef = useRef(false);
+
+  // Sync cursor ref with state
+  useEffect(() => {
+    cursorRef.current = cursor;
+  }, [cursor]);
 
   // Load deals from database
-  const loadDeals = useCallback(async (showRefresh = false) => {
+  const loadDeals = useCallback(async (showRefresh = false, append = false, cursorOverride?: DealsCursor | undefined) => {
     if (!user?.id) {
       setLoading(false);
       return;
     }
 
+    // Prevent multiple simultaneous loads
+    if (loadingRef.current && !showRefresh) {
+      console.log('📦 [DealsHome] loadDeals: already loading, skipping');
+      return;
+    }
+
+    // Don't load if already fetching more and appending
+    if (append && (isFetchingMore || fetchingMoreRef.current)) {
+      return;
+    }
+
+    loadingRef.current = true;
+
     if (showRefresh) {
       setRefreshing(true);
-    } else {
+    } else if (!append) {
       setLoading(true);
+    } else {
+      setIsFetchingMore(true);
     }
 
     try {
-      console.log('📦 [DealsHome] Loading deals for user:', user.id);
-      const fetchedDeals = await getMyDeals(user.id);
-      setDeals(fetchedDeals);
-      console.log('✅ [DealsHome] Loaded', fetchedDeals.length, 'deals');
+      // Use cursorOverride if provided, otherwise use ref (for append) or undefined (for initial load)
+      const currentCursor = cursorOverride !== undefined 
+        ? cursorOverride 
+        : (append ? cursorRef.current : undefined);
+      
+      console.log('📦 [DealsHome] Loading deals for user:', user.id, { append, cursor: currentCursor });
+      
+      const response = await getMyDeals(user.id, INBOX_PAGE_SIZE, currentCursor);
+      const fetchedDeals = response.deals;
+      
+      console.log('✅ [DealsHome] Loaded', fetchedDeals.length, 'deals', { hasMore: response.hasMore });
+
+      if (append) {
+        // Append new deals, deduplicating by id
+        setDeals(prev => {
+          const seen = new Set(prev.map(d => d.id));
+          const deduped = fetchedDeals.filter(d => !seen.has(d.id));
+          return [...prev, ...deduped];
+        });
+      } else {
+        setDeals(fetchedDeals);
+      }
+
+      setCursor(response.nextCursor);
+      cursorRef.current = response.nextCursor;
+      setHasMore(response.hasMore);
 
       // Load images for items (using cached signed URLs)
       const newUrls: Record<string, string> = {};
@@ -129,29 +179,82 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
           }
         })
       );
-      setImageUrls(newUrls);
+      setImageUrls(prev => ({ ...prev, ...newUrls }));
     } catch (error) {
       console.error('❌ [DealsHome] Error loading deals:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
+      setIsFetchingMore(false);
+      loadingRef.current = false;
     }
-  }, [user?.id]);
+  }, [user?.id, isFetchingMore]);
 
   // Load deals on mount and when focused
   useFocusEffect(
     useCallback(() => {
-      loadDeals();
-    }, [loadDeals])
+      if (!user?.id || loadingRef.current) return;
+      
+      // Only load if we haven't done initial load yet
+      if (!initialLoadRef.current) {
+        initialLoadRef.current = true;
+        loadingRef.current = true;
+        setLoading(true);
+        
+        getMyDeals(user.id, INBOX_PAGE_SIZE, undefined)
+          .then(response => {
+            setDeals(response.deals);
+            setCursor(response.nextCursor);
+            cursorRef.current = response.nextCursor;
+            setHasMore(response.hasMore);
+            
+            // Load images
+            const newUrls: Record<string, string> = {};
+            return Promise.all(
+              response.deals.map(async (deal) => {
+                if (deal.item?.photos && deal.item.photos.length > 0) {
+                  const url = await getSignedUrlCached(deal.item.photos[0]);
+                  if (url) {
+                    newUrls[deal.id] = url;
+                  }
+                }
+              })
+            ).then(() => {
+              setImageUrls(prev => ({ ...prev, ...newUrls }));
+            });
+          })
+          .catch(error => {
+            console.error('❌ [DealsHome] Error loading deals:', error);
+            initialLoadRef.current = false; // Reset on error so we can retry
+          })
+          .finally(() => {
+            setLoading(false);
+            loadingRef.current = false;
+          });
+      }
+    }, [user?.id]) // Only depend on user.id
   );
 
   useEffect(() => {
     // Update mode when params change
     const newMode = initialModeFromRoute || initialModeFromTab;
-    if (newMode) {
+    if (newMode && newMode !== mode) {
       setMode(newMode);
+      // Reset pagination when mode changes
+      setCursor(undefined);
+      cursorRef.current = undefined;
+      setHasMore(true);
+      setDeals([]);
+      initialLoadRef.current = false; // Allow reload on next focus
+      // Reload deals with new mode
+      loadDeals(false, false, undefined);
     }
-  }, [initialModeFromRoute, initialModeFromTab]);
+  }, [initialModeFromRoute, initialModeFromTab, mode, user?.id, loadDeals]);
+
+  // Reset initial load ref when user changes
+  useEffect(() => {
+    initialLoadRef.current = false;
+  }, [user?.id]);
 
   // Filter deals based on mode
   const filteredDeals = deals.filter((deal) => {
@@ -185,7 +288,17 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
   const sectionLabel = mode === 'selling' ? 'Pending sales' : 'Bids you\'ve sent';
 
   const handleToggle = (index: number) => {
-    setMode(index === 0 ? 'selling' : 'buying');
+    const newMode = index === 0 ? 'selling' : 'buying';
+    if (newMode !== mode) {
+      setMode(newMode);
+      // Reset pagination when mode changes
+      setCursor(undefined);
+      cursorRef.current = undefined;
+      setHasMore(true);
+      setDeals([]);
+      initialLoadRef.current = false; // Allow reload on next focus
+      loadDeals(false, false, undefined);
+    }
   };
 
   const handleDealPress = (dealId: string) => {
@@ -193,10 +306,132 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
   };
 
   const handleRefresh = () => {
-    loadDeals(true);
+    setCursor(undefined);
+    cursorRef.current = undefined;
+    setHasMore(true);
+    initialLoadRef.current = false; // Allow reload after refresh
+    loadDeals(true, false, undefined);
   };
 
-  const renderDealCard = (deal: Deal) => {
+  // Fetch more deals when scrolling to end
+  const fetchMore = useCallback(() => {
+    // Guard against duplicate calls using ref to prevent race conditions
+    if (loading || isFetchingMore || fetchingMoreRef.current || !hasMore) {
+      console.log('📄 [DealsHome] fetchMore: blocked', { 
+        loading, 
+        isFetchingMore, 
+        fetchingMore: fetchingMoreRef.current,
+        hasMore 
+      });
+      return;
+    }
+
+    // If we don't have a cursor after the first page, fetching more will just refetch page 1
+    if (!cursor && deals.length > 0) {
+      console.log('📄 [DealsHome] fetchMore: blocked (cursor missing)', {
+        totalLoaded: deals.length,
+        hasMore,
+      });
+      return;
+    }
+
+    // Set ref to prevent multiple simultaneous calls
+    fetchingMoreRef.current = true;
+    setIsFetchingMore(true);
+
+    const currentCursor = cursorRef.current;
+    console.log('📄 [DealsHome] fetchMore: requesting page', { cursor: currentCursor, limit: INBOX_PAGE_SIZE });
+    
+    // Call loadDeals directly without including it in dependencies
+    if (user?.id) {
+      getMyDeals(user.id, INBOX_PAGE_SIZE, currentCursor)
+        .then(response => {
+          const fetchedDeals = response.deals;
+          
+          // Append new deals, deduplicating by id
+          setDeals(prev => {
+            const seen = new Set(prev.map(d => d.id));
+            const deduped = fetchedDeals.filter(d => !seen.has(d.id));
+            return [...prev, ...deduped];
+          });
+
+          setCursor(response.nextCursor);
+          setHasMore(response.hasMore);
+
+          // Load images for items
+          const newUrls: Record<string, string> = {};
+          Promise.all(
+            fetchedDeals.map(async (deal) => {
+              if (deal.item?.photos && deal.item.photos.length > 0) {
+                const url = await getSignedUrlCached(deal.item.photos[0]);
+                if (url) {
+                  newUrls[deal.id] = url;
+                }
+              }
+            })
+          ).then(() => setImageUrls(prev => ({ ...prev, ...newUrls })));
+        })
+        .catch(error => {
+          console.error('❌ [DealsHome] Error fetching more deals:', error);
+        })
+        .finally(() => {
+          setIsFetchingMore(false);
+          fetchingMoreRef.current = false;
+        });
+    } else {
+      setIsFetchingMore(false);
+      fetchingMoreRef.current = false;
+    }
+  }, [loading, isFetchingMore, hasMore, cursor, deals.length, user?.id]);
+
+  // Build flat list data with section headers
+  type ListItem = 
+    | { type: 'section'; label: string }
+    | { type: 'deal'; deal: Deal };
+
+  const buildListData = (): ListItem[] => {
+    const items: ListItem[] = [];
+
+    if (mode === 'buying') {
+      if (pendingPurchases.length > 0) {
+        items.push(...pendingPurchases.map(deal => ({ type: 'deal' as const, deal })));
+        if (activeBids.length > 0) {
+          items.push({ type: 'section', label: 'Active bids' });
+        }
+      }
+      activeBids.forEach(deal => items.push({ type: 'deal', deal }));
+    } else {
+      if (pendingSales.length > 0) {
+        items.push(...pendingSales.map(deal => ({ type: 'deal' as const, deal })));
+        if (activeOffers.filter(d => d.status === 'negotiating').length > 0) {
+          items.push({ type: 'section', label: 'Incoming offers' });
+        }
+      }
+      activeOffers.filter(d => d.status === 'negotiating').forEach(deal => {
+        items.push({ type: 'deal', deal });
+      });
+    }
+
+    if (completedDeals.length > 0) {
+      items.push({ type: 'section', label: 'Completed' });
+      completedDeals.forEach(deal => items.push({ type: 'deal', deal }));
+    }
+
+    return items;
+  };
+
+  const listData = buildListData();
+
+  const renderItem = ({ item }: { item: ListItem }) => {
+    if (item.type === 'section') {
+      return (
+        <Text variant="body" size="sm" color="secondary" style={styles.sectionHeader}>
+          {item.label}
+        </Text>
+      );
+    }
+
+    const deal = item.deal;
     const isSelling = deal.seller_id === user?.id;
     const badge = getStatusBadge(deal, isSelling);
     const meta = getDealMeta(deal, isSelling);
@@ -205,7 +440,7 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
     const imageUrl = imageUrls[deal.id];
 
     return (
-      <Pressable key={deal.id} onPress={() => handleDealPress(deal.id)}>
+      <Pressable onPress={() => handleDealPress(deal.id)}>
         <Card style={styles.dealCard}>
           <View style={styles.itemCard}>
             <View style={styles.itemThumb}>
@@ -227,6 +462,15 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
           </View>
         </Card>
       </Pressable>
+    );
+  };
+
+  const renderFooter = () => {
+    if (!isFetchingMore) return null;
+    return (
+      <View style={styles.footerLoader}>
+        <ActivityIndicator size="small" color={colors.accent} />
+      </View>
     );
   };
 
@@ -271,49 +515,21 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
           </Text>
         </View>
       ) : (
-        <ScrollView
+        <FlatList
+          data={listData}
+          renderItem={renderItem}
+          keyExtractor={(item, index) => 
+            item.type === 'section' ? `section-${item.label}-${index}` : item.deal.id
+          }
           contentContainerStyle={styles.scrollContent}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
           }
-        >
-          {/* Pending Purchases/Sales (Accepted deals) - shown at top */}
-          {mode === 'buying' && pendingPurchases.length > 0 && (
-            <>
-              {pendingPurchases.map(renderDealCard)}
-              {activeBids.length > 0 && (
-                <Text variant="body" size="sm" color="secondary" style={styles.activeBidsLabel}>
-                  Active bids
-                </Text>
-              )}
-            </>
-          )}
-
-          {mode === 'selling' && pendingSales.length > 0 && (
-            <>
-              {pendingSales.map(renderDealCard)}
-              {activeOffers.length > 0 && (
-                <Text variant="body" size="sm" color="secondary" style={styles.activeBidsLabel}>
-                  Incoming offers
-                </Text>
-              )}
-            </>
-          )}
-
-          {/* Active Bids/Offers (Still negotiating) */}
-          {mode === 'buying' && activeBids.map(renderDealCard)}
-          {mode === 'selling' && activeOffers.filter(d => d.status === 'negotiating').map(renderDealCard)}
-
-          {/* Completed Deals */}
-          {completedDeals.length > 0 && (
-            <>
-              <Text variant="body" size="sm" color="secondary" style={styles.completedLabel}>
-                Completed
-              </Text>
-              {completedDeals.map(renderDealCard)}
-            </>
-          )}
-        </ScrollView>
+          onEndReached={fetchMore}
+          onEndReachedThreshold={0.3}
+          ListFooterComponent={renderFooter}
+          removeClippedSubviews={false}
+        />
       )}
     </SafeAreaView>
   );
@@ -362,6 +578,14 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: spacing.xxl,
     paddingBottom: 120,
+  },
+  sectionHeader: {
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
+  },
+  footerLoader: {
+    paddingVertical: spacing.md,
+    alignItems: 'center',
   },
   dealCard: {
     marginBottom: spacing.md,

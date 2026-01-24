@@ -6,6 +6,24 @@
 
 import { supabase } from '../lib/supabase';
 import { Deal, Message, DealStatus } from '../types/models';
+import { INBOX_PAGE_SIZE } from '../lib/constants';
+
+/**
+ * Cursor for deals pagination
+ */
+export interface DealsCursor {
+  updated_at: string;
+  id: string;
+}
+
+/**
+ * Paginated deals response
+ */
+export interface PaginatedDealsResponse {
+  deals: Deal[];
+  nextCursor?: DealsCursor;
+  hasMore: boolean;
+}
 
 /**
  * Question from a buyer about an item
@@ -168,36 +186,84 @@ export async function createDealFromMatch(
 }
 
 /**
- * Get all deals for a user
+ * Get all deals for a user with cursor pagination
  */
-export async function getMyDeals(userId: string): Promise<Deal[]> {
+export async function getMyDeals(
+  userId: string,
+  limit?: number,
+  cursor?: DealsCursor
+): Promise<PaginatedDealsResponse> {
   try {
-    const { data: deals, error } = await supabase
+    const pageSize = limit || INBOX_PAGE_SIZE;
+    // Fetch limit + 1 to detect if there are more items
+    const fetchLimit = pageSize + 1;
+
+    let query = supabase
       .from('deals')
       .select(`
         *,
         item:items(*)
       `)
       .or(`buyer_id.eq.${userId},seller_id.eq.${userId}`)
-      .order('updated_at', { ascending: false });
+      .order('updated_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(fetchLimit);
+
+    // Apply cursor if provided
+    if (cursor?.updated_at && cursor?.id) {
+      // Format timestamp for PostgREST (ISO 8601 format)
+      // Supabase JS client handles URL encoding automatically, so pass timestamp as-is
+      const cursorUpdatedAt = cursor.updated_at;
+      const cursorId = cursor.id;
+      // PostgREST: updated_at < cursor.updated_at OR (updated_at = cursor.updated_at AND id < cursor.id)
+      query = query.or(
+        `updated_at.lt.${cursorUpdatedAt},and(updated_at.eq.${cursorUpdatedAt},id.lt.${cursorId})`
+      );
+    }
+
+    const { data: deals, error } = await query;
 
     if (error) throw error;
-    return deals || [];
+
+    const fetchedDeals = deals || [];
+    const hasMore = fetchedDeals.length > pageSize;
+    const pageDeals = fetchedDeals.slice(0, pageSize);
+    
+    // Get cursor from last item if there are more
+    const lastDeal = pageDeals[pageDeals.length - 1];
+    const nextCursor = hasMore && lastDeal
+      ? { updated_at: lastDeal.updated_at, id: lastDeal.id }
+      : undefined;
+
+    return {
+      deals: pageDeals,
+      nextCursor,
+      hasMore,
+    };
   } catch (error) {
     console.error('Error getting deals:', error);
-    return [];
+    return {
+      deals: [],
+      hasMore: false,
+    };
   }
 }
 
 /**
- * Get deals by status
+ * Get deals by status with cursor pagination
  */
 export async function getDealsByStatus(
   userId: string,
-  status: DealStatus
-): Promise<Deal[]> {
+  status: DealStatus,
+  limit?: number,
+  cursor?: DealsCursor
+): Promise<PaginatedDealsResponse> {
   try {
-    const { data: deals, error } = await supabase
+    const pageSize = limit || INBOX_PAGE_SIZE;
+    // Fetch limit + 1 to detect if there are more items
+    const fetchLimit = pageSize + 1;
+
+    let query = supabase
       .from('deals')
       .select(`
         *,
@@ -205,13 +271,47 @@ export async function getDealsByStatus(
       `)
       .or(`buyer_id.eq.${userId},seller_id.eq.${userId}`)
       .eq('status', status)
-      .order('updated_at', { ascending: false });
+      .order('updated_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(fetchLimit);
+
+    // Apply cursor if provided
+    if (cursor?.updated_at && cursor?.id) {
+      // Format timestamp for PostgREST (ISO 8601 format)
+      // Supabase JS client handles URL encoding automatically, so pass timestamp as-is
+      const cursorUpdatedAt = cursor.updated_at;
+      const cursorId = cursor.id;
+      // PostgREST: updated_at < cursor.updated_at OR (updated_at = cursor.updated_at AND id < cursor.id)
+      query = query.or(
+        `updated_at.lt.${cursorUpdatedAt},and(updated_at.eq.${cursorUpdatedAt},id.lt.${cursorId})`
+      );
+    }
+
+    const { data: deals, error } = await query;
 
     if (error) throw error;
-    return deals || [];
+
+    const fetchedDeals = deals || [];
+    const hasMore = fetchedDeals.length > pageSize;
+    const pageDeals = fetchedDeals.slice(0, pageSize);
+    
+    // Get cursor from last item if there are more
+    const lastDeal = pageDeals[pageDeals.length - 1];
+    const nextCursor = hasMore && lastDeal
+      ? { updated_at: lastDeal.updated_at, id: lastDeal.id }
+      : undefined;
+
+    return {
+      deals: pageDeals,
+      nextCursor,
+      hasMore,
+    };
   } catch (error) {
     console.error('Error getting deals by status:', error);
-    return [];
+    return {
+      deals: [],
+      hasMore: false,
+    };
   }
 }
 
