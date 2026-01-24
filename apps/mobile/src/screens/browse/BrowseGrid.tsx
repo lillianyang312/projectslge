@@ -396,7 +396,7 @@ export default function BrowseGridScreen({ navigation }: Props) {
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.accent} />
           <Text variant="body" size="sm" color="secondary" style={styles.loadingText}>
-            Searching with AI...
+            Searching...
           </Text>
         </View>
       ) : displayItems.length === 0 && hasSearched ? (

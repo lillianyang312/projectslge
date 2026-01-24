@@ -24,7 +24,7 @@ export interface SearchResponse {
 }
 
 /**
- * Performs semantic search using Claude AI backend
+ * Performs full-text search using PostgreSQL full-text search
  *
  * @param query - Natural language search query
  * @param limit - Maximum number of results to return
@@ -49,13 +49,18 @@ export async function semanticSearch(
       throw error;
     }
 
+    if (!data) {
+      throw new Error('No data returned from search function');
+    }
+
     console.log('✅ [searchService] Search completed:', {
       resultCount: data?.results?.length || 0,
       interpretation: data?.interpretation,
     });
 
-    return data as SearchResponse;
-  } catch (error) {
+    return data;
+  } catch (err) {
+    const error = err as Error;
     console.error('❌ [searchService] Search failed:', error);
 
     // Return empty results on error

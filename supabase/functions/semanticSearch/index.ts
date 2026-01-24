@@ -1,5 +1,3 @@
-// @deno-types="npm:@anthropic-ai/sdk"
-import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
 
 // Deno global is available in Supabase Edge Functions runtime
@@ -13,8 +11,8 @@ declare const Deno: {
 /**
  * Semantic Search Edge Function
  *
- * Uses Claude to understand natural language search queries and match them
- * against item descriptions, categories, and attributes.
+ * Uses PostgreSQL full-text search (tsvector) for fast, database-level search
+ * without external API dependencies.
  */
 
 export interface SearchRequest {
@@ -68,35 +66,92 @@ function getEmojiForCategory(category: string): string {
   return CATEGORY_EMOJI[category] || '📦';
 }
 
-// Helper function to fetch items from Supabase
-function sanitizeOrTerm(term: string): string {
-  // PostgREST filter strings are fragile; keep this conservative.
-  return term
-    .trim()
-    .replace(/[%(),]/g, " ")
-    .replace(/\s+/g, " ")
-    .slice(0, 64);
+// Extract keywords from query for category matching
+function extractKeywords(query: string): string[] {
+  // Simple keyword extraction: split on spaces, remove short words and common stop words
+  const stopWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'from', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those']);
+  
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .map(word => word.replace(/[^\w]/g, ''))
+    .filter(word => word.length > 2 && !stopWords.has(word));
 }
 
-function buildOrFilter(terms: string[]): string | undefined {
-  const cleaned = terms.map(sanitizeOrTerm).filter(Boolean);
-  if (cleaned.length === 0) return undefined;
-
-  const parts: string[] = [];
-  for (const t of cleaned.slice(0, 8)) {
-    // Match in title/description/category (best effort)
-    parts.push(`title.ilike.%${t}%`);
-    parts.push(`description.ilike.%${t}%`);
-    parts.push(`category.ilike.%${t}%`);
+// Generate interpretation from query
+function generateInterpretation(query: string): string {
+  const trimmed = query.trim();
+  if (!trimmed) return 'Showing all available items';
+  
+  // Simple interpretation based on query
+  const lowerQuery = trimmed.toLowerCase();
+  
+  // Check for common patterns
+  if (lowerQuery.includes('work from home') || lowerQuery.includes('wfh')) {
+    return 'Finding items for a work from home setup';
   }
-  return parts.join(",");
+  if (lowerQuery.includes('gift')) {
+    return 'Finding gift ideas';
+  }
+  if (lowerQuery.includes('music')) {
+    return 'Finding music-related items';
+  }
+  if (lowerQuery.includes('tech') || lowerQuery.includes('electronic')) {
+    return 'Finding tech and electronics';
+  }
+  if (lowerQuery.includes('outdoor') || lowerQuery.includes('sport')) {
+    return 'Finding outdoor and sports items';
+  }
+  
+  return `Searching for "${trimmed}"`;
+}
+
+// Suggest categories based on query keywords
+function suggestCategories(query: string, keywords: string[]): string[] {
+  const categoryKeywords: Record<string, string[]> = {
+    'Electronics': ['tech', 'electronic', 'computer', 'laptop', 'phone', 'tablet', 'device', 'gadget', 'monitor', 'keyboard', 'mouse'],
+    'Furniture': ['furniture', 'chair', 'desk', 'table', 'sofa', 'couch', 'bed', 'shelf', 'cabinet'],
+    'Office': ['office', 'work', 'desk', 'chair', 'monitor', 'keyboard', 'setup', 'wfh'],
+    'Sports & Outdoors': ['sport', 'outdoor', 'bike', 'bicycle', 'exercise', 'fitness', 'gym', 'running', 'hiking'],
+    'Music': ['music', 'guitar', 'piano', 'instrument', 'headphone', 'speaker', 'audio'],
+    'Clothing': ['cloth', 'shirt', 'pant', 'dress', 'shoe', 'jacket', 'wear'],
+    'Books': ['book', 'read', 'novel', 'textbook'],
+    'Games': ['game', 'console', 'controller', 'gaming'],
+    'Kitchen': ['kitchen', 'cook', 'utensil', 'pan', 'pot'],
+    'Home': ['home', 'decor', 'lamp', 'rug', 'curtain'],
+    'Art': ['art', 'paint', 'canvas', 'frame'],
+  };
+  
+  const matchedCategories = new Set<string>();
+  const queryLower = query.toLowerCase();
+  
+  // Check query against category keywords
+  for (const [category, keywords] of Object.entries(categoryKeywords)) {
+    for (const keyword of keywords) {
+      if (queryLower.includes(keyword)) {
+        matchedCategories.add(category);
+        break;
+      }
+    }
+  }
+  
+  // Also check extracted keywords
+  for (const keyword of keywords) {
+    for (const [category, catKeywords] of Object.entries(categoryKeywords)) {
+      if (catKeywords.some(k => k.includes(keyword) || keyword.includes(k))) {
+        matchedCategories.add(category);
+      }
+    }
+  }
+  
+  return Array.from(matchedCategories).slice(0, 5);
 }
 
 async function fetchItemsFromDatabase(opts: {
   excludeUserId?: string;
   limit: number;
   cursor?: { created_at: string; id: string };
-  orFilter?: string;
+  searchQuery?: string;
 }): Promise<{ items: SearchResultItem[]; hasMore: boolean; nextCursor?: { created_at: string; id: string } }> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -108,39 +163,126 @@ async function fetchItemsFromDatabase(opts: {
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-  // Fetch items (keyset pagination: created_at desc, id desc)
-  let itemQuery = supabase
-    .from('items')
-    .select('id, title, category, description, condition, photos, estimated_value_min, estimated_value_max, owner_id, created_at')
-    .order('created_at', { ascending: false })
-    .order('id', { ascending: false })
-    .limit(opts.limit + 1);
-
-  if (opts.orFilter) {
-    itemQuery = itemQuery.or(opts.orFilter);
+  // Type for database item row
+  interface DbItem {
+    id: string;
+    title: string | null;
+    category: string | null;
+    description: string | null;
+    condition: string | null;
+    photos: string[] | null;
+    estimated_value_min: number | null;
+    estimated_value_max: number | null;
+    owner_id: string;
+    created_at: string;
+    rank?: number;
   }
 
-  // Exclude user's own items if userId provided
-  if (opts.excludeUserId) {
-    itemQuery = itemQuery.neq('owner_id', opts.excludeUserId);
-  }
+  // Use RPC function for full-text search if query provided, otherwise use regular query
+  let items: DbItem[] = [];
+  let itemError: { message: string } | null = null;
 
-  // Apply cursor (older than cursor)
-  if (opts.cursor?.created_at && opts.cursor?.id) {
-    // Cursor values may include characters like '+' (e.g. +00:00) that must be URL-safe
-    // inside PostgREST filter strings.
-    const cursorCreatedAt = encodeURIComponent(opts.cursor.created_at);
-    const cursorId = encodeURIComponent(opts.cursor.id);
-    // created_at < cursor.created_at OR (created_at = cursor.created_at AND id < cursor.id)
-    itemQuery = itemQuery.or(
-      `created_at.lt.${cursorCreatedAt},and(created_at.eq.${cursorCreatedAt},id.lt.${cursorId})`
-    );
-  }
+  if (opts.searchQuery && opts.searchQuery.trim()) {
+    // Use full-text search via RPC
+    let rpcFailed = false;
+    try {
+      const { data: rpcData, error: rpcError } = await supabase.rpc('search_items', {
+        search_text: opts.searchQuery.trim(),
+        exclude_user_id: opts.excludeUserId || null,
+        result_limit: opts.limit + 1,
+        cursor_created_at: opts.cursor?.created_at || null,
+        cursor_id: opts.cursor?.id || null,
+      });
 
-  const { data: items, error: itemError } = await itemQuery;
+      if (rpcError) {
+        console.error("❌ [semanticSearch] RPC error:", rpcError);
+        console.log("⚠️ [semanticSearch] Falling back to regular query search");
+        rpcFailed = true;
+      } else {
+        items = rpcData || [];
+      }
+    } catch (rpcException) {
+      console.error("❌ [semanticSearch] RPC exception:", rpcException);
+      console.log("⚠️ [semanticSearch] Falling back to regular query search");
+      rpcFailed = true;
+    }
+    
+    // If RPC failed, fall back to regular query with ILIKE search
+    if (rpcFailed) {
+      const searchTerms = opts.searchQuery.trim().split(/\s+/).filter(t => t.length > 2);
+      if (searchTerms.length > 0) {
+        const orFilter = searchTerms
+          .slice(0, 5)
+          .map(term => `title.ilike.%${term}%,description.ilike.%${term}%,category.ilike.%${term}%`)
+          .join(',');
+        
+        let itemQuery = supabase
+          .from('items')
+          .select('id, title, category, description, condition, photos, estimated_value_min, estimated_value_max, owner_id, created_at')
+          .or(orFilter)
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
+          .limit(opts.limit + 1);
+
+        if (opts.excludeUserId) {
+          itemQuery = itemQuery.neq('owner_id', opts.excludeUserId);
+        }
+
+        if (opts.cursor?.created_at && opts.cursor?.id) {
+          const cursorCreatedAt = encodeURIComponent(opts.cursor.created_at);
+          const cursorId = encodeURIComponent(opts.cursor.id);
+          itemQuery = itemQuery.or(
+            `created_at.lt.${cursorCreatedAt},and(created_at.eq.${cursorCreatedAt},id.lt.${cursorId})`
+          );
+        }
+
+        const { data, error } = await itemQuery;
+        items = data || [];
+        itemError = error;
+      } else {
+        // No search terms, return empty
+        items = [];
+      }
+    }
+  } else {
+    // Browse-all: regular query without search
+    let itemQuery = supabase
+      .from('items')
+      .select('id, title, category, description, condition, photos, estimated_value_min, estimated_value_max, owner_id, created_at')
+      .eq('is_active', true) // Only show active items
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(opts.limit + 1);
+
+    // Exclude user's own items if userId provided
+    if (opts.excludeUserId) {
+      itemQuery = itemQuery.neq('owner_id', opts.excludeUserId);
+    }
+
+    // Apply cursor (older than cursor)
+    // PostgREST: created_at < cursor.created_at OR (created_at = cursor.created_at AND id < cursor.id)
+    if (opts.cursor?.created_at && opts.cursor?.id) {
+      const cursorCreatedAt = encodeURIComponent(opts.cursor.created_at);
+      const cursorId = encodeURIComponent(opts.cursor.id);
+      // Use or() to combine: created_at < cursor OR (created_at = cursor AND id < cursor)
+      itemQuery = itemQuery.or(
+        `created_at.lt.${cursorCreatedAt},and(created_at.eq.${cursorCreatedAt},id.lt.${cursorId})`
+      );
+    }
+
+    const { data, error } = await itemQuery;
+    if (error) {
+      console.error("❌ [semanticSearch] Browse query error:", error);
+      console.error("❌ [semanticSearch] Query details:", { excludeUserId: opts.excludeUserId, cursor: opts.cursor, limit: opts.limit });
+    }
+    items = data || [];
+    itemError = error;
+  }
 
   if (itemError) {
     console.error("❌ [semanticSearch] Error fetching items:", itemError);
+    console.error("❌ [semanticSearch] Error details:", JSON.stringify(itemError, null, 2));
+    // Don't throw - return empty results instead
     return { items: [], hasMore: false, nextCursor: undefined };
   }
 
@@ -150,13 +292,13 @@ async function fetchItemsFromDatabase(opts: {
   // Pagination setup
   const pageItems = (items || []).slice(0, opts.limit);
   const hasMore = fetchedCount > opts.limit;
-  const last = pageItems[pageItems.length - 1] as unknown as { id: string; created_at: string } | undefined;
+  const last = pageItems[pageItems.length - 1] as unknown as { id: string; created_at: string; rank?: number } | undefined;
   const nextCursor = last ? { created_at: last.created_at, id: last.id } : undefined;
 
   // Fetch all deals for these items to track status and filter sold items
   const itemIds = pageItems.map(i => i.id);
-  let dealStatusMap: Record<string, string> = {};
-  let soldItemIds: Set<string> = new Set();
+  const dealStatusMap: Record<string, string> = {};
+  const soldItemIds: Set<string> = new Set();
 
   if (itemIds.length > 0) {
     // Fetch all deals (including completed) to know which items are sold
@@ -187,46 +329,53 @@ async function fetchItemsFromDatabase(opts: {
   const availableItems = pageItems.filter(item => !soldItemIds.has(item.id));
 
   return {
-    items: availableItems.map(item => ({
-      id: item.id,
-      title: item.title || 'Untitled Item',
-      category: item.category || 'Other',
-      description: item.description || `${item.condition || 'Good'} condition`,
-      price: item.estimated_value_min || item.estimated_value_max || 0,
-      priceMin: item.estimated_value_min || 0,
-      priceMax: item.estimated_value_max || 0,
-      emoji: getEmojiForCategory(item.category || 'Other'),
-      photos: item.photos || [],
-      relevanceScore: 0,
-      matchReason: '',
-      dealStatus: dealStatusMap[item.id] as SearchResultItem['dealStatus'] || null,
-    })),
+    items: availableItems.map(item => {
+      // Calculate relevance score from rank if available, otherwise use default
+      let relevanceScore = 50;
+      if (item.rank !== undefined && item.rank !== null) {
+        // Normalize ts_rank (typically 0-1) to 0-100 scale
+        relevanceScore = Math.min(100, Math.max(40, Math.round(item.rank * 100)));
+      }
+
+      // Generate match reason
+      let matchReason = 'Showing all items';
+      if (opts.searchQuery && opts.searchQuery.trim()) {
+        const reasons: string[] = [];
+        const queryLower = opts.searchQuery.toLowerCase();
+        if (item.title && item.title.toLowerCase().includes(queryLower)) {
+          reasons.push('title');
+        }
+        if (item.category && item.category.toLowerCase().includes(queryLower)) {
+          reasons.push('category');
+        }
+        if (item.description && item.description.toLowerCase().includes(queryLower)) {
+          reasons.push('description');
+        }
+        matchReason = reasons.length > 0 
+          ? `Matched in ${reasons.join(', ')}` 
+          : 'Relevant match';
+      }
+
+      return {
+        id: item.id,
+        title: item.title || 'Untitled Item',
+        category: item.category || 'Other',
+        description: item.description || `${item.condition || 'Good'} condition`,
+        price: item.estimated_value_min || item.estimated_value_max || 0,
+        priceMin: item.estimated_value_min || 0,
+        priceMax: item.estimated_value_max || 0,
+        emoji: getEmojiForCategory(item.category || 'Other'),
+        photos: item.photos || [],
+        relevanceScore,
+        matchReason,
+        dealStatus: dealStatusMap[item.id] as SearchResultItem['dealStatus'] || null,
+      };
+    }),
     hasMore,
     nextCursor,
   };
 }
 
-const SEARCH_SYSTEM_PROMPT = `You are a semantic search assistant for a marketplace app. Your job is to understand user search queries and match them to relevant items.
-
-Given a search query, you need to:
-1. Understand the user's intent (what they're looking for)
-2. Consider synonyms, related terms, and contextual meaning
-3. Match items based on semantic relevance, not just keyword matching
-4. Explain why each item matches
-
-For example:
-- "something to sit on" should match sofas, chairs, etc.
-- "work from home setup" should match monitors, chairs, desks
-- "gift for music lover" should match instruments, headphones, etc.
-- "outdoor activities" should match bikes, sports equipment
-- "tech stuff" should match electronics
-
-You will receive a JSON array of items and a search query. Return a JSON response with:
-1. Matched item IDs with relevance scores (0-100) and match reasons
-2. Your interpretation of what the user is looking for
-3. Suggested categories they might be interested in
-
-Be generous with matching - if there's any reasonable connection, include it with an appropriate score.`;
 
 export async function handleSearchRequest(req: Request): Promise<Response> {
   console.log("🔍 [semanticSearch] Request received:", {
@@ -282,115 +431,74 @@ export async function handleSearchRequest(req: Request): Promise<Response> {
     // For both browse-all and semantic paths, we fetch a single page from DB.
 
     if (!query || typeof query !== "string" || query.trim().length === 0) {
-      // Browse-all (no Claude): keyset-paged
-      const page = await fetchItemsFromDatabase({ excludeUserId, limit, cursor });
-      return new Response(
-        JSON.stringify({
-          results: page.items.map(item => ({
-            ...item,
-            relevanceScore: 50,
-            matchReason: 'Showing all items',
-          })),
-          interpretation: 'Showing all available items',
-          suggestedCategories: ['Electronics', 'Furniture', 'Sports & Outdoors'],
-          nextCursor: page.nextCursor,
-          hasMore: page.hasMore,
-        }),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-          },
-        }
-      );
+      // Browse-all: keyset-paged
+      try {
+        const page = await fetchItemsFromDatabase({ excludeUserId, limit, cursor });
+        return new Response(
+          JSON.stringify({
+            results: page.items.map(item => ({
+              ...item,
+              relevanceScore: 50,
+              matchReason: 'Showing all items',
+            })),
+            interpretation: 'Showing all available items',
+            suggestedCategories: ['Electronics', 'Furniture', 'Sports & Outdoors'],
+            nextCursor: page.nextCursor,
+            hasMore: page.hasMore,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+              "Access-Control-Allow-Origin": "*",
+            },
+          }
+        );
+      } catch (browseError) {
+        console.error("❌ [semanticSearch] Browse-all error:", browseError);
+        return new Response(
+          JSON.stringify({
+            results: [],
+            interpretation: 'Error loading items. Please try again.',
+            suggestedCategories: [],
+            nextCursor: undefined,
+            hasMore: false,
+          }),
+          {
+            status: 200, // Return 200 with empty results instead of 500
+            headers: {
+              "Content-Type": "application/json",
+              "Access-Control-Allow-Origin": "*",
+            },
+          }
+        );
+      }
     }
 
-    // Only check for Claude API key when we need to perform semantic search
-    const apiKey = Deno.env.get("CLAUDE_API_KEY");
-    if (!apiKey) {
-      console.error("❌ [semanticSearch] CLAUDE_API_KEY not set");
-      return new Response(
-        JSON.stringify({
-          error: "CLAUDE_API_KEY is not set.",
-        }),
-        {
-          status: 500,
-          headers: {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-          },
-        }
-      );
-    }
-
-    const client = new Anthropic({ apiKey });
-
-    // Ask Claude for query understanding only (paginatable)
-    const userPrompt = `Search query: "${query}"
-
-Return ONLY valid JSON in this exact format:
-{
-  "interpretation": "Your understanding of what the user wants",
-  "suggestedCategories": ["Category1", "Category2"],
-  "keywords": ["keyword1", "keyword2", "keyword3"]
-}
-
-Rules:
-- suggestedCategories: 0-5 short marketplace categories
-- keywords: 3-8 short terms or phrases, no punctuation
-`;
-
-    console.log("🤖 [semanticSearch] Calling Claude API (query understanding)...");
+    // Use PostgreSQL full-text search
+    console.log("🔍 [semanticSearch] Performing full-text search:", query);
     const startTime = Date.now();
 
-    const response = await client.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 512,
-      system: SEARCH_SYSTEM_PROMPT,
-      messages: [{ role: "user", content: userPrompt }],
+    const keywords = extractKeywords(query);
+    const interpretation = generateInterpretation(query);
+    const suggestedCategories = suggestCategories(query, keywords);
+
+    const page = await fetchItemsFromDatabase({ 
+      excludeUserId, 
+      limit, 
+      cursor, 
+      searchQuery: query 
     });
 
     const duration = Date.now() - startTime;
-    console.log(`✨ [semanticSearch] Claude responded in ${duration}ms`);
-
-    const outputText =
-      response.content[0]?.type === "text"
-        ? response.content[0].text.trim()
-        : "";
-
-    let understood: {
-      interpretation: string;
-      suggestedCategories: string[];
-      keywords: string[];
-    } = { interpretation: `Searching for "${query}"`, suggestedCategories: [], keywords: [] };
-
-    try {
-      const jsonMatch = outputText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        understood = JSON.parse(jsonMatch[0]);
-      }
-    } catch {
-      // Best-effort; fall back to raw query keyword
-      understood = { interpretation: `Searching for "${query}"`, suggestedCategories: [], keywords: [query] };
-    }
-
-    const terms = [
-      ...(Array.isArray(understood.keywords) ? understood.keywords : []),
-      ...(Array.isArray(understood.suggestedCategories) ? understood.suggestedCategories : []),
-      query,
-    ];
-
-    const orFilter = buildOrFilter(terms);
-
-    const page = await fetchItemsFromDatabase({ excludeUserId, limit, cursor, orFilter });
+    console.log(`✨ [semanticSearch] Search completed in ${duration}ms`);
 
     if (page.items.length === 0) {
       return new Response(
         JSON.stringify({
           results: [],
-          interpretation: understood.interpretation || `No matches for "${query}"`,
-          suggestedCategories: understood.suggestedCategories || [],
+          interpretation: `No matches for "${query}"`,
+          suggestedCategories,
           nextCursor: undefined,
           hasMore: false,
         }),
@@ -404,41 +512,10 @@ Rules:
       );
     }
 
-    // Deterministic scoring on the returned page
-    const loweredTerms = terms.map(t => sanitizeOrTerm(t).toLowerCase()).filter(Boolean);
-    const scored = page.items.map((item) => {
-      const hayTitle = (item.title || "").toLowerCase();
-      const hayDesc = (item.description || "").toLowerCase();
-      const hayCat = (item.category || "").toLowerCase();
-
-      let hits = 0;
-      const reasons: string[] = [];
-      for (const t of loweredTerms.slice(0, 8)) {
-        if (t.length < 2) continue;
-        if (hayTitle.includes(t)) {
-          hits += 3;
-          reasons.push(`title: ${t}`);
-        } else if (hayCat.includes(t)) {
-          hits += 2;
-          reasons.push(`category: ${t}`);
-        } else if (hayDesc.includes(t)) {
-          hits += 1;
-          reasons.push(`description: ${t}`);
-        }
-      }
-
-      const relevance = Math.min(100, 40 + hits * 8);
-      return {
-        ...item,
-        relevanceScore: relevance,
-        matchReason: reasons.length ? `Matched ${reasons.slice(0, 3).join(", ")}` : "Possible match",
-      };
-    });
-
     const searchResponse: SearchResponse = {
-      results: scored,
-      interpretation: understood.interpretation || `Searching for "${query}"`,
-      suggestedCategories: understood.suggestedCategories || [],
+      results: page.items,
+      interpretation,
+      suggestedCategories,
       nextCursor: page.nextCursor,
       hasMore: page.hasMore,
     };
