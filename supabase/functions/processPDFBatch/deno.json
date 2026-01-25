@@ -1,0 +1,12 @@
+{
+  "imports": {
+    "@anthropic-ai/sdk": "npm:@anthropic-ai/sdk@^0.24.0",
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@^2.48.0",
+    "pdfjs-dist": "npm:pdfjs-dist@^4.0.0"
+  },
+  "compilerOptions": {
+    "lib": ["deno.window", "deno.ns"],
+    "strict": true,
+    "types": []
+  }
+}
