@@ -19,7 +19,7 @@ export default function ResetPasswordScreen({ navigation }: Props) {
           We've sent a password reset link to your email address. It may take a few
           minutes to arrive.
         </Text>
-        <Button variant="secondary" onPress={() => navigation.navigate('Auth')}>
+        <Button variant="secondary" onPress={() => navigation.navigate('AuthLegacy')}>
           Back to sign in
         </Button>
       </View>

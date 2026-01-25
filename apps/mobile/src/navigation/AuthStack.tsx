@@ -31,7 +31,7 @@ export default function AuthStack() {
       <Stack.Screen name="SignupStep2" component={SignupStep2Screen} />
       <Stack.Screen name="VerifyEmail" component={VerifyEmailScreen} />
       {/* Legacy screens */}
-      <Stack.Screen name="Auth" component={AuthScreen} />
+      <Stack.Screen name="AuthLegacy" component={AuthScreen} />
       <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
       <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
     </Stack.Navigator>

@@ -68,7 +68,7 @@ export default function AuthScreen({ navigation, route }: Props) {
         <Text variant="body" size="lg" color="secondary" style={styles.subtitle}>
           {isLogin
             ? 'Sign in to see your items, wants, and active deals.'
-            : 'Join thousands of people passively buying and selling in their neighborhood.'}
+            : 'Join thousands of people buying and selling with the Harvard community.'}
         </Text>
 
         {error ? (
@@ -166,7 +166,7 @@ export default function AuthScreen({ navigation, route }: Props) {
                 variant="bodyMedium"
                 size="base"
                 color="accent"
-                onPress={() => navigation.navigate('Auth', { mode: 'signup' } as any)}
+                onPress={() => navigation.navigate('AuthLegacy', { mode: 'signup' } as any)}
               >
                 Sign up
               </Text>
@@ -178,7 +178,7 @@ export default function AuthScreen({ navigation, route }: Props) {
                 variant="bodyMedium"
                 size="base"
                 color="accent"
-                onPress={() => navigation.navigate('Auth', { mode: 'login' } as any)}
+                onPress={() => navigation.navigate('AuthLegacy', { mode: 'login' } as any)}
               >
                 Sign in
               </Text>

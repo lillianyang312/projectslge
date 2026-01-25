@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   StyleSheet,
@@ -10,6 +10,7 @@ import {
   Image,
   RefreshControl,
 } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { ListStackParamList } from '../../navigation/types';
@@ -174,6 +175,35 @@ export default function MyListScreen({ navigation }: Props) {
     navigation.navigate('Upload');
   };
 
+  // Handle slideshow upload - picks a PDF file
+  const handleSlideshowUpload = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/pdf',
+        copyToCacheDirectory: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const pdfUri = result.assets[0].uri;
+        const pdfName = result.assets[0].name;
+        console.log('[MyList] PDF selected:', pdfName, pdfUri);
+        // Navigate to Upload flow with the PDF
+        navigation.navigate('Upload');
+      }
+    } catch (error) {
+      console.error('[MyList] Error picking PDF:', error);
+      Alert.alert('Error', 'Failed to pick PDF file.');
+    }
+  };
+
+  const fabMenuItems = useMemo(() => [
+    {
+      label: 'Upload slideshow',
+      icon: '📄',
+      onPress: handleSlideshowUpload,
+    },
+  ], []);
+
   // Get user-added listings from local store (filter out demo seed data)
   const localListings = listings
     .filter((l) => l.isActive && l.original.intent === 'owned' && !l.id.startsWith('demo-') && !l.id.startsWith('listing-') && !l.id.startsWith('clarification-'))
@@ -223,9 +253,19 @@ export default function MyListScreen({ navigation }: Props) {
   // Combine all items: Supabase items first, then local items
   // Only show demo items if user has no real items
   const hasRealItems = supabaseDisplayItems.length > 0 || localListings.length > 0;
-  const displayItems = hasRealItems
+  const combinedItems = hasRealItems
     ? [...supabaseDisplayItems, ...localListings]
     : [...supabaseDisplayItems, ...localListings, ...demoItems];
+
+  // Sort: items with bids float to the top, then by bid amount descending
+  const displayItems = [...combinedItems].sort((a, b) => {
+    const aBid = a.topBid ?? 0;
+    const bBid = b.topBid ?? 0;
+    if (aBid > 0 && bBid === 0) return -1;
+    if (aBid === 0 && bBid > 0) return 1;
+    if (aBid > 0 && bBid > 0) return bBid - aBid;
+    return 0;
+  });
 
   const toggleSelection = (id: string) => {
     const newSelected = new Set(selectedIds);
@@ -599,8 +639,8 @@ export default function MyListScreen({ navigation }: Props) {
         )
       )}
 
-      {/* Floating Action Button - ONLY entry point for Upload */}
-      {!isEditMode && <FAB onPress={navigateToUpload} />}
+      {/* Floating Action Button - with scroll-up menu for slideshow upload */}
+      {!isEditMode && <FAB onPress={navigateToUpload} menuItems={fabMenuItems} />}
     </SafeAreaView>
   );
 }

@@ -21,7 +21,7 @@ export type AuthStackParamList = {
   SignupStep2: { firstName: string; lastName: string; gender: string; phone: string };    // Harvard email, year, house, dorm
   VerifyEmail: { email: string; signupData?: SignupData };  // Email verification code entry
   // Legacy screens (kept for compatibility)
-  Auth: undefined;
+  AuthLegacy: undefined;
   ForgotPassword: undefined;
   ResetPassword: undefined;
 };
@@ -125,7 +125,7 @@ export type InboxStackParamList = {
 
 // Profile stack
 export type ProfileStackParamList = {
-  Profile: undefined;
+  ProfileHome: undefined;
   EditProfile: undefined;
   Conversations: undefined;
   ChatThread: { conversationId: string };

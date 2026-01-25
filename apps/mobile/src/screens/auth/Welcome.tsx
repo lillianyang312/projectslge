@@ -21,6 +21,10 @@ export default function WelcomeScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(false);
   const setSession = useAuthStore((state) => state.setSession);
 
+  const handleGetStarted = () => {
+    navigation.navigate('SignupStep1');
+  };
+
   const handleDevLogin = async (email: string, fullName: string) => {
     setLoading(true);
     try {
@@ -71,7 +75,7 @@ export default function WelcomeScreen({ navigation }: Props) {
             color="muted"
             style={styles.logo}
           >
-            passive
+            @harvard
           </Text>
         </Pressable>
 
@@ -101,7 +105,7 @@ export default function WelcomeScreen({ navigation }: Props) {
           color="primary"
           style={styles.headline}
         >
-          Passive{'\n'}shopping
+          Sellryte
         </Text>
         <Text
           variant="body"
@@ -109,12 +113,12 @@ export default function WelcomeScreen({ navigation }: Props) {
           color="secondary"
           style={styles.subtext}
         >
-          Buy and sell with the Harvard community. List what you own. Share what you want. We'll handle the rest.
+          List what you own. Collect offers. We'll handle the rest.
         </Text>
         <View style={styles.buttons}>
           <Button
             variant="primary"
-            onPress={() => navigation.navigate('SignupStep1')}
+            onPress={handleGetStarted}
           >
             Get started
           </Button>

@@ -487,16 +487,16 @@ async function notifyOutbidBuyers(
 
     if (error || !competingDeals) return;
 
-    // Notify buyers who have been outbid (their offer is lower)
+    // Notify buyers when someone makes an equivalent or higher bid
     for (const deal of competingDeals) {
-      if (deal.current_offer && deal.current_offer < newOfferAmount) {
-        // Send agent message notifying them they've been outbid
+      if (deal.current_offer && deal.current_offer <= newOfferAmount) {
+        // Send agent message notifying them of a competing offer
         await sendAgentMessage(
           deal.id,
-          `Heads up! Someone just made a higher offer of $${newOfferAmount} on this item. Your current offer is $${deal.current_offer}. Would you like to raise your offer to stay competitive?`,
+          `Heads up! Someone just made ${newOfferAmount === deal.current_offer ? 'a matching' : 'a higher'} offer of $${newOfferAmount} on this item. Your current offer is $${deal.current_offer}. Would you like to raise your offer to stay competitive?`,
           { outbidNotification: true, competingOffer: newOfferAmount }
         );
-        console.log(`[dealsService] Notified buyer ${deal.buyer_id} they were outbid`);
+        console.log(`[dealsService] Notified buyer ${deal.buyer_id} of competing offer`);
       }
     }
   } catch (error) {
@@ -994,7 +994,8 @@ export async function markDealAsRead(dealId: string, userId: string): Promise<bo
       .single();
 
     if (fetchError || !deal) {
-      console.error('Error fetching deal for read marking:', fetchError);
+      // Deal might not exist or user doesn't have access - not a critical error
+      console.log('[markDealAsRead] Could not fetch deal:', dealId);
       return false;
     }
 
@@ -1009,13 +1010,15 @@ export async function markDealAsRead(dealId: string, userId: string): Promise<bo
       .eq('id', dealId);
 
     if (updateError) {
-      console.error('Error marking deal as read:', updateError);
+      // Column might not exist if migration hasn't been applied
+      console.log('[markDealAsRead] Update failed (migration may be pending):', updateError.message);
       return false;
     }
 
     return true;
   } catch (error) {
-    console.error('Error in markDealAsRead:', error);
+    // Non-critical - don't block the chat experience
+    console.log('[markDealAsRead] Failed:', error);
     return false;
   }
 }

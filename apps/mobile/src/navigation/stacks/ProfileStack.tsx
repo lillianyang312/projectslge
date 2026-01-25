@@ -14,12 +14,12 @@ export default function ProfileStack() {
   return (
     <Stack.Navigator
       id="profile"
-      initialRouteName="Profile"
+      initialRouteName="ProfileHome"
       screenOptions={{
         headerShown: false,
       }}
     >
-      <Stack.Screen name="Profile" component={ProfileHomeScreen} />
+      <Stack.Screen name="ProfileHome" component={ProfileHomeScreen} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
       <Stack.Screen name="Conversations" component={ConversationsListScreen} />
       <Stack.Screen name="ChatThread" component={ChatThreadScreen} />

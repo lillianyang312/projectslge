@@ -17,16 +17,16 @@ export default function WelcomeScreen({ navigation }: Props) {
     <SafeAreaView style={styles.screen}>
       <View style={styles.homeContent}>
         {/* Logo: Fraunces 14px, muted, letterSpacing 0.5, marginBottom 48 */}
-        <Text style={styles.homeLogo}>passive</Text>
+        <Text style={styles.homeLogo}>@harvard</Text>
 
         {/* Headline: Fraunces 36px, lineHeight ~41 (1.15), marginBottom 16 */}
         <Text style={styles.homeHeadline}>
-          Passive{'\n'}shopping
+          Sellryte
         </Text>
 
         {/* Subtext: DM Sans 16px, lineHeight 24, secondary color, marginBottom 48 */}
         <Text style={styles.homeSubtext}>
-          List what you own. Share what you want. We'll handle the rest.
+          List what you own. Collect offers. We'll handle the rest.
         </Text>
 
         {/* Buttons: column, gap 12 */}

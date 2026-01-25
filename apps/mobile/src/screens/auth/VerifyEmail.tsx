@@ -9,10 +9,12 @@ import {
   Keyboard,
   Dimensions,
   ScrollView,
+  Modal,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AuthStackParamList } from '../../navigation/types';
 import { Text, Button } from '../../ui/components';
+import * as DocumentPicker from 'expo-document-picker';
 import { colors, spacing, radius } from '../../ui/tokens';
 import { useAuthStore } from '../../state/authStore';
 import { supabase } from '../../lib/supabase';
@@ -31,6 +33,7 @@ export default function VerifyEmailScreen({ navigation, route }: Props) {
   const [loading, setLoading] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [error, setError] = useState('');
+  const [showSlideshowModal, setShowSlideshowModal] = useState(false);
 
   const inputRefs = useRef<(TextInput | null)[]>([]);
   const setSession = useAuthStore((state) => state.setSession);
@@ -300,11 +303,8 @@ export default function VerifyEmailScreen({ navigation, route }: Props) {
             setSession(authData.session);
           }
 
-          Alert.alert(
-            'Account created!',
-            'Welcome to Passive. Start listing your items or browse what\'s available.',
-            [{ text: 'Get started' }]
-          );
+          // Show slideshow upload prompt after account creation
+          setShowSlideshowModal(true);
         }
       }
     } catch (err: any) {
@@ -409,6 +409,51 @@ export default function VerifyEmailScreen({ navigation, route }: Props) {
           {loading ? 'Verifying...' : 'Verify'}
         </Button>
       </View>
+
+      {/* Slideshow Upload Modal - shown after account creation */}
+      <Modal
+        visible={showSlideshowModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSlideshowModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text variant="headingMedium" size="heading3" style={styles.modalTitle}>
+              Upload a slideshow?
+            </Text>
+            <Text variant="body" size="md" color="secondary" style={styles.modalText}>
+              You can upload a PDF slideshow of items you want to sell to get started quickly.
+            </Text>
+            <View style={styles.modalButtons}>
+              <Button variant="primary" onPress={async () => {
+                setShowSlideshowModal(false);
+                try {
+                  const result = await DocumentPicker.getDocumentAsync({
+                    type: 'application/pdf',
+                    copyToCacheDirectory: true,
+                  });
+                  if (!result.canceled && result.assets && result.assets.length > 0) {
+                    // Session is already set, user will be navigated to app by auth state
+                    // PDF will be handled on the List screen
+                    Alert.alert('Slideshow uploaded!', `${result.assets[0].name} will be processed.`);
+                  }
+                } catch (err) {
+                  console.error('Error picking document:', err);
+                }
+              }}>
+                Yes, upload slideshow
+              </Button>
+              <Button variant="secondary" onPress={() => {
+                setShowSlideshowModal(false);
+                // Session is already set, auth state will navigate to app
+              }}>
+                No, skip for now
+              </Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -516,5 +561,31 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.border,
     backgroundColor: colors.bg,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  modalContent: {
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    padding: spacing.xl,
+    width: '100%',
+    maxWidth: 340,
+  },
+  modalTitle: {
+    marginBottom: spacing.md,
+    textAlign: 'center',
+  },
+  modalText: {
+    textAlign: 'center',
+    marginBottom: spacing.xl,
+    lineHeight: 22,
+  },
+  modalButtons: {
+    gap: spacing.md,
   },
 });

@@ -123,7 +123,9 @@ export default function DealChatScreen({ navigation, route }: Props) {
 
       // Mark deal as read when opening chat
       if (user?.id && fetchedDeal) {
-        markDealAsRead(dealId, user.id);
+        markDealAsRead(dealId, user.id).catch(() => {
+          // Silently handle - columns may not exist yet
+        });
       }
 
       // Load item image (using cached signed URL)
@@ -582,25 +584,16 @@ export default function DealChatScreen({ navigation, route }: Props) {
           <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
             <Text size="xl">←</Text>
           </Pressable>
-          {isAccepted ? (
-            <View style={styles.headerInfo}>
-              <Text variant="headingMedium" size="heading3" numberOfLines={1}>
-                {counterpartyName}
-              </Text>
-              <Badge variant={isSelling ? 'warning' : 'purple'}>
-                {isSelling ? 'Selling' : 'Buying'}
-              </Badge>
-            </View>
-          ) : (
-            <View style={styles.headerInfo}>
-              <Text variant="headingMedium" size="heading3" numberOfLines={1}>
-                Anonymous
-              </Text>
-              <Badge variant={isSelling ? 'warning' : 'purple'}>
-                {isSelling ? 'Selling' : 'Buying'}
-              </Badge>
-            </View>
-          )}
+          <View style={styles.headerInfo}>
+            <Text variant="headingMedium" size="heading3" numberOfLines={1} style={styles.headerName}>
+              {isAccepted && counterpartyName !== 'Buyer' && counterpartyName !== 'Seller'
+                ? counterpartyName
+                : itemTitle}
+            </Text>
+            <Text variant="bodyMedium" size="sm" color={isSelling ? 'warning' : 'purple'} style={styles.headerRoleLabel}>
+              {isSelling ? 'Selling' : 'Buying'}
+            </Text>
+          </View>
         </View>
 
         {/* Timestamp */}
@@ -877,6 +870,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+  },
+  headerName: {
+    flex: 1,
+  },
+  headerRoleLabel: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
   },
   timestampContainer: {
     alignItems: 'center',

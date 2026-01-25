@@ -45,7 +45,7 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
             variant="bodyMedium"
             size="base"
             color="accent"
-            onPress={() => navigation.navigate('Auth')}
+            onPress={() => navigation.navigate('AuthLegacy')}
           >
             Sign in
           </Text>
