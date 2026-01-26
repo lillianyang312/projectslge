@@ -112,11 +112,13 @@ export default function VerifyEmailScreen({ navigation, route }: Props) {
     try {
       if (isLogin) {
         // For login, use the loginWithCode function which verifies code and creates session
+        let loginResult: any = null; // Declare in outer scope to avoid TypeScript scope error
         try {
-          const { data: loginResult, error: loginError } = await supabase.functions.invoke(
+          const { data, error: loginError } = await supabase.functions.invoke(
             'loginWithCode',
             { body: { email, code: fullCode } }
           );
+          loginResult = data; // Assign to outer scope variable
 
           if (loginError) {
             console.error('Login error:', loginError);

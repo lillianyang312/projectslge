@@ -91,7 +91,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    console.log(`🔐 Verifying code for: ${email}`);
+    // Normalize email to lowercase for consistent verification
+    const normalizedEmail = email.toLowerCase().trim();
+
+    console.log(`🔐 Verifying code for: ${normalizedEmail}`);
 
     // Create Supabase client with service role
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -99,7 +102,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // Verify the code using the database function
     const { data: isValid, error: verifyError } = await supabase.rpc(
       "verify_email_code",
-      { p_email: email, p_code: code }
+      { p_email: normalizedEmail, p_code: code }
     );
 
     if (verifyError) {
@@ -121,7 +124,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       message: isValid ? "Code verified successfully" : "Invalid or expired code",
     };
 
-    console.log(`${isValid ? '✅' : '❌'} Code verification for ${email}: ${isValid ? 'valid' : 'invalid'}`);
+    console.log(`${isValid ? '✅' : '❌'} Code verification for ${normalizedEmail}: ${isValid ? 'valid' : 'invalid'}`);
 
     return new Response(JSON.stringify(response), {
       status: 200,

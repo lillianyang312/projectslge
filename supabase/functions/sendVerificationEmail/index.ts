@@ -79,7 +79,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    console.log(`📧 Sending verification code to: ${email}`);
+    // Normalize email to lowercase for consistent storage/verification
+    const normalizedEmail = email.toLowerCase().trim();
+
+    console.log(`📧 Sending verification code to: ${normalizedEmail}`);
 
     // Create Supabase client with service role
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -87,7 +90,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // Generate verification code using the database function
     const { data: codeData, error: codeError } = await supabase.rpc(
       "create_verification_code",
-      { p_email: email }
+      { p_email: normalizedEmail }
     );
 
     if (codeError) {
@@ -105,7 +108,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     const verificationCode = codeData;
-    console.log(`✅ Generated verification code for ${email}`);
+    console.log(`✅ Generated verification code for ${normalizedEmail}`);
 
     // Send email using Resend (or fallback to logging)
     if (resendApiKey) {
@@ -141,7 +144,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           const errorData = await emailResponse.json();
           console.error("Resend API error:", errorData);
         } else {
-          console.log(`✉️ Verification email sent to ${email}`);
+          console.log(`✉️ Verification email sent to ${normalizedEmail}`);
         }
       } catch (emailError) {
         console.error("Error sending email via Resend:", emailError);
@@ -149,7 +152,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       }
     } else {
       // Log the code for development/testing
-      console.log(`📋 [DEV] Verification code for ${email}: ${verificationCode}`);
+      console.log(`📋 [DEV] Verification code for ${normalizedEmail}: ${verificationCode}`);
     }
 
     const response: SendVerificationResponse = {

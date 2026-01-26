@@ -97,7 +97,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    console.log(`🔐 Login attempt for: ${email}`);
+    // Normalize email to lowercase for consistent verification
+    const normalizedEmail = email.toLowerCase().trim();
+
+    console.log(`🔐 Login attempt for: ${normalizedEmail}`);
 
     // Create Supabase client with service role
     const supabase = createClient(supabaseUrl, supabaseServiceKey, {
@@ -108,13 +111,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
 
     // First verify the code
+    console.log(`🔍 Verifying code for email: ${normalizedEmail}, code: ${code}`);
     const { data: isValid, error: verifyError } = await supabase.rpc(
       "verify_email_code",
-      { p_email: email, p_code: code }
+      { p_email: normalizedEmail, p_code: code }
     );
 
     if (verifyError) {
       console.error("Error verifying code:", verifyError);
+      console.error("Verify error details:", JSON.stringify(verifyError, null, 2));
       return new Response(
         JSON.stringify({ success: false, error: "Verification failed" }),
         {
@@ -127,8 +132,23 @@ Deno.serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    if (!isValid) {
-      console.log(`❌ Invalid code for ${email}`);
+    console.log(`🔍 Verification result for ${normalizedEmail}: ${isValid} (type: ${typeof isValid})`);
+
+    // Handle case where RPC returns null or undefined
+    if (isValid !== true) {
+      console.log(`❌ Invalid code for ${normalizedEmail} - code: ${code}`);
+      // Check if there are any codes for this email in the database (for debugging)
+      const { data: codesData, error: codesError } = await supabase
+        .from("email_verification_codes")
+        .select("email, code, used, expires_at, created_at")
+        .eq("email", normalizedEmail)
+        .order("created_at", { ascending: false })
+        .limit(5);
+      
+      if (!codesError && codesData) {
+        console.log(`📋 Recent codes for ${normalizedEmail}:`, JSON.stringify(codesData, null, 2));
+      }
+      
       return new Response(
         JSON.stringify({ success: false, error: "Invalid or expired code" }),
         {
@@ -141,13 +161,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    console.log(`✅ Code verified for ${email}`);
+    console.log(`✅ Code verified for ${normalizedEmail}`);
 
     // First try to find user by email in user_profiles
     const { data: profile, error: profileError } = await supabase
       .from("user_profiles")
       .select("id")
-      .eq("harvard_email", email)
+      .eq("harvard_email", normalizedEmail)
       .single();
 
     let authUser: any = null;
@@ -164,12 +184,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     // If not found in user_profiles, try to find directly in auth.users by email
     if (!authUser) {
-      console.log(`User not in user_profiles, checking auth.users for: ${email}`);
+      console.log(`User not in user_profiles, checking auth.users for: ${normalizedEmail}`);
       const { data: usersData, error: listError } = await supabase.auth.admin.listUsers();
 
       if (!listError && usersData?.users) {
         const foundUser = usersData.users.find(
-          (u: any) => u.email?.toLowerCase() === email.toLowerCase()
+          (u: any) => u.email?.toLowerCase() === normalizedEmail
         );
         if (foundUser) {
           authUser = { user: foundUser };
@@ -251,7 +271,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    console.log(`✅ Session created for ${email}`);
+    console.log(`✅ Session created for ${normalizedEmail}`);
 
     const response: LoginResponse = {
       success: true,
