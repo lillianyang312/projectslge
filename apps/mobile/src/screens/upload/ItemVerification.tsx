@@ -10,16 +10,24 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Keyboard,
+  Modal,
+  Dimensions,
+  StatusBar,
+  ActionSheetIOS,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import * as ImagePicker from 'expo-image-picker';
 import { ListStackParamList } from '../../navigation/types';
-import { Text, Button } from '../../ui/components';
+import { Text, Button, Header } from '../../ui/components';
 import { colors, spacing, radius, typography } from '../../ui/tokens';
 import { useItemsStore } from '../../state/itemsStore';
 import { useAuthStore } from '../../state/authStore';
 import { uploadImageGroup, analyzeImages, getSignedUrl } from '../../services/imageService';
-import { getCategoryFields, getAllCategories, CategoryField } from '../../config/categoryFields';
+import type { CategoryDetails } from '../../types/analyzeImage';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 type Props = NativeStackScreenProps<ListStackParamList, 'ItemVerification'>;
 
@@ -37,40 +45,96 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
   const currentItem = bulkItems[itemIndex];
   const totalItems = bulkItems.length;
 
-  // Track which fields were manually edited (these take priority)
-  const [manualEdits, setManualEdits] = useState<Set<string>>(new Set());
-
-  // Form state - simplified: title, category, condition, category-specific fields, notes
+  // Form state - simplified: title, category, condition, notes
   const [title, setTitle] = useState(currentItem?.verifiedTitle || currentItem?.title || '');
   const [category, setCategory] = useState(currentItem?.verifiedCategory || currentItem?.category || '');
   const [condition, setCondition] = useState<Condition>(
     (currentItem?.verifiedCondition?.toLowerCase().replace(' ', '_') as Condition) || 'good'
   );
-  const [categoryFields, setCategoryFields] = useState<Record<string, any>>(
-    currentItem?.categoryFields || {}
-  );
   const [notes, setNotes] = useState(currentItem?.notes || '');
+
+  // Category-specific fields (matching ItemDetails.tsx)
+  const [categoryDetails, setCategoryDetails] = useState<CategoryDetails | undefined>(undefined);
+
+  // Clothing-specific state
+  const [clothingSize, setClothingSize] = useState('');
+  const [clothingType, setClothingType] = useState('');
+  const [clothingBrand, setClothingBrand] = useState('');
+  const [clothingColor, setClothingColor] = useState('');
+  const [clothingMaterial, setClothingMaterial] = useState('');
+
+  // Electronics-specific state
+  const [electronicsBrand, setElectronicsBrand] = useState('');
+  const [electronicsModel, setElectronicsModel] = useState('');
+  const [electronicsStorage, setElectronicsStorage] = useState('');
+  const [electronicsColor, setElectronicsColor] = useState('');
+
+  // Furniture-specific state
+  const [furnitureMaterial, setFurnitureMaterial] = useState('');
+  const [furnitureColor, setFurnitureColor] = useState('');
+  const [furnitureStyle, setFurnitureStyle] = useState('');
+
+  // Books-specific state
+  const [bookAuthor, setBookAuthor] = useState('');
+  const [bookSubject, setBookSubject] = useState('');
 
   // UI state
   const [analyzing, setAnalyzing] = useState(false);
-  const [analyzed, setAnalyzed] = useState(!!currentItem?.title);
-  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+  const analyzedRef = useRef(!!currentItem?.title);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const isKeyboardVisibleRef = useRef(false);
+  const pendingAnalysisResultRef = useRef<{title?: string; category?: string; condition?: Condition} | null>(null);
+  const [showFullscreenPhoto, setShowFullscreenPhoto] = useState(false);
+  const [fullscreenImageUri, setFullscreenImageUri] = useState<string | null>(null);
 
-  const images = currentItem?.imageUris || [];
-  const dynamicFields = getCategoryFields(category);
-  const availableCategories = getAllCategories();
+  // Images state - mutable so user can add/remove photos
+  const [images, setImages] = useState<string[]>(currentItem?.imageUris || []);
   const scrollViewRef = useRef<ScrollView>(null);
   const notesInputRef = useRef<TextInput>(null);
 
-  // Track manual edits
-  const markAsManualEdit = (field: string) => {
-    setManualEdits((prev) => new Set(prev).add(field));
+  // Helper to check if a field should be hidden (value is in the title)
+  // Returns true if the value exists AND is found in the title (case-insensitive)
+  const shouldHideField = (value: string): boolean => {
+    const trimmedValue = value?.trim();
+    const trimmedTitle = title?.trim();
+    if (!trimmedValue || !trimmedTitle) return false;
+    return trimmedTitle.toLowerCase().includes(trimmedValue.toLowerCase());
   };
+
+  // Track keyboard visibility for extra padding
+  useEffect(() => {
+    const keyboardWillShow = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        setIsKeyboardVisible(true);
+        isKeyboardVisibleRef.current = true;
+      }
+    );
+    const keyboardWillHide = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setIsKeyboardVisible(false);
+        isKeyboardVisibleRef.current = false;
+        // Apply any pending analysis results when keyboard hides
+        if (pendingAnalysisResultRef.current) {
+          const pending = pendingAnalysisResultRef.current;
+          if (pending.title) setTitle(pending.title);
+          if (pending.category) setCategory(pending.category);
+          if (pending.condition) setCondition(pending.condition);
+          pendingAnalysisResultRef.current = null;
+        }
+      }
+    );
+    return () => {
+      keyboardWillShow.remove();
+      keyboardWillHide.remove();
+    };
+  }, []);
 
   // Auto-analyze images when screen loads
   useEffect(() => {
     async function analyzeItemImages() {
-      if (images.length > 0 && user && !analyzed && !currentItem?.title) {
+      if (images.length > 0 && user && !analyzedRef.current && !currentItem?.title) {
         setAnalyzing(true);
         try {
           // Upload all images as a group
@@ -92,15 +156,64 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
               const analysisResult = await analyzeImages(validSignedUrls, validPaths);
 
               if (analysisResult && analysisResult.type === 'identified') {
-                // Only set AI values if not manually edited
-                if (!manualEdits.has('title')) setTitle(analysisResult.item.title);
-                if (!manualEdits.has('category')) setCategory(analysisResult.item.category);
-                if (!manualEdits.has('condition') && analysisResult.item.condition) {
+                const newTitle = analysisResult.item.title;
+                const newCategory = analysisResult.item.category;
+                let newCondition: Condition | undefined;
+                if (analysisResult.item.condition) {
                   const conditionLower = analysisResult.item.condition
                     .toLowerCase()
                     .replace(' ', '_') as Condition;
                   if (['new', 'like_new', 'good', 'fair', 'poor'].includes(conditionLower)) {
-                    setCondition(conditionLower);
+                    newCondition = conditionLower;
+                  }
+                }
+
+                // If keyboard is visible, defer the update to avoid dismissing it
+                if (isKeyboardVisibleRef.current) {
+                  pendingAnalysisResultRef.current = {
+                    title: newTitle,
+                    category: newCategory,
+                    condition: newCondition,
+                  };
+                } else {
+                  setTitle(newTitle);
+                  setCategory(newCategory);
+                  if (newCondition) setCondition(newCondition);
+                }
+
+                // Populate category-specific fields from analysis
+                const details = analysisResult.item.categoryDetails;
+                if (details) {
+                  setCategoryDetails(details);
+
+                  // Clothing fields
+                  if (details.clothing) {
+                    if (details.clothing.size) setClothingSize(details.clothing.size);
+                    if (details.clothing.clothingType) setClothingType(details.clothing.clothingType);
+                    if (details.clothing.brand) setClothingBrand(details.clothing.brand);
+                    if (details.clothing.color) setClothingColor(details.clothing.color);
+                    if (details.clothing.material) setClothingMaterial(details.clothing.material);
+                  }
+
+                  // Electronics fields
+                  if (details.electronics) {
+                    if (details.electronics.brand) setElectronicsBrand(details.electronics.brand);
+                    if (details.electronics.model) setElectronicsModel(details.electronics.model);
+                    if (details.electronics.storage) setElectronicsStorage(details.electronics.storage);
+                    if (details.electronics.color) setElectronicsColor(details.electronics.color);
+                  }
+
+                  // Furniture fields
+                  if (details.furniture) {
+                    if (details.furniture.material) setFurnitureMaterial(details.furniture.material);
+                    if (details.furniture.color) setFurnitureColor(details.furniture.color);
+                    if (details.furniture.style) setFurnitureStyle(details.furniture.style);
+                  }
+
+                  // Books fields
+                  if (details.books) {
+                    if (details.books.author) setBookAuthor(details.books.author);
+                    if (details.books.subject) setBookSubject(details.books.subject);
                   }
                 }
 
@@ -116,7 +229,7 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
           console.warn('[ItemVerification] Image analysis failed:', error);
         } finally {
           setAnalyzing(false);
-          setAnalyzed(true);
+          analyzedRef.current = true;
         }
       }
     }
@@ -132,24 +245,89 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
     { value: 'poor', label: 'Poor' },
   ];
 
-  const handleCategoryFieldChange = (key: string, value: any) => {
-    setCategoryFields({ ...categoryFields, [key]: value });
-    markAsManualEdit(`categoryField_${key}`);
+  const openFullscreenPhoto = (uri: string) => {
+    setFullscreenImageUri(uri);
+    setShowFullscreenPhoto(true);
   };
 
-  const clearField = (field: string) => {
-    switch (field) {
-      case 'title':
-        setTitle('');
-        break;
-      case 'category':
-        setCategory('');
-        break;
-      case 'notes':
-        setNotes('');
-        break;
+  // Photo management functions
+  const takePhotoWithCamera = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'We need camera permissions to take photos.');
+      return;
     }
-    markAsManualEdit(field);
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false,
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets.length > 0) {
+      const newUri = result.assets[0].uri;
+      const updatedImages = [...images, newUri].slice(0, 5);
+      setImages(updatedImages);
+      updateBulkItem(currentItem.id, { imageUris: updatedImages });
+      // Trigger re-analysis when new photo is added
+      analyzedRef.current = false;
+    }
+  };
+
+  const pickFromGallery = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'We need camera roll permissions to upload images.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false,
+      allowsMultipleSelection: true,
+      quality: 0.8,
+      selectionLimit: Math.max(1, 5 - images.length),
+    });
+
+    if (!result.canceled && result.assets.length > 0) {
+      const newUris = result.assets.map(asset => asset.uri);
+      const updatedImages = [...images, ...newUris].slice(0, 5);
+      setImages(updatedImages);
+      updateBulkItem(currentItem.id, { imageUris: updatedImages });
+      // Trigger re-analysis when new photos are added
+      analyzedRef.current = false;
+    }
+  };
+
+  const addMorePhotos = () => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'Take Photo', 'Choose from Library'],
+          cancelButtonIndex: 0,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 1) takePhotoWithCamera();
+          else if (buttonIndex === 2) pickFromGallery();
+        }
+      );
+    } else {
+      Alert.alert('Add Photo', 'Choose an option', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Take Photo', onPress: takePhotoWithCamera },
+        { text: 'Choose from Library', onPress: pickFromGallery },
+      ]);
+    }
+  };
+
+  const removePhoto = (index: number) => {
+    if (images.length <= 1) {
+      Alert.alert('Cannot remove', 'At least one photo is required.');
+      return;
+    }
+    const updatedImages = images.filter((_, i) => i !== index);
+    setImages(updatedImages);
+    updateBulkItem(currentItem.id, { imageUris: updatedImages });
   };
 
   const handleDeleteItem = () => {
@@ -186,11 +364,63 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
       poor: 'Poor',
     };
 
+    // Build an enriched title that includes category details NOT already in the title
+    let enrichedTitle = title.trim();
+    const categoryLower = category.toLowerCase();
+    const titleEnrichments: string[] = [];
+
+    if (categoryLower.includes('clothing')) {
+      // Add details to title if not already present
+      if (clothingBrand && !shouldHideField(clothingBrand)) titleEnrichments.push(clothingBrand);
+      if (clothingType && !shouldHideField(clothingType)) titleEnrichments.push(clothingType);
+      if (clothingSize && !shouldHideField(clothingSize)) titleEnrichments.push(`Size ${clothingSize}`);
+      if (clothingColor && !shouldHideField(clothingColor)) titleEnrichments.push(clothingColor);
+    } else if (categoryLower.includes('electronics')) {
+      if (electronicsBrand && !shouldHideField(electronicsBrand)) titleEnrichments.push(electronicsBrand);
+      if (electronicsModel && !shouldHideField(electronicsModel)) titleEnrichments.push(electronicsModel);
+      if (electronicsStorage && !shouldHideField(electronicsStorage)) titleEnrichments.push(electronicsStorage);
+      if (electronicsColor && !shouldHideField(electronicsColor)) titleEnrichments.push(electronicsColor);
+    } else if (categoryLower.includes('furniture')) {
+      if (furnitureMaterial && !shouldHideField(furnitureMaterial)) titleEnrichments.push(furnitureMaterial);
+      if (furnitureColor && !shouldHideField(furnitureColor)) titleEnrichments.push(furnitureColor);
+      if (furnitureStyle && !shouldHideField(furnitureStyle)) titleEnrichments.push(`${furnitureStyle} style`);
+    } else if (categoryLower.includes('book')) {
+      if (bookAuthor && !shouldHideField(bookAuthor)) titleEnrichments.push(`by ${bookAuthor}`);
+    }
+
+    // Append enrichments to title if any
+    if (titleEnrichments.length > 0) {
+      enrichedTitle = `${enrichedTitle} - ${titleEnrichments.join(', ')}`;
+    }
+
+    // Build categoryFields object for pricing service
+    const categoryFields: Record<string, any> = {};
+    if (categoryLower.includes('clothing')) {
+      if (clothingSize) categoryFields.size = clothingSize;
+      if (clothingType) categoryFields.type = clothingType;
+      if (clothingBrand) categoryFields.brand = clothingBrand;
+      if (clothingColor) categoryFields.color = clothingColor;
+      if (clothingMaterial) categoryFields.material = clothingMaterial;
+    } else if (categoryLower.includes('electronics')) {
+      if (electronicsBrand) categoryFields.brand = electronicsBrand;
+      if (electronicsModel) categoryFields.model = electronicsModel;
+      if (electronicsStorage) categoryFields.storage = electronicsStorage;
+      if (electronicsColor) categoryFields.color = electronicsColor;
+    } else if (categoryLower.includes('furniture')) {
+      if (furnitureMaterial) categoryFields.material = furnitureMaterial;
+      if (furnitureColor) categoryFields.color = furnitureColor;
+      if (furnitureStyle) categoryFields.style = furnitureStyle;
+    } else if (categoryLower.includes('book')) {
+      if (bookAuthor) categoryFields.author = bookAuthor;
+      if (bookSubject) categoryFields.subject = bookSubject;
+    }
+
     updateBulkItem(currentItem.id, {
-      verifiedTitle: title.trim() || 'Untitled Item',
+      verifiedTitle: enrichedTitle || 'Untitled Item',
       verifiedCategory: category.trim() || 'General',
       verifiedCondition: conditionMap[condition],
       categoryFields,
+      imageUris: images, // Save updated images
       notes: notes.trim() || undefined,
       isVerified: true,
     });
@@ -229,64 +459,49 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
     }
   };
 
-  // Clearable input component
-  const ClearableInput = ({
-    label,
-    value,
-    onChangeText,
-    fieldKey,
-    placeholder,
-    multiline = false,
-    keyboardType = 'default',
-    inputRef,
-    onFocus,
-  }: {
-    label: string;
-    value: string;
-    onChangeText: (text: string) => void;
-    fieldKey: string;
-    placeholder?: string;
-    multiline?: boolean;
-    keyboardType?: 'default' | 'numeric';
-    inputRef?: React.RefObject<TextInput>;
-    onFocus?: () => void;
-  }) => (
-    <View style={styles.inputRow}>
-      <View style={styles.inputContainer}>
-        <Text variant="body" size="sm" color="muted" style={styles.inputLabel}>
-          {label}
-        </Text>
+  // Render a clearable input field (function, not component, to avoid keyboard issues)
+  const renderClearableInput = (
+    label: string,
+    value: string,
+    onChangeText: (text: string) => void,
+    placeholder: string,
+    options?: {
+      multiline?: boolean;
+      keyboardType?: 'default' | 'numeric';
+      inputRef?: React.RefObject<TextInput>;
+      onFocus?: () => void;
+    }
+  ) => (
+    <View style={styles.inputGroup}>
+      <Text variant="body" size="sm" color="muted" style={styles.inputLabel}>
+        {label}
+      </Text>
+      <View style={styles.inputWrapper}>
         <TextInput
-          ref={inputRef}
-          style={[styles.input, multiline && styles.inputMultiline]}
+          ref={options?.inputRef}
+          style={[styles.input, options?.multiline && styles.inputMultiline]}
           value={value}
-          onChangeText={(text) => {
-            onChangeText(text);
-            markAsManualEdit(fieldKey);
-          }}
+          onChangeText={onChangeText}
           placeholder={placeholder}
           placeholderTextColor={colors.textMuted}
-          multiline={multiline}
-          keyboardType={keyboardType}
-          onFocus={onFocus}
+          multiline={options?.multiline}
+          keyboardType={options?.keyboardType || 'default'}
+          onFocus={options?.onFocus}
+          blurOnSubmit={false}
+          returnKeyType={options?.multiline ? 'default' : 'next'}
         />
+        {value.length > 0 && (
+          <Pressable style={styles.clearButton} onPress={() => onChangeText('')}>
+            <Text style={styles.clearButtonText}>✕</Text>
+          </Pressable>
+        )}
       </View>
-      {value.length > 0 && (
-        <Pressable style={styles.clearButton} onPress={() => clearField(fieldKey)}>
-          <Text style={styles.clearButtonText}>✕</Text>
-        </Pressable>
-      )}
     </View>
   );
 
   if (!currentItem) {
     return (
       <SafeAreaView style={styles.screen}>
-        <View style={styles.header}>
-          <Pressable onPress={() => navigation.goBack()}>
-            <Text style={styles.backButton}>← Back</Text>
-          </Pressable>
-        </View>
         <View style={styles.emptyState}>
           <Text variant="body" size="lg" color="muted">No items to verify</Text>
           <Button variant="primary" onPress={() => navigation.navigate('MyList')}>
@@ -299,125 +514,240 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
+      {/* Fullscreen Photo Modal */}
+      <Modal
+        visible={showFullscreenPhoto}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowFullscreenPhoto(false)}
+        statusBarTranslucent
+      >
+        <StatusBar backgroundColor="rgba(0,0,0,0.95)" barStyle="light-content" />
+        <View style={styles.fullscreenModal}>
+          <Pressable
+            style={styles.fullscreenCloseArea}
+            onPress={() => setShowFullscreenPhoto(false)}
+          >
+            <Image
+              source={{ uri: fullscreenImageUri || '' }}
+              style={styles.fullscreenImage}
+              resizeMode="contain"
+            />
+          </Pressable>
+          <Pressable
+            style={styles.fullscreenCloseButton}
+            onPress={() => setShowFullscreenPhoto(false)}
+          >
+            <Text style={styles.fullscreenCloseText}>✕</Text>
+          </Pressable>
+        </View>
+      </Modal>
+
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
       >
-        {/* Compact Header with Delete */}
-        <View style={styles.header}>
-          <Pressable onPress={() => navigation.goBack()} style={styles.headerButton}>
-            <Text style={styles.backButton}>←</Text>
-          </Pressable>
-          <View style={styles.headerCenter}>
-            <Text variant="bodyMedium" size="base">
-              Item {itemIndex + 1}/{totalItems}
-            </Text>
-            {/* Mini progress dots */}
-            <View style={styles.miniProgress}>
-              {Array.from({ length: totalItems }).map((_, i) => (
-                <View
-                  key={i}
-                  style={[
-                    styles.miniDot,
-                    i <= itemIndex && styles.miniDotActive,
-                  ]}
-                />
-              ))}
-            </View>
-          </View>
-          <Pressable onPress={handleDeleteItem} style={styles.headerButton}>
-            <Text style={styles.deleteButton}>✕</Text>
-          </Pressable>
-        </View>
-
         <ScrollView
           ref={scrollViewRef}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="always"
-          showsVerticalScrollIndicator={false}
+          contentContainerStyle={[
+            styles.scrollContent,
+            isKeyboardVisible && { paddingBottom: 150 },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="none"
+          showsVerticalScrollIndicator={true}
         >
-          {/* Compact Image Row */}
-          <View style={styles.imageRow}>
-            {images.slice(0, 3).map((uri, idx) => (
-              <View key={uri} style={styles.thumbnailWrapper}>
-                <Image source={{ uri }} style={styles.thumbnail} />
-                {analyzing && idx === 0 && (
-                  <View style={styles.analyzingMini}>
-                    <ActivityIndicator size="small" color="#fff" />
-                  </View>
-                )}
-              </View>
-            ))}
-            {images.length > 3 && (
-              <View style={styles.moreImages}>
-                <Text style={styles.moreImagesText}>+{images.length - 3}</Text>
-              </View>
-            )}
-          </View>
+          {/* Header with item count */}
+          <Header
+            title={`Item ${itemIndex + 1} of ${totalItems}`}
+            onBack={() => navigation.goBack()}
+          />
 
-          {/* Main Fields - Compact */}
-          <View style={styles.section}>
-            <ClearableInput
-              label="Item Name"
-              value={title}
-              onChangeText={setTitle}
-              fieldKey="title"
-              placeholder={analyzing ? 'Analyzing...' : 'What is this?'}
-            />
-
-            {/* Category - Inline */}
-            <View style={styles.inputRow}>
-              <View style={styles.inputContainer}>
-                <Text variant="body" size="sm" color="muted" style={styles.inputLabel}>
-                  Category
-                </Text>
-                <Pressable
-                  style={styles.categoryButton}
-                  onPress={() => setShowCategoryPicker(!showCategoryPicker)}
-                >
-                  <Text
-                    variant="body"
-                    size="base"
-                    color={category ? 'primary' : 'muted'}
-                    numberOfLines={1}
-                  >
-                    {category || 'Select'}
-                  </Text>
-                  <Text style={styles.dropdownIcon}>{showCategoryPicker ? '▲' : '▼'}</Text>
-                </Pressable>
-              </View>
-              {category.length > 0 && (
-                <Pressable style={styles.clearButton} onPress={() => clearField('category')}>
-                  <Text style={styles.clearButtonText}>✕</Text>
-                </Pressable>
+          {/* Photo Carousel with add/remove - matching ItemDetails */}
+          <View style={styles.imageGallery}>
+            <View style={styles.galleryHeader}>
+              <Text variant="body" size="sm" color="muted">
+                Photos ({images.length}/5)
+              </Text>
+              {analyzing && (
+                <View style={styles.analyzingBadge}>
+                  <ActivityIndicator size="small" color={colors.accent} />
+                  <Text variant="body" size="xs" color="accent">Analyzing...</Text>
+                </View>
               )}
             </View>
-
-            {showCategoryPicker && (
-              <ScrollView style={styles.categoryList} nestedScrollEnabled>
-                {availableCategories.map((cat) => (
-                  <Pressable
-                    key={cat}
-                    style={[styles.categoryOption, category === cat && styles.categoryOptionSelected]}
-                    onPress={() => {
-                      setCategory(cat);
-                      setShowCategoryPicker(false);
-                      markAsManualEdit('category');
-                    }}
-                  >
-                    <Text variant="body" size="sm" color={category === cat ? 'accent' : 'primary'}>
-                      {cat}
-                    </Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imageScroll}>
+              {images.map((uri, index) => (
+                <View key={uri} style={styles.imageWrapper}>
+                  <Pressable onPress={() => openFullscreenPhoto(uri)}>
+                    <Image source={{ uri }} style={styles.thumbnail} />
                   </Pressable>
-                ))}
-              </ScrollView>
-            )}
-
+                  <Pressable
+                    style={styles.removeBtn}
+                    onPress={() => removePhoto(index)}
+                  >
+                    <Text style={styles.removeBtnText}>✕</Text>
+                  </Pressable>
+                </View>
+              ))}
+              {images.length < 5 && (
+                <Pressable style={styles.addPhotoBtn} onPress={addMorePhotos}>
+                  <Text style={styles.addPhotoIcon}>+</Text>
+                </Pressable>
+              )}
+            </ScrollView>
           </View>
 
+          {/* Item name */}
+          {renderClearableInput(
+            "Item name",
+            title,
+            setTitle,
+            analyzing ? "Analyzing..." : "What is this item?"
+          )}
+
+          {/* Category */}
+          {renderClearableInput(
+            "Category",
+            category,
+            setCategory,
+            analyzing ? "Analyzing..." : "e.g. Electronics, Furniture"
+          )}
+
+          {/* Category-specific fields - Clothing (only show fields not in title) */}
+          {category.toLowerCase().includes('clothing') && (
+            <View style={styles.categorySection}>
+              <Text variant="body" size="sm" color="accent" style={styles.categorySectionLabel}>
+                Clothing Details
+              </Text>
+              <View style={styles.categoryFieldsRow}>
+                {!shouldHideField(clothingSize) && renderClearableInput(
+                  "Size",
+                  clothingSize,
+                  setClothingSize,
+                  "e.g. M, L, 32W"
+                )}
+                {!shouldHideField(clothingType) && renderClearableInput(
+                  "Type",
+                  clothingType,
+                  setClothingType,
+                  "e.g. High-rise jeans"
+                )}
+              </View>
+              <View style={styles.categoryFieldsRow}>
+                {!shouldHideField(clothingBrand) && renderClearableInput(
+                  "Brand",
+                  clothingBrand,
+                  setClothingBrand,
+                  "e.g. Nike, Levi's"
+                )}
+                {!shouldHideField(clothingColor) && renderClearableInput(
+                  "Color",
+                  clothingColor,
+                  setClothingColor,
+                  "e.g. Navy blue"
+                )}
+              </View>
+              {!shouldHideField(clothingMaterial) && renderClearableInput(
+                "Material",
+                clothingMaterial,
+                setClothingMaterial,
+                "e.g. Cotton, Denim"
+              )}
+            </View>
+          )}
+
+          {/* Category-specific fields - Electronics (only show fields not in title) */}
+          {category.toLowerCase().includes('electronics') && (
+            <View style={styles.categorySection}>
+              <Text variant="body" size="sm" color="accent" style={styles.categorySectionLabel}>
+                Electronics Details
+              </Text>
+              <View style={styles.categoryFieldsRow}>
+                {!shouldHideField(electronicsBrand) && renderClearableInput(
+                  "Brand",
+                  electronicsBrand,
+                  setElectronicsBrand,
+                  "e.g. Apple, Samsung"
+                )}
+                {!shouldHideField(electronicsModel) && renderClearableInput(
+                  "Model",
+                  electronicsModel,
+                  setElectronicsModel,
+                  "e.g. iPhone 14 Pro"
+                )}
+              </View>
+              <View style={styles.categoryFieldsRow}>
+                {!shouldHideField(electronicsStorage) && renderClearableInput(
+                  "Storage",
+                  electronicsStorage,
+                  setElectronicsStorage,
+                  "e.g. 256GB"
+                )}
+                {!shouldHideField(electronicsColor) && renderClearableInput(
+                  "Color",
+                  electronicsColor,
+                  setElectronicsColor,
+                  "e.g. Space Gray"
+                )}
+              </View>
+            </View>
+          )}
+
+          {/* Category-specific fields - Furniture (only show fields not in title) */}
+          {category.toLowerCase().includes('furniture') && (
+            <View style={styles.categorySection}>
+              <Text variant="body" size="sm" color="accent" style={styles.categorySectionLabel}>
+                Furniture Details
+              </Text>
+              <View style={styles.categoryFieldsRow}>
+                {!shouldHideField(furnitureMaterial) && renderClearableInput(
+                  "Material",
+                  furnitureMaterial,
+                  setFurnitureMaterial,
+                  "e.g. Wood, Metal"
+                )}
+                {!shouldHideField(furnitureColor) && renderClearableInput(
+                  "Color/Finish",
+                  furnitureColor,
+                  setFurnitureColor,
+                  "e.g. Walnut, White"
+                )}
+              </View>
+              {!shouldHideField(furnitureStyle) && renderClearableInput(
+                "Style",
+                furnitureStyle,
+                setFurnitureStyle,
+                "e.g. Modern, Mid-century"
+              )}
+            </View>
+          )}
+
+          {/* Category-specific fields - Books (only show fields not in title) */}
+          {category.toLowerCase().includes('book') && (
+            <View style={styles.categorySection}>
+              <Text variant="body" size="sm" color="accent" style={styles.categorySectionLabel}>
+                Book Details
+              </Text>
+              {!shouldHideField(bookAuthor) && renderClearableInput(
+                "Author",
+                bookAuthor,
+                setBookAuthor,
+                "e.g. John Smith"
+              )}
+              {!shouldHideField(bookSubject) && renderClearableInput(
+                "Subject",
+                bookSubject,
+                setBookSubject,
+                "e.g. Computer Science"
+              )}
+            </View>
+          )}
+
           {/* Condition - inline pills */}
-          <View style={styles.section}>
-            <Text variant="body" size="sm" color="muted" style={styles.sectionLabel}>
+          <View style={styles.inputGroup}>
+            <Text variant="body" size="sm" color="muted" style={styles.inputLabel}>
               Condition
             </Text>
             <View style={styles.conditionRow}>
@@ -428,10 +758,7 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
                     styles.conditionPill,
                     condition === option.value && styles.conditionPillSelected,
                   ]}
-                  onPress={() => {
-                    setCondition(option.value);
-                    markAsManualEdit('condition');
-                  }}
+                  onPress={() => setCondition(option.value)}
                 >
                   <Text
                     style={[
@@ -446,89 +773,44 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
             </View>
           </View>
 
-          {/* Category-Specific ID Fields */}
-          {category && dynamicFields.length > 0 && (
-            <View style={styles.section}>
-              <Text variant="body" size="sm" color="muted" style={styles.sectionLabel}>
-                {category} Details
-              </Text>
-              <View style={styles.fieldGrid}>
-                {dynamicFields.slice(0, 4).map((field) => {
-                  const value = categoryFields[field.key] || '';
-                  if (field.type === 'select' && field.options) {
-                    return (
-                      <View key={field.key} style={styles.fieldItem}>
-                        <Text variant="body" size="xs" color="muted">{field.label}</Text>
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                          <View style={styles.miniPills}>
-                            {field.options.slice(0, 5).map((opt) => (
-                              <Pressable
-                                key={opt}
-                                style={[styles.miniPill, value === opt && styles.miniPillActive]}
-                                onPress={() => handleCategoryFieldChange(field.key, opt)}
-                              >
-                                <Text
-                                  style={[styles.miniPillText, value === opt && styles.miniPillTextActive]}
-                                >
-                                  {opt}
-                                </Text>
-                              </Pressable>
-                            ))}
-                          </View>
-                        </ScrollView>
-                      </View>
-                    );
-                  }
-                  return (
-                    <View key={field.key} style={styles.fieldItem}>
-                      <Text variant="body" size="xs" color="muted">
-                        {field.label}{field.unit ? ` (${field.unit})` : ''}
-                      </Text>
-                      <TextInput
-                        style={styles.miniInput}
-                        value={value.toString()}
-                        onChangeText={(text) => handleCategoryFieldChange(field.key, text)}
-                        placeholder={field.placeholder}
-                        placeholderTextColor={colors.textMuted}
-                        keyboardType={field.type === 'number' ? 'numeric' : 'default'}
-                      />
-                    </View>
-                  );
-                })}
-              </View>
-            </View>
+          {/* Notes */}
+          {renderClearableInput(
+            "Notes",
+            notes,
+            setNotes,
+            "Any other details buyers should know...",
+            {
+              multiline: true,
+              inputRef: notesInputRef,
+              onFocus: scrollToNotesInput,
+            }
           )}
 
-          {/* Additional Notes */}
-          <View style={styles.section}>
-            <ClearableInput
-              label="Additional Notes (optional)"
-              value={notes}
-              onChangeText={setNotes}
-              fieldKey="notes"
-              placeholder="Any other details buyers should know..."
-              multiline
-              inputRef={notesInputRef}
-              onFocus={scrollToNotesInput}
-            />
+          {/* Action Buttons */}
+          <View style={styles.actions}>
+            <View style={styles.actionRow}>
+              {itemIndex > 0 && (
+                <Button
+                  variant="secondary"
+                  onPress={handlePrevious}
+                  style={styles.prevBtn}
+                >
+                  Previous
+                </Button>
+              )}
+              <Button
+                variant="primary"
+                onPress={handleNext}
+                style={itemIndex === 0 ? styles.fullWidthBtn : styles.nextBtn}
+              >
+                {itemIndex < totalItems - 1 ? 'Next Item' : 'Continue to Pricing'}
+              </Button>
+            </View>
+            <Pressable style={styles.deleteLink} onPress={handleDeleteItem}>
+              <Text style={styles.deleteLinkText}>Remove this item</Text>
+            </Pressable>
           </View>
         </ScrollView>
-
-        {/* Fixed Bottom Navigation */}
-        <View style={styles.bottomNav}>
-          {itemIndex > 0 ? (
-            <Pressable style={styles.navButtonSecondary} onPress={handlePrevious}>
-              <Text style={styles.navButtonSecondaryText}>← Prev</Text>
-            </Pressable>
-          ) : (
-            <View style={styles.navButtonPlaceholder} />
-          )}
-          <Pressable style={styles.navButtonPrimary} onPress={handleNext}>
-            <Text style={styles.navButtonPrimaryText}>
-              {itemIndex < totalItems - 1 ? 'Next →' : 'Pricing →'}
-            </Text>
-          </Pressable>
-        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -542,50 +824,9 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  headerButton: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerCenter: {
-    alignItems: 'center',
-  },
-  backButton: {
-    fontSize: 24,
-    color: colors.textPrimary,
-  },
-  deleteButton: {
-    fontSize: 20,
-    color: colors.danger || '#E53935',
-    fontWeight: '600',
-  },
-  miniProgress: {
-    flexDirection: 'row',
-    gap: 4,
-    marginTop: 4,
-  },
-  miniDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.border,
-  },
-  miniDotActive: {
-    backgroundColor: colors.accent,
-  },
   scrollContent: {
     paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
+    paddingBottom: spacing.lg,
   },
   emptyState: {
     flex: 1,
@@ -593,62 +834,128 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.lg,
   },
-  imageRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginVertical: spacing.md,
+  // Fullscreen photo modal
+  fullscreenModal: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  thumbnailWrapper: {
-    position: 'relative',
+  fullscreenCloseArea: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  thumbnail: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.sm,
-    backgroundColor: colors.accentSoft,
+  fullscreenImage: {
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT * 0.8,
   },
-  analyzingMini: {
+  fullscreenCloseButton: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: radius.sm,
+    top: 50,
+    right: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  moreImages: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.sm,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    justifyContent: 'center',
-    alignItems: 'center',
+  fullscreenCloseText: {
+    color: '#FFFFFF',
+    fontSize: 24,
+    fontWeight: '300',
   },
-  moreImagesText: {
-    color: colors.textMuted,
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  section: {
+  // Image gallery (compact - matching ItemDetails)
+  imageGallery: {
     marginBottom: spacing.md,
   },
-  sectionLabel: {
-    marginBottom: spacing.xs,
-  },
-  inputRow: {
+  galleryHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: spacing.sm,
   },
-  inputContainer: {
+  analyzingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  imageScroll: {
+    marginHorizontal: -spacing.lg,
+    paddingHorizontal: spacing.lg,
+  },
+  imageWrapper: {
+    position: 'relative',
+    marginRight: spacing.md,
+  },
+  thumbnail: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.sm,
+    backgroundColor: colors.accentSoft,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  removeBtn: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  removeBtnText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  addPhotoBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  addPhotoIcon: {
+    fontSize: 18,
+    color: colors.textMuted,
+  },
+  // Category-specific section styles (matching ItemDetails)
+  categorySection: {
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.accent,
+  },
+  categorySectionLabel: {
+    marginBottom: spacing.sm,
+    fontWeight: '600',
+  },
+  categoryFieldsRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  // Clearable input styles (matching ItemDetails)
+  inputGroup: {
+    marginBottom: spacing.sm,
     flex: 1,
   },
   inputLabel: {
-    marginBottom: 4,
+    marginBottom: spacing.xs,
+  },
+  inputWrapper: {
+    position: 'relative',
   },
   input: {
     borderWidth: 1,
@@ -657,107 +964,32 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    fontSize: 14,
-    color: colors.textPrimary,
+    paddingRight: 40,
     fontFamily: typography?.fonts?.body || 'DMSans_400Regular',
+    fontSize: typography?.sizes?.md || 14,
+    color: colors.textPrimary,
   },
   inputMultiline: {
-    minHeight: 60,
+    minHeight: 56,
     textAlignVertical: 'top',
+    paddingTop: spacing.sm,
   },
   clearButton: {
-    width: 36,
-    height: 36,
-    marginLeft: spacing.sm,
+    position: 'absolute',
+    right: 8,
+    top: '50%',
+    transform: [{ translateY: -12 }],
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.border,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: colors.card,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
   },
   clearButtonText: {
     color: colors.textMuted,
-    fontSize: 16,
-  },
-  categoryButton: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    backgroundColor: colors.card,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  dropdownIcon: {
-    fontSize: 10,
-    color: colors.textMuted,
-    marginLeft: spacing.sm,
-  },
-  categoryList: {
-    maxHeight: 150,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    backgroundColor: colors.card,
-    marginBottom: spacing.sm,
-  },
-  categoryOption: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  categoryOptionSelected: {
-    backgroundColor: colors.accentSoft,
-  },
-  fieldGrid: {
-    gap: spacing.sm,
-  },
-  fieldItem: {
-    marginBottom: spacing.xs,
-  },
-  miniInput: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    backgroundColor: colors.card,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    fontSize: 14,
-    color: colors.textPrimary,
-    marginTop: 2,
-  },
-  miniPills: {
-    flexDirection: 'row',
-    gap: 6,
-    marginTop: 4,
-  },
-  miniPill: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: radius.sm,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  miniPillActive: {
-    backgroundColor: colors.accent,
-    borderColor: colors.accent,
-  },
-  miniPillText: {
     fontSize: 12,
-    color: colors.textSecondary,
-  },
-  miniPillTextActive: {
-    color: '#FFFFFF',
-  },
-  pillRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    flexWrap: 'wrap',
+    fontWeight: '600',
   },
   conditionRow: {
     flexDirection: 'row',
@@ -784,42 +1016,30 @@ const styles = StyleSheet.create({
   conditionPillTextSelected: {
     color: '#FFFFFF',
   },
-  bottomNav: {
+  // Action buttons (matching ItemDetails pattern)
+  actions: {
+    marginTop: spacing.md,
+    gap: spacing.sm,
+  },
+  actionRow: {
     flexDirection: 'row',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    backgroundColor: colors.bg,
-    gap: spacing.md,
+    gap: spacing.sm,
   },
-  navButtonPlaceholder: {
+  prevBtn: {
     flex: 1,
   },
-  navButtonSecondary: {
-    flex: 1,
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-  },
-  navButtonSecondaryText: {
-    color: colors.textPrimary,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  navButtonPrimary: {
+  nextBtn: {
     flex: 2,
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
   },
-  navButtonPrimaryText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
+  fullWidthBtn: {
+    flex: 1,
+  },
+  deleteLink: {
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+  },
+  deleteLinkText: {
+    color: colors.danger || '#E53935',
+    fontSize: 14,
   },
 });

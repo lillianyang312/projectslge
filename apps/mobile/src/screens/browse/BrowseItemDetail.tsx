@@ -110,10 +110,11 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
         condition: supabaseItem.condition || 'Good',
         notes: supabaseItem.notes || '',
         minPrice: supabaseItem.min_price,
+        retailPrice: supabaseItem.retail_price,
         estimatedValueMax: supabaseItem.estimated_value_max,
         imageUri: imageUrl,
       }
-    : { ...demoItem, minPrice: undefined as number | undefined, estimatedValueMax: undefined as number | undefined, imageUri: null as string | null, notes: demoItem.description };
+    : { ...demoItem, minPrice: undefined as number | undefined, retailPrice: undefined as number | undefined, estimatedValueMax: undefined as number | undefined, imageUri: null as string | null, notes: demoItem.description };
 
   // Calculate the likely offer range the seller will accept
   const getLikelyOfferRange = () => {
@@ -356,7 +357,14 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
 
       {/* Header - outside ScrollView to match Express Interest */}
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
+        <Pressable onPress={() => {
+          // Check if we can go back, otherwise navigate to SwipeMain (browse grid)
+          if (navigation.canGoBack()) {
+            navigation.goBack();
+          } else {
+            navigation.navigate('SwipeMain');
+          }
+        }} style={styles.backBtn}>
           <Text size="xl">←</Text>
         </Pressable>
         <Text variant="headingMedium" size="heading3" style={styles.headerTitle} numberOfLines={1}>
@@ -407,6 +415,16 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
               {itemData.marketEstimate}
             </Text>
           </View>
+          {itemData.retailPrice && (
+            <View style={styles.agentRow}>
+              <Text variant="body" size="md" color="secondary">
+                Retail price
+              </Text>
+              <Text variant="bodyMedium" size="md">
+                ${itemData.retailPrice}
+              </Text>
+            </View>
+          )}
           {likelyOfferRange && (
             <View style={styles.agentRow}>
               <Text variant="body" size="md" color="secondary">

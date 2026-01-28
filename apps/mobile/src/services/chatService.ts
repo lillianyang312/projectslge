@@ -151,3 +151,38 @@ export function generateMessageId(): string {
   return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
+/**
+ * Send a system message to a deal chat (for notifications like last chance, item updates, etc.)
+ */
+export async function sendSystemMessage(
+  dealId: string,
+  content: string,
+  metadata?: Record<string, any>
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from('messages')
+      .insert({
+        deal_id: dealId,
+        sender_id: null, // System messages have no sender
+        is_agent: true, // Show as system/agent message
+        content,
+        message_type: 'system',
+        metadata,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ [chatService] Error sending system message:', error);
+      return false;
+    }
+
+    console.log('✅ [chatService] System message sent:', { dealId, content: content.substring(0, 50) });
+    return true;
+  } catch (error) {
+    console.error('❌ [chatService] Exception sending system message:', error);
+    return false;
+  }
+}
+

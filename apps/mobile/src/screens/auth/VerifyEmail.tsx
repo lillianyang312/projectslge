@@ -112,13 +112,13 @@ export default function VerifyEmailScreen({ navigation, route }: Props) {
     try {
       if (isLogin) {
         // For login, use the loginWithCode function which verifies code and creates session
-        let loginResult: any = null; // Declare in outer scope to avoid TypeScript scope error
+        let loginResult: any = null;
         try {
           const { data, error: loginError } = await supabase.functions.invoke(
             'loginWithCode',
             { body: { email, code: fullCode } }
           );
-          loginResult = data; // Assign to outer scope variable
+          loginResult = data;
 
           if (loginError) {
             console.error('Login error:', loginError);
@@ -293,6 +293,8 @@ export default function VerifyEmailScreen({ navigation, route }: Props) {
             dorm_room: signupData.dormRoom || null,
             dorm_location: signupData.dormLocation || null,
             payment_preference: signupData.paymentPreference || null,
+            zelle_handle: signupData.zelleHandle || null,
+            venmo_handle: signupData.venmoHandle || null,
             login_preference: signupData.loginPreference,
             email_verified: true,
           });

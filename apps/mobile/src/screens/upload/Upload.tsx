@@ -131,7 +131,7 @@ export default function UploadScreen({ navigation }: Props) {
             {/* Main action: Take Photo */}
             <Pressable style={styles.uploadZone} onPress={takePhoto}>
               <View style={styles.uploadIcon}>
-                <Text style={styles.uploadIconText}>📸</Text>
+                <Text style={styles.uploadIconText}>+</Text>
               </View>
               <Text variant="body" size="lg" color="secondary" style={styles.uploadText}>
                 Tap to take a photo
@@ -140,7 +140,7 @@ export default function UploadScreen({ navigation }: Props) {
 
             {/* Secondary action: Upload from Library */}
             <Button variant="secondary" onPress={pickFromLibrary} style={styles.libraryButton}>
-              📷 Upload from Library
+              Upload from Library
             </Button>
           </View>
         ) : (
@@ -188,7 +188,7 @@ export default function UploadScreen({ navigation }: Props) {
               onPress={takePhoto}
               style={styles.takePhotoButton}
             >
-              📸 Take another photo
+              Take another photo
             </Button>
 
             {/* Action buttons */}

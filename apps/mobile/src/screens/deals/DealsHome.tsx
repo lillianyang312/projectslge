@@ -10,6 +10,8 @@ import {
   Image,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useNavigation } from '@react-navigation/native';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { DealsStackParamList, AppTabsParamList } from '../../navigation/types';
 import { Text, Card, Badge, ToggleGroup } from '../../ui/components';
 import { colors, spacing, radius } from '../../ui/tokens';
@@ -22,6 +24,7 @@ import { INBOX_PAGE_SIZE } from '../../lib/constants';
 
 type Props = NativeStackScreenProps<DealsStackParamList, 'DealsHome'>;
 type DealsRouteProp = RouteProp<AppTabsParamList, 'Deals'>;
+type TabNavProp = BottomTabNavigationProp<AppTabsParamList>;
 
 // Category to emoji mapping
 const CATEGORY_EMOJI: Record<string, string> = {
@@ -55,7 +58,8 @@ function getStatusBadge(deal: Deal, isSelling: boolean): { label: string; varian
     case 'agreed':
       return { label: 'Agreed', variant: 'success' };
     case 'logistics':
-      return { label: 'Scheduling', variant: 'warning' };
+      // Show "Scheduled" when pickup_date is set, otherwise "Scheduling"
+      return { label: deal.pickup_date ? 'Scheduled' : 'Scheduling', variant: 'warning' };
     case 'completed':
       return { label: 'Complete', variant: 'success' };
     case 'cancelled':
@@ -86,6 +90,7 @@ function getDealMeta(deal: Deal, isSelling: boolean): string {
 
 export default function DealsHomeScreen({ navigation, route }: Props) {
   const tabRoute = useRoute<DealsRouteProp>();
+  const tabNavigation = useNavigation<TabNavProp>();
   const user = useAuthStore((state) => state.user);
 
   // Get initialMode from both tab params and route params
@@ -194,44 +199,51 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
   useFocusEffect(
     useCallback(() => {
       if (!user?.id || loadingRef.current) return;
-      
-      // Only load if we haven't done initial load yet
-      if (!initialLoadRef.current) {
+
+      // Initial load or refresh on focus
+      const isInitialLoad = !initialLoadRef.current;
+
+      if (isInitialLoad) {
         initialLoadRef.current = true;
         loadingRef.current = true;
         setLoading(true);
-        
-        getMyDeals(user.id, INBOX_PAGE_SIZE, undefined)
-          .then(response => {
-            setDeals(response.deals);
-            setCursor(response.nextCursor);
-            cursorRef.current = response.nextCursor;
-            setHasMore(response.hasMore);
-            
-            // Load images
-            const newUrls: Record<string, string> = {};
-            return Promise.all(
-              response.deals.map(async (deal) => {
-                if (deal.item?.photos && deal.item.photos.length > 0) {
-                  const url = await getSignedUrlCached(deal.item.photos[0]);
-                  if (url) {
-                    newUrls[deal.id] = url;
-                  }
-                }
-              })
-            ).then(() => {
-              setImageUrls(prev => ({ ...prev, ...newUrls }));
-            });
-          })
-          .catch(error => {
-            console.error('❌ [DealsHome] Error loading deals:', error);
-            initialLoadRef.current = false; // Reset on error so we can retry
-          })
-          .finally(() => {
-            setLoading(false);
-            loadingRef.current = false;
-          });
+      } else {
+        // Silently refresh when returning to screen (don't show loading spinner)
+        loadingRef.current = true;
       }
+
+      getMyDeals(user.id, INBOX_PAGE_SIZE, undefined)
+        .then(response => {
+          setDeals(response.deals);
+          setCursor(response.nextCursor);
+          cursorRef.current = response.nextCursor;
+          setHasMore(response.hasMore);
+
+          // Load images
+          const newUrls: Record<string, string> = {};
+          return Promise.all(
+            response.deals.map(async (deal) => {
+              if (deal.item?.photos && deal.item.photos.length > 0) {
+                const url = await getSignedUrlCached(deal.item.photos[0]);
+                if (url) {
+                  newUrls[deal.id] = url;
+                }
+              }
+            })
+          ).then(() => {
+            setImageUrls(prev => ({ ...prev, ...newUrls }));
+          });
+        })
+        .catch(error => {
+          console.error('❌ [DealsHome] Error loading deals:', error);
+          if (isInitialLoad) {
+            initialLoadRef.current = false; // Reset on error so we can retry
+          }
+        })
+        .finally(() => {
+          setLoading(false);
+          loadingRef.current = false;
+        });
     }, [user?.id]) // Only depend on user.id
   );
 
@@ -301,8 +313,23 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
     }
   };
 
-  const handleDealPress = (dealId: string) => {
-    navigation.navigate('DealDetail', { dealId });
+  const handleDealPress = (deal: Deal) => {
+    const isSelling = deal.seller_id === user?.id;
+    const itemId = deal.item_id;
+
+    if (isSelling) {
+      // Seller: navigate to ItemDetail in List tab
+      tabNavigation.navigate('List', {
+        screen: 'ItemDetail',
+        params: { itemId },
+      } as any);
+    } else {
+      // Buyer: navigate to BrowseItemDetail in Swipe tab
+      tabNavigation.navigate('Swipe', {
+        screen: 'BrowseItemDetail',
+        params: { itemId },
+      } as any);
+    }
   };
 
   const handleRefresh = () => {
@@ -439,8 +466,13 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
     const title = deal.item?.title || 'Untitled Item';
     const imageUrl = imageUrls[deal.id];
 
+    // Format pickup date for display when scheduled
+    const formattedPickupDate = deal.pickup_date
+      ? new Date(deal.pickup_date).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : null;
+
     return (
-      <Pressable onPress={() => handleDealPress(deal.id)}>
+      <Pressable onPress={() => handleDealPress(deal)}>
         <Card style={styles.dealCard}>
           <View style={styles.itemCard}>
             <View style={styles.itemThumb}>
@@ -457,6 +489,12 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
               <Text variant="body" size="sm" color="secondary">
                 {meta}
               </Text>
+              {/* Show pickup time when scheduled */}
+              {formattedPickupDate && (
+                <Text variant="body" size="xs" color="muted">
+                  Pickup: {formattedPickupDate}
+                </Text>
+              )}
             </View>
             <Badge variant={badge.variant}>{badge.label}</Badge>
           </View>

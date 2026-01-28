@@ -165,8 +165,12 @@ export function getBestOffer(deals: { current_offer?: number | null }[]): number
 }
 
 /**
- * Counts interested buyers (non-question deals with offers)
+ * Counts interested buyers (active/negotiating deals with offers only)
  */
-export function countInterestedBuyers(deals: { current_offer?: number | null; is_question?: boolean }[]): number {
-  return deals.filter((d) => d.current_offer != null && !d.is_question).length;
+export function countInterestedBuyers(deals: { current_offer?: number | null; is_question?: boolean; status?: string }[]): number {
+  return deals.filter((d) =>
+    d.current_offer != null &&
+    !d.is_question &&
+    d.status === 'negotiating'
+  ).length;
 }

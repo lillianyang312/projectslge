@@ -79,6 +79,7 @@ export interface Deal {
   delivery_method?: DeliveryMethod;
   pickup_location?: string;
   pickup_date?: string;
+  pickup_decided_at?: string; // When the pickup time was decided
   shipping_address?: string;
   tracking_number?: string;
   expires_at?: string;
@@ -126,10 +127,17 @@ export interface SwipeActionRecord {
 
 export interface User {
   id: string;
-  email: string;
+  email: string; // Internal use only - never exposed to other users
   display_name?: string;
-  neighborhood?: string;
+  neighborhood?: string; // house
+  dorm_location?: string; // dorm_building + dorm_room (only shown after schedule finalized)
+  graduation_year?: number;
   avatar_url?: string;
+  last_seen_at?: string;
+  rating?: number; // 1-5 stars average
+  rating_count?: number;
+  sales_completed?: number;
+  purchases_completed?: number;
   created_at: string;
 }
 

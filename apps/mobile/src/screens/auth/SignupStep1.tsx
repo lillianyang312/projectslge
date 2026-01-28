@@ -34,7 +34,11 @@ export default function SignupStep1Screen({ navigation }: Props) {
   const scrollViewRef = useRef<ScrollView>(null);
 
   const formatPhoneNumber = (text: string) => {
-    const cleaned = text.replace(/\D/g, '');
+    let cleaned = text.replace(/\D/g, '');
+    // Strip leading '1' country code if user enters 11 digits
+    if (cleaned.length === 11 && cleaned.startsWith('1')) {
+      cleaned = cleaned.slice(1);
+    }
     if (cleaned.length <= 3) {
       return cleaned;
     } else if (cleaned.length <= 6) {

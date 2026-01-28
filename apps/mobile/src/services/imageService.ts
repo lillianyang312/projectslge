@@ -75,21 +75,57 @@ export async function uploadImage(
     const byteArray = new Uint8Array(byteNumbers);
 
     console.log('Uploading image of size:', byteArray.byteLength, 'bytes');
-    // Upload to Supabase Storage - use upsert to handle potential conflicts
-    const { error: uploadError } = await supabase.storage
-      .from(BUCKET_NAME)
-      .upload(path, byteArray, {
-        contentType: 'image/jpeg',
-        upsert: true,
-      });
 
-    if (uploadError) {
-      console.error('Upload error:', uploadError);
-      return { path: '', error: uploadError.message };
+    // Upload to Supabase Storage with retry logic for network timeouts
+    const maxRetries = 3;
+    let lastError: any = null;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`Upload attempt ${attempt}/${maxRetries}...`);
+
+        const { error: uploadError } = await supabase.storage
+          .from(BUCKET_NAME)
+          .upload(path, byteArray, {
+            contentType: 'image/jpeg',
+            upsert: true,
+          });
+
+        if (!uploadError) {
+          console.log('Image uploaded successfully to:', path);
+          return { path };
+        }
+
+        lastError = uploadError;
+        console.error(`Upload attempt ${attempt} failed:`, uploadError);
+
+        // Don't retry on non-timeout errors
+        if (!uploadError.message?.includes('timeout') && !uploadError.message?.includes('Network')) {
+          return { path: '', error: uploadError.message };
+        }
+
+        if (attempt < maxRetries) {
+          // Wait before retrying (exponential backoff: 2s, 4s)
+          const delay = Math.pow(2, attempt) * 1000;
+          console.log(`Retrying in ${delay / 1000}s...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      } catch (err: any) {
+        lastError = err;
+        console.error(`Upload attempt ${attempt} threw error:`, err);
+
+        if (attempt < maxRetries) {
+          const delay = Math.pow(2, attempt) * 1000;
+          console.log(`Retrying in ${delay / 1000}s...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
     }
 
-    console.log('Image uploaded successfully to:', path);
-    return { path };
+    // All retries failed
+    console.error('All upload attempts failed:', lastError);
+    return { path: '', error: lastError?.message || 'Upload failed after retries' };
+
   } catch (error: any) {
     console.error('Error uploading image:', error);
     return { path: '', error: error.message };

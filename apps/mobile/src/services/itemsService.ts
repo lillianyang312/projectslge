@@ -13,6 +13,7 @@ export interface Item {
   photos: string[];
   estimated_value_min?: number;
   estimated_value_max?: number;
+  retail_price?: number;
   min_price?: number;
   notes?: string;
   status?: ItemStatus;
@@ -26,6 +27,7 @@ export interface CreateItemInput {
   photos: string[];
   estimated_value_min?: number;
   estimated_value_max?: number;
+  retail_price?: number;
   min_price?: number;
   notes?: string;
 }
@@ -37,6 +39,7 @@ export interface UpdateItemInput {
   photos?: string[];
   estimated_value_min?: number;
   estimated_value_max?: number;
+  retail_price?: number;
   min_price?: number;
   notes?: string;
   status?: ItemStatus;
@@ -65,6 +68,7 @@ export async function createItem(input: CreateItemInput): Promise<{ data: Item |
         image_path: input.photos[0] || '',
         estimated_value_min: input.estimated_value_min,
         estimated_value_max: input.estimated_value_max,
+        retail_price: input.retail_price,
         min_price: input.min_price,
         notes: input.notes,
       })

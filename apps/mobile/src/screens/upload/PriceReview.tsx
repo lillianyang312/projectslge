@@ -11,6 +11,8 @@ import {
   Modal,
   Dimensions,
   StatusBar,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ListStackParamList } from '../../navigation/types';
@@ -26,6 +28,50 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 type Props = NativeStackScreenProps<ListStackParamList, 'PriceReview'>;
 
+// Build title from user input or category details
+function buildTitleFromDetails(draft: ReturnType<typeof useItemsStore.getState>['draft']): string {
+  if (!draft) return 'Untitled Item';
+
+  // If user entered/edited a title, use it as the base
+  if (draft.title?.trim()) {
+    return draft.title.trim();
+  }
+
+  // Otherwise, build from category-specific details
+  const categoryLower = (draft.category || '').toLowerCase();
+  const parts: string[] = [];
+
+  if (categoryLower.includes('clothing') && draft.clothingDetails) {
+    const { brand, color, type, size, material } = draft.clothingDetails;
+    // Build: "Brand Color Material Type Size" e.g. "Old Navy Blue Denim Jeans Size M"
+    if (brand) parts.push(brand);
+    if (color) parts.push(color);
+    if (material) parts.push(material);
+    if (type) parts.push(type);
+    if (size) parts.push(`Size ${size}`);
+  } else if (categoryLower.includes('electronics') && draft.electronicsDetails) {
+    const { brand, model, storage, color } = draft.electronicsDetails;
+    if (brand) parts.push(brand);
+    if (model) parts.push(model);
+    if (storage) parts.push(storage);
+    if (color) parts.push(color);
+  } else if (categoryLower.includes('furniture') && draft.furnitureDetails) {
+    const { material, color, style } = draft.furnitureDetails;
+    if (style) parts.push(style);
+    if (color) parts.push(color);
+    if (material) parts.push(material);
+    // Add generic furniture type if nothing else
+    if (parts.length > 0) parts.push('Furniture');
+  } else if (categoryLower.includes('book') && draft.bookDetails) {
+    const { author, subject } = draft.bookDetails;
+    if (subject) parts.push(subject);
+    parts.push('Book');
+    if (author) parts.push(`by ${author}`);
+  }
+
+  return parts.length > 0 ? parts.join(' ') : 'Untitled Item';
+}
+
 export default function PriceReviewScreen({ navigation }: Props) {
   const draft = useItemsStore((state) => state.draft);
   const updateDraft = useItemsStore((state) => state.updateDraft);
@@ -33,8 +79,15 @@ export default function PriceReviewScreen({ navigation }: Props) {
   const clearDraft = useItemsStore((state) => state.clearDraft);
   const user = useAuthStore((state) => state.user);
 
+  // Build title from category details
+  const generatedTitle = buildTitleFromDetails(draft);
+
+  // Editable title state - initialized from generated title
+  const [editableTitle, setEditableTitle] = useState(generatedTitle);
+
   const [priceRange, setPriceRange] = useState({ min: 0, max: 0, mid: 0 });
   const [minimumPrice, setMinimumPrice] = useState('');
+  const [retailPrice, setRetailPrice] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [loadingPrice, setLoadingPrice] = useState(true);
   const [priceConfidence, setPriceConfidence] = useState(0);
@@ -44,7 +97,7 @@ export default function PriceReviewScreen({ navigation }: Props) {
 
   useEffect(() => {
     const fetchPricingEstimate = async () => {
-      if (!draft?.title || !draft?.category || !draft?.condition) {
+      if (!generatedTitle || !draft?.category || !draft?.condition) {
         console.warn('[PriceReview] Missing required fields for pricing estimation');
         setLoadingPrice(false);
         return;
@@ -55,7 +108,7 @@ export default function PriceReviewScreen({ navigation }: Props) {
         console.log('[PriceReview] Fetching price estimation...');
 
         const result = await estimatePrice({
-          title: draft.title,
+          title: generatedTitle,
           category: draft.category,
           condition: draft.condition,
           description: draft.description || draft.notes,
@@ -72,6 +125,10 @@ export default function PriceReviewScreen({ navigation }: Props) {
           setPriceConfidence(result.confidence);
           setPriceReasoning(result.reasoning);
           updateDraft({ estimatedPrice: result.estimated_midpoint });
+          // Pre-fill retail price with estimated retail (use max as rough retail estimate)
+          if (result.market_value_max) {
+            setRetailPrice(Math.round(result.market_value_max * 1.5).toString());
+          }
         } else {
           console.warn('[PriceReview] Price estimation failed, using fallback');
           // Fallback to simple estimation
@@ -92,6 +149,8 @@ export default function PriceReviewScreen({ navigation }: Props) {
           setPriceConfidence(0.5);
           setPriceReasoning('Estimated based on condition');
           updateDraft({ estimatedPrice: midPrice });
+          // Pre-fill retail price with estimated retail
+          setRetailPrice(Math.round(maxPrice * 1.5).toString());
         }
       } catch (error) {
         console.error('[PriceReview] Error fetching price estimation:', error);
@@ -113,13 +172,15 @@ export default function PriceReviewScreen({ navigation }: Props) {
         setPriceConfidence(0.5);
         setPriceReasoning('Estimated based on condition');
         updateDraft({ estimatedPrice: midPrice });
+        // Pre-fill retail price with estimated retail
+        setRetailPrice(Math.round(maxPrice * 1.5).toString());
       } finally {
         setLoadingPrice(false);
       }
     };
 
     fetchPricingEstimate();
-  }, [draft?.title, draft?.category, draft?.condition]);
+  }, [generatedTitle, draft?.category, draft?.condition]);
 
   const handleAddToList = async () => {
     setSubmitting(true);
@@ -138,9 +199,10 @@ export default function PriceReviewScreen({ navigation }: Props) {
 
         console.log(`[PriceReview] Uploaded ${photoPaths.length} images with groupId: ${groupId}`);
 
-        // 2. Create item in Supabase
+        // 2. Create item in Supabase - use editable title
+        const finalTitle = editableTitle.trim() || generatedTitle;
         console.log('[PriceReview] Creating item with data:', {
-          title: draft?.title || 'Untitled Item',
+          title: finalTitle,
           category: draft?.category || 'General',
           condition: draft?.condition || 'Good',
           photos: photoPaths,
@@ -150,13 +212,15 @@ export default function PriceReviewScreen({ navigation }: Props) {
         });
 
         const { data, error } = await createItem({
-          title: draft?.title || 'Untitled Item',
+          title: finalTitle,
           category: draft?.category || 'General',
           condition: draft?.condition || 'Good',
           photos: photoPaths,
           estimated_value_min: priceRange.min,
           estimated_value_max: priceRange.max,
           min_price: minimumPrice ? parseFloat(minimumPrice) : undefined,
+          retail_price: retailPrice ? parseFloat(retailPrice) : undefined,
+          notes: draft?.notes || undefined,
         });
 
         if (error) {
@@ -171,10 +235,12 @@ export default function PriceReviewScreen({ navigation }: Props) {
         clearDraft();
         navigation.navigate('MyList');
       } else {
-        // Guest mode - save locally
+        // Guest mode - save locally - use editable title
+        const finalTitle = editableTitle.trim() || generatedTitle;
         updateDraft({
+          title: finalTitle,
           category: draft?.category || 'General',
-          description: draft?.notes || draft?.title || 'Item from photo',
+          description: draft?.notes || finalTitle || 'Item from photo',
           intent: 'owned',
           minimumPrice: minimumPrice ? parseFloat(minimumPrice) : undefined,
         });
@@ -239,7 +305,16 @@ export default function PriceReviewScreen({ navigation }: Props) {
         </View>
       </Modal>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="always">
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoid}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="none"
+        >
         <Header title="Review & Add" onBack={() => navigation.goBack()} />
 
         {/* Compact Item Card - horizontal layout */}
@@ -248,14 +323,31 @@ export default function PriceReviewScreen({ navigation }: Props) {
             <Image source={{ uri: images[0] }} style={styles.thumbnail} />
           </Pressable>
           <View style={styles.itemInfo}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.titleScroll}>
-              <Text variant="body" size="sm">
-                {draft?.title || 'Untitled Item'}
-              </Text>
-            </ScrollView>
             <Text variant="body" size="xs" color="muted">
               {draft?.condition || 'Good'} • {draft?.category || 'General'}
             </Text>
+          </View>
+        </View>
+
+        {/* Item Title - editable with wrapping */}
+        <View style={styles.titleSection}>
+          <Text variant="body" size="xs" color="muted" style={styles.titleLabel}>
+            ITEM NAME
+          </Text>
+          <View style={styles.titleInputWrapper}>
+            <TextInput
+              style={styles.titleInput}
+              value={editableTitle}
+              onChangeText={setEditableTitle}
+              placeholder="Enter item name"
+              placeholderTextColor={colors.textMuted}
+              multiline
+            />
+            {editableTitle.length > 0 && (
+              <Pressable style={styles.clearTitleButton} onPress={() => setEditableTitle('')}>
+                <Text style={styles.clearTitleText}>✕</Text>
+              </Pressable>
+            )}
           </View>
         </View>
 
@@ -285,6 +377,32 @@ export default function PriceReviewScreen({ navigation }: Props) {
           )}
         </View>
 
+        {/* Retail Price Input */}
+        <View style={styles.inputSection}>
+          <Text variant="body" size="sm" color="muted" style={styles.inputLabel}>
+            Original retail price (optional)
+          </Text>
+          <View style={styles.priceInputRow}>
+            <Text style={styles.dollarSign}>$</Text>
+            <TextInput
+              style={styles.priceInput}
+              value={retailPrice}
+              onChangeText={setRetailPrice}
+              placeholder="0"
+              placeholderTextColor={colors.textMuted}
+              keyboardType="numeric"
+            />
+            {retailPrice.length > 0 && (
+              <Pressable style={styles.clearInputButton} onPress={() => setRetailPrice('')}>
+                <Text style={styles.clearInputText}>✕</Text>
+              </Pressable>
+            )}
+          </View>
+          <Text variant="body" size="xs" color="muted">
+            What the item cost when new
+          </Text>
+        </View>
+
         {/* Minimum Price Input */}
         <View style={styles.inputSection}>
           <Text variant="body" size="sm" color="muted" style={styles.inputLabel}>
@@ -306,9 +424,6 @@ export default function PriceReviewScreen({ navigation }: Props) {
               </Pressable>
             )}
           </View>
-          <Text variant="body" size="xs" color="muted">
-            Won't receive offers below this
-          </Text>
         </View>
 
         {/* Action Button */}
@@ -322,7 +437,8 @@ export default function PriceReviewScreen({ navigation }: Props) {
             {submitting ? 'Adding...' : 'Add to My List'}
           </Button>
         </View>
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -331,6 +447,9 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.bg,
+  },
+  keyboardAvoid: {
+    flex: 1,
   },
   scrollContent: {
     paddingHorizontal: spacing.lg,
@@ -391,8 +510,47 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
-  titleScroll: {
-    flexGrow: 0,
+  // Title section
+  titleSection: {
+    backgroundColor: colors.card,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  titleLabel: {
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: spacing.xs,
+  },
+  titleInputWrapper: {
+    position: 'relative',
+  },
+  titleInput: {
+    fontFamily: typography?.fonts?.bodyMedium || 'DMSans_500Medium',
+    fontSize: typography?.sizes?.md || 14,
+    color: colors.textPrimary,
+    paddingRight: 32,
+    lineHeight: 22,
+    minHeight: 44,
+    textAlignVertical: 'top',
+  },
+  clearTitleButton: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.border,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  clearTitleText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
   },
   itemMeta: {
     flexDirection: 'row',

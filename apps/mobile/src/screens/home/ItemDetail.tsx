@@ -28,6 +28,7 @@ import { useAuthStore } from '../../state/authStore';
 import { getItemById, updateItem, deleteItem, Item } from '../../services/itemsService';
 import { getSignedUrlCached, uploadImageGroup } from '../../services/imageService';
 import { getDealsByItemId, getQuestionsForItem, getDealsWithExpiration, acceptOffer, ItemQuestion } from '../../services/dealsService';
+import { sendSystemMessage } from '../../services/chatService';
 import { Deal } from '../../types/models';
 import SellerDashboard from './SellerDashboard';
 import { SellIntent } from '../../state/itemsStore';
@@ -85,6 +86,7 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
   
   const [supabaseItem, setSupabaseItem] = useState<Item | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [allImageUrls, setAllImageUrls] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loadingDeals, setLoadingDeals] = useState(true);
@@ -100,10 +102,13 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
         const { data } = await getItemById(itemId);
         if (data) {
           setSupabaseItem(data);
-          // Get signed URL for the image if it exists (using cache)
-          if (data.photos?.[0]) {
-            const url = await getSignedUrlCached(data.photos[0]);
-            setImageUrl(url);
+          // Get signed URLs for all images (using cache)
+          if (data.photos && data.photos.length > 0) {
+            const urls = await Promise.all(
+              data.photos.map((path: string) => getSignedUrlCached(path))
+            );
+            setAllImageUrls(urls.filter((url): url is string => url !== null));
+            setImageUrl(urls[0] || null);
           }
         }
       }
@@ -145,6 +150,7 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
         notes: supabaseItem.notes || '',
         sellIntent: 'Maybe' as SellIntent,
         imageUri: imageUrl,
+        allImageUris: allImageUrls,
         isSupabase: true,
       }
     : storedListing
@@ -159,18 +165,22 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
         notes: storedListing.original.notes || '',
         sellIntent: 'Maybe' as SellIntent,
         imageUri: storedListing.original.imageUris?.[0],
+        allImageUris: storedListing.original.imageUris || [],
         isSupabase: false,
       }
-    : { ...demoItemsData[itemId] || demoItemsData['1'], minPrice: undefined as number | undefined, notes: '', isSupabase: false };
+    : { ...demoItemsData[itemId] || demoItemsData['1'], minPrice: undefined as number | undefined, notes: '', allImageUris: [] as string[], isSupabase: false };
 
   const [condition, setCondition] = useState<Condition>(itemData.condition);
   const [askingPrice, setAskingPrice] = useState(itemData.minPrice?.toString() || '');
+  const [retailPrice, setRetailPrice] = useState(supabaseItem?.retail_price?.toString() || '');
   const [sellIntent, setSellIntent] = useState<SellIntent>(itemData.sellIntent);
   const [editTitle, setEditTitle] = useState(itemData.title || '');
   const [editCategory, setEditCategory] = useState(itemData.category || '');
   const [editNotes, setEditNotes] = useState(itemData.notes || '');
   const [editPhotos, setEditPhotos] = useState<string[]>(
-    itemData.imageUri ? [itemData.imageUri] : []
+    itemData.allImageUris && itemData.allImageUris.length > 0
+      ? itemData.allImageUris
+      : (itemData.imageUri ? [itemData.imageUri] : [])
   );
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -180,6 +190,26 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
 
   const conditionOptions: Condition[] = ['New', 'Like new', 'Good', 'Fair'];
   const sellIntentOptions: SellIntent[] = ['Maybe', 'If good offer', 'Want gone'];
+
+  // Update all edit fields when supabaseItem loads (async fetch)
+  useEffect(() => {
+    if (supabaseItem) {
+      setEditTitle(supabaseItem.title || '');
+      setEditCategory(supabaseItem.category || '');
+      setEditNotes(supabaseItem.notes || '');
+      setCondition((supabaseItem.condition || 'Good') as Condition);
+      setAskingPrice(supabaseItem.min_price?.toString() || '');
+      setRetailPrice(supabaseItem.retail_price?.toString() || '');
+      // sellIntent might need to be stored in supabase in the future
+    }
+  }, [supabaseItem]);
+
+  // Update editPhotos when allImageUrls are loaded (async)
+  useEffect(() => {
+    if (allImageUrls.length > 0) {
+      setEditPhotos(allImageUrls);
+    }
+  }, [allImageUrls]);
 
   // Photo editing functions
   const takePhotoWithCamera = async () => {
@@ -256,6 +286,37 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
 
     try {
       if (supabaseItem && user) {
+        // Track what changed for notification
+        const changes: string[] = [];
+        if (editTitle.trim() && editTitle.trim() !== supabaseItem.title) {
+          changes.push(`Title changed to "${editTitle.trim()}"`);
+        }
+        if (editCategory.trim() && editCategory.trim() !== supabaseItem.category) {
+          changes.push(`Category changed to "${editCategory.trim()}"`);
+        }
+        if (condition !== supabaseItem.condition) {
+          changes.push(`Condition changed to "${condition}"`);
+        }
+        const newMinPrice = askingPrice ? parseFloat(askingPrice) : undefined;
+        if (newMinPrice !== supabaseItem.min_price) {
+          if (newMinPrice) {
+            changes.push(`Minimum price set to $${newMinPrice}`);
+          } else if (supabaseItem.min_price) {
+            changes.push('Minimum price removed');
+          }
+        }
+        const newRetailPrice = retailPrice ? parseFloat(retailPrice) : undefined;
+        if (newRetailPrice !== supabaseItem.retail_price) {
+          if (newRetailPrice) {
+            changes.push(`Retail price set to $${newRetailPrice}`);
+          } else if (supabaseItem.retail_price) {
+            changes.push('Retail price removed');
+          }
+        }
+        if (editNotes.trim() !== (supabaseItem.notes || '')) {
+          changes.push('Notes updated');
+        }
+
         // Check if there are new local photos to upload
         const newLocalPhotos = editPhotos.filter(uri => uri.startsWith('file://'));
         let uploadedPaths: string[] = [];
@@ -267,12 +328,20 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
             console.warn('[ItemDetail] Some photos failed to upload:', errors);
           }
           uploadedPaths = paths;
+          if (paths.length > 0) {
+            changes.push('Photos updated');
+          }
         }
 
         // Keep existing Supabase photos (those not starting with file://)
         const existingPhotoPaths = supabaseItem.photos?.filter(p =>
           editPhotos.some(uri => !uri.startsWith('file://') && uri.includes(p))
         ) || [];
+
+        // Check if photos were removed
+        if (existingPhotoPaths.length < (supabaseItem.photos?.length || 0) && !changes.includes('Photos updated')) {
+          changes.push('Photos updated');
+        }
 
         // Combine existing and new photo paths
         const allPhotoPaths = [...existingPhotoPaths, ...uploadedPaths].slice(0, 5);
@@ -283,6 +352,7 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
           category: editCategory.trim() || undefined,
           condition,
           min_price: askingPrice ? parseFloat(askingPrice) : undefined,
+          retail_price: retailPrice ? parseFloat(retailPrice) : undefined,
           notes: editNotes.trim() || undefined,
           photos: allPhotoPaths.length > 0 ? allPhotoPaths : undefined,
         });
@@ -291,6 +361,24 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
           Alert.alert('Error', error);
           setSaving(false);
           return;
+        }
+
+        // Notify bidders of changes if there are any active deals with offers
+        if (changes.length > 0 && deals.length > 0) {
+          const activeDealsWithOffers = deals.filter(
+            d => d.current_offer != null && d.status === 'negotiating'
+          );
+
+          if (activeDealsWithOffers.length > 0) {
+            const changeMessage = `📝 The seller has updated this item:\n• ${changes.join('\n• ')}\n\nPlease review the updated listing.`;
+
+            // Send notification to all active deals
+            await Promise.all(
+              activeDealsWithOffers.map(deal =>
+                sendSystemMessage(deal.id, changeMessage, { type: 'item_update', changes })
+              )
+            );
+          }
         }
 
         // Refresh the item to get updated data
@@ -448,38 +536,43 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
         {/* Tab Content: Item Details */}
         {activeTab === 1 && (
           <View>
-            {/* Item Image - Tappable for fullscreen */}
-            <Pressable
-              style={styles.detailImage}
-              onPress={() => itemData.imageUri && setShowFullscreenPhoto(true)}
-            >
-              {itemData.imageUri ? (
-                <>
-                  <Image source={{ uri: itemData.imageUri }} style={styles.image} resizeMode="cover" />
-                  <View style={styles.tapToExpandHint}>
-                    <Text style={styles.tapToExpandText}>Tap to view full photo</Text>
-                  </View>
-                </>
-              ) : (
-                <Text style={styles.imageEmoji}>{itemData.emoji}</Text>
-              )}
-            </Pressable>
+            {/* Show image, title, category only when NOT editing */}
+            {!isEditing && (
+              <>
+                {/* Item Image - Tappable for fullscreen */}
+                <Pressable
+                  style={styles.detailImage}
+                  onPress={() => itemData.imageUri && setShowFullscreenPhoto(true)}
+                >
+                  {itemData.imageUri ? (
+                    <>
+                      <Image source={{ uri: itemData.imageUri }} style={styles.image} resizeMode="cover" />
+                      <View style={styles.tapToExpandHint}>
+                        <Text style={styles.tapToExpandText}>Tap to view full photo</Text>
+                      </View>
+                    </>
+                  ) : (
+                    <Text style={styles.imageEmoji}>{itemData.emoji}</Text>
+                  )}
+                </Pressable>
 
-            <Text variant="headingMedium" size="heading3" style={styles.detailTitle}>
-              {itemData.title}
-            </Text>
+                <Text variant="headingMedium" size="heading3" style={styles.detailTitle}>
+                  {itemData.title}
+                </Text>
 
-            {/* Category */}
-            <Text variant="body" size="md" color="secondary" style={styles.detailCategory}>
-              {itemData.category}
-            </Text>
+                {/* Category */}
+                <Text variant="body" size="md" color="secondary" style={styles.detailCategory}>
+                  {itemData.category}
+                </Text>
 
-            {/* Notes section - inline like BrowseItemDetail */}
-            {itemData.notes ? (
-              <Text variant="body" size="md" color="secondary" style={styles.notesText}>
-                {itemData.notes}
-              </Text>
-            ) : null}
+                {/* Notes section - inline like BrowseItemDetail */}
+                {itemData.notes ? (
+                  <Text variant="body" size="md" color="secondary" style={styles.notesText}>
+                    {itemData.notes}
+                  </Text>
+                ) : null}
+              </>
+            )}
 
             {/* Show facts (read-only) unless in edit mode */}
             {!isEditing ? (
@@ -490,6 +583,12 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
                     <Text variant="body" size="md" color="secondary">Estimated value</Text>
                     <Text variant="bodyMedium" size="md">{itemData.estimatedRange}</Text>
                   </View>
+                  {supabaseItem?.retail_price && (
+                    <View style={styles.agentRow}>
+                      <Text variant="body" size="md" color="secondary">Retail price</Text>
+                      <Text variant="bodyMedium" size="md">${supabaseItem.retail_price}</Text>
+                    </View>
+                  )}
                   <View style={styles.agentRow}>
                     <Text variant="body" size="md" color="secondary">Condition</Text>
                     <Text variant="bodyMedium" size="md">{condition}</Text>
@@ -620,6 +719,32 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
                   </View>
                 </View>
 
+                {/* Retail price - Compact row */}
+                <View style={styles.editInputGroup}>
+                  <Text variant="body" size="sm" color="muted" style={styles.editLabel}>
+                    Original retail price
+                  </Text>
+                  <View style={styles.editPriceRow}>
+                    <View style={styles.editPriceInputWrapper}>
+                      <Text style={styles.editPricePrefix}>$</Text>
+                      <TextInput
+                        style={styles.editPriceInput}
+                        placeholder="0"
+                        placeholderTextColor={colors.textMuted}
+                        value={retailPrice}
+                        onChangeText={setRetailPrice}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                    <Pressable
+                      style={styles.editNotSureBtn}
+                      onPress={() => setRetailPrice('')}
+                    >
+                      <Text style={styles.editNotSureBtnText}>Clear</Text>
+                    </Pressable>
+                  </View>
+                </View>
+
                 {/* Likeliness to sell - Compact */}
                 <View style={styles.editInputGroup}>
                   <Text variant="body" size="sm" color="muted" style={styles.editLabel}>
@@ -669,10 +794,27 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
                     style={styles.editCancelBtn}
                     onPress={() => {
                       setIsEditing(false);
-                      setEditTitle(itemData.title || '');
-                      setEditCategory(itemData.category || '');
-                      setEditNotes(itemData.notes || '');
-                      setEditPhotos(itemData.imageUri ? [itemData.imageUri] : []);
+                      // Reset to actual supabaseItem values if available
+                      if (supabaseItem) {
+                        setEditTitle(supabaseItem.title || '');
+                        setEditCategory(supabaseItem.category || '');
+                        setEditNotes(supabaseItem.notes || '');
+                        setCondition((supabaseItem.condition || 'Good') as Condition);
+                        setAskingPrice(supabaseItem.min_price?.toString() || '');
+                        setRetailPrice(supabaseItem.retail_price?.toString() || '');
+                        if (allImageUrls.length > 0) {
+                          setEditPhotos(allImageUrls);
+                        }
+                      } else {
+                        setEditTitle(itemData.title || '');
+                        setEditCategory(itemData.category || '');
+                        setEditNotes(itemData.notes || '');
+                        setEditPhotos(
+                          itemData.allImageUris && itemData.allImageUris.length > 0
+                            ? itemData.allImageUris
+                            : (itemData.imageUri ? [itemData.imageUri] : [])
+                        );
+                      }
                     }}
                   >
                     <Text style={styles.editCancelBtnText}>Cancel</Text>

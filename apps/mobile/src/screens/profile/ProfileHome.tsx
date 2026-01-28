@@ -33,6 +33,11 @@ interface UserProfile {
   login_preference: string;
   email_verified: boolean;
   created_at: string;
+  // Stats
+  rating: number | null;
+  rating_count: number;
+  sales_completed: number;
+  purchases_completed: number;
 }
 
 export default function ProfileHomeScreen({ navigation }: Props) {
@@ -149,6 +154,34 @@ export default function ProfileHomeScreen({ navigation }: Props) {
           )}
         </View>
 
+        {/* Stats Card */}
+        {profile && (
+          <View style={styles.statsCard}>
+            <View style={styles.statItem}>
+              <Text variant="headingMedium" size="xl">
+                {profile.rating ? profile.rating.toFixed(1) : '—'}
+              </Text>
+              <Text variant="body" size="xs" color="muted">
+                Rating {profile.rating_count > 0 ? `(${profile.rating_count})` : ''}
+              </Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text variant="headingMedium" size="xl">
+                {profile.sales_completed || 0}
+              </Text>
+              <Text variant="body" size="xs" color="muted">Sales</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text variant="headingMedium" size="xl">
+                {profile.purchases_completed || 0}
+              </Text>
+              <Text variant="body" size="xs" color="muted">Purchases</Text>
+            </View>
+          </View>
+        )}
+
         {/* Profile Info */}
         {profile && (
           <>
@@ -179,7 +212,7 @@ export default function ProfileHomeScreen({ navigation }: Props) {
               )}
               {profile.dorm_location && (
                 <View style={[styles.infoRow, styles.infoRowLast]}>
-                  <Text variant="body" size="sm" color="secondary">Meetup location</Text>
+                  <Text variant="body" size="sm" color="secondary">Location notes</Text>
                   <Text variant="body" size="sm" numberOfLines={2} style={styles.locationText}>
                     {profile.dorm_location}
                   </Text>
@@ -283,6 +316,26 @@ const styles = StyleSheet.create({
   },
   memberSince: {
     marginTop: spacing.sm,
+  },
+  statsCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.card,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: colors.border,
   },
   sectionTitle: {
     marginTop: spacing.lg,

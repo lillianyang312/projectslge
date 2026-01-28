@@ -17,7 +17,7 @@ export default function HomeScreen({ navigation }: Props) {
     <SafeAreaView style={styles.screen}>
       <View style={styles.homeContent}>
         {/* Logo: 14px, muted, letterSpacing 0.5, marginBottom 48 */}
-        <Text style={styles.homeLogo}>@harvard</Text>
+        <Text style={styles.homeLogo}>at Harvard</Text>
 
         {/* Headline: 36px, lineHeight ~41 (1.15), marginBottom 16 */}
         <Text style={styles.homeHeadline}>
@@ -26,7 +26,7 @@ export default function HomeScreen({ navigation }: Props) {
 
         {/* Subtext: 16px, lineHeight 24, secondary color, marginBottom 48 */}
         <Text style={styles.homeSubtext}>
-          List what you own. Collect offers. We'll handle the rest.
+          List what you own. Collect offers. Senior sales on steroids.
         </Text>
 
         {/* Buttons: column, gap 12 */}

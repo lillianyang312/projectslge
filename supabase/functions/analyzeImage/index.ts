@@ -25,12 +25,55 @@ export interface ClarificationOption {
   descriptor: string;
 }
 
+// Category-specific details that can be extracted from images
+export interface ClothingDetails {
+  size?: string;           // e.g., "S", "M", "L", "XL", "32", "34W x 30L"
+  clothingType?: string;   // e.g., "High-rise jeans", "Crop top", "Blazer"
+  brand?: string;          // e.g., "Nike", "Levi's"
+  color?: string;          // e.g., "Navy blue", "Black"
+  material?: string;       // e.g., "Cotton", "Denim", "Polyester"
+  gender?: string;         // e.g., "Men's", "Women's", "Unisex"
+  style?: string;          // e.g., "Casual", "Formal", "Athletic"
+}
+
+export interface ElectronicsDetails {
+  brand?: string;          // e.g., "Apple", "Samsung"
+  model?: string;          // e.g., "iPhone 14 Pro", "Galaxy S23"
+  storage?: string;        // e.g., "256GB", "1TB"
+  color?: string;          // e.g., "Space Gray", "Silver"
+  screenSize?: string;     // e.g., "6.1 inches", "27 inches"
+  specs?: string;          // e.g., "16GB RAM, M2 chip"
+}
+
+export interface FurnitureDetails {
+  material?: string;       // e.g., "Wood", "Metal", "Fabric"
+  color?: string;          // e.g., "Walnut", "White"
+  dimensions?: string;     // e.g., "72\" x 36\" x 30\""
+  style?: string;          // e.g., "Modern", "Mid-century", "Industrial"
+}
+
+export interface BookDetails {
+  author?: string;
+  isbn?: string;
+  edition?: string;
+  publisher?: string;
+  subject?: string;        // e.g., "Computer Science", "Biology"
+}
+
+export interface CategoryDetails {
+  clothing?: ClothingDetails;
+  electronics?: ElectronicsDetails;
+  furniture?: FurnitureDetails;
+  books?: BookDetails;
+}
+
 export interface IdentifiedItem {
   title: string;
   category: string;
   description?: string;
   condition?: string;
   tags?: string[];
+  categoryDetails?: CategoryDetails;  // Category-specific extracted details
 }
 
 export type IdentifiedResponse = {
@@ -220,6 +263,18 @@ Analyze the provided image(s) and identify the item being shown.
 
 ${imageContents.length > 1 ? `You have been provided ${imageContents.length} images of the SAME item from different angles. Use ALL images together to get a complete understanding of the item, including details that may only be visible in certain photos.` : 'Analyze this single image carefully.'}
 
+**CRITICAL: TEXT EXTRACTION**
+Carefully examine the image(s) for ANY visible text including:
+- Brand names, logos, and labels
+- Size tags and labels (look for S, M, L, XL, or numeric sizes like "32", "34W x 30L")
+- Care labels with material composition (e.g., "100% Cotton", "60% Polyester")
+- Model numbers and product codes
+- Price tags or retail tags
+- ISBN numbers on books
+- Any printed text on the item itself
+
+Read and extract ALL visible text to populate the categoryDetails fields accurately.
+
 You MUST respond with valid JSON in one of these two formats:
 
 FORMAT 1 - When you can confidently identify the item:
@@ -230,7 +285,44 @@ FORMAT 1 - When you can confidently identify the item:
     "category": "Category (e.g., 'Electronics', 'Furniture', 'Clothing', 'Kitchen', 'Sports', 'Books', 'Toys', 'Tools', 'Home Decor', 'Collectibles')",
     "description": "Detailed description including brand, model, color, size, material, and notable features visible in the image(s)",
     "condition": "Condition based on visible wear (New, Like New, Good, Fair, Poor)",
-    "tags": ["relevant", "search", "tags"]
+    "tags": ["relevant", "search", "tags"],
+    "categoryDetails": {
+      // Include ONLY the relevant category object based on item category
+      // For Clothing items:
+      "clothing": {
+        "size": "EXACT size from label/tag (S, M, L, XL, 32, 34W x 30L, etc.) - READ THE TAG",
+        "clothingType": "Specific type (e.g., 'High-rise skinny jeans', 'Oversized hoodie', 'Fitted blazer')",
+        "brand": "Brand name from label/logo - READ ANY VISIBLE BRANDING",
+        "color": "Color(s)",
+        "material": "Material from care label (e.g., '100% Cotton', 'Denim', '60% Polyester 40% Spandex') - READ THE LABEL",
+        "gender": "Men's, Women's, or Unisex",
+        "style": "Style (Casual, Formal, Athletic, Streetwear, etc.)"
+      },
+      // For Electronics items:
+      "electronics": {
+        "brand": "Brand from logo/label (Apple, Samsung, Sony, etc.)",
+        "model": "EXACT model number/name if visible on device or packaging",
+        "storage": "Storage capacity from label if visible",
+        "color": "Color variant",
+        "screenSize": "Screen size if visible on specs label",
+        "specs": "Any specs visible on labels (RAM, processor, etc.)"
+      },
+      // For Furniture items:
+      "furniture": {
+        "material": "Primary material (Wood, Metal, Fabric, etc.)",
+        "color": "Color/finish",
+        "dimensions": "Approximate dimensions if estimable",
+        "style": "Style (Modern, Mid-century, Industrial, etc.)"
+      },
+      // For Books items:
+      "books": {
+        "author": "Author name from cover/spine - READ THE TEXT",
+        "isbn": "ISBN number if visible on barcode area",
+        "edition": "Edition if visible",
+        "publisher": "Publisher if visible",
+        "subject": "Subject area (Computer Science, Fiction, etc.)"
+      }
+    }
   },
   "confidence": 0.95
 }
@@ -248,9 +340,17 @@ FORMAT 2 - When the item is unclear or you need more information:
 }
 
 IMPORTANT RULES:
+- **ALWAYS READ TEXT IN THE IMAGE** - Look for labels, tags, logos, printed text
 - Be SPECIFIC with titles - include brand, model, size when visible
-- For electronics, try to identify exact models
+- For clothing, ALWAYS check for size tags/labels - they're usually on the inside collar, waistband, or a sewn-in tag
+- For clothing, read care labels for material composition (usually lists percentages)
+- For clothing, identify the specific type (high-rise, low-rise, crop, oversized, fitted, etc.)
+- For electronics, look for model numbers on the device, box, or settings screen
 - For furniture, identify brand (IKEA, West Elm, etc.) and style
+- For books, READ the cover and spine for title, author, and publisher
+- Include categoryDetails with as many fields as you can identify from the image
+- Only include the relevant category object in categoryDetails (e.g., only "clothing" for clothing items)
+- If you can read text but can't make it out clearly, still include your best interpretation
 - Confidence should be 0.85+ when you're certain of the identification
 - Confidence should be 0.60-0.84 when reasonably confident but not certain
 - Confidence should be below 0.60 when the item is unclear

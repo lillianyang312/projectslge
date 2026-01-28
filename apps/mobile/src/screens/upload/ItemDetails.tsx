@@ -26,7 +26,7 @@ import { colors, spacing, radius, typography } from '../../ui/tokens';
 import { useItemsStore } from '../../state/itemsStore';
 import { useAuthStore } from '../../state/authStore';
 import { uploadImageGroup, analyzeImages, getSignedUrlCached } from '../../services/imageService';
-import type { AnalyzeImageResponse } from '../../types/analyzeImage';
+import type { AnalyzeImageResponse, CategoryDetails, ClothingDetails, ElectronicsDetails, FurnitureDetails, BookDetails } from '../../types/analyzeImage';
 import { isNeedsClarificationResponse } from '../../schemas/clarification_schema';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -35,18 +35,115 @@ type Props = NativeStackScreenProps<ListStackParamList, 'ItemDetails'>;
 
 type Condition = 'new' | 'like_new' | 'good' | 'fair' | 'poor';
 
+// Build item name by combining base title with additional category details
+function buildItemNameFromDetails(
+  baseTitle: string,
+  categoryValue: string,
+  clothing: { brand: string; color: string; material: string; type: string; size: string },
+  electronics: { brand: string; model: string; storage: string; color: string },
+  furniture: { material: string; color: string; style: string },
+  books: { author: string; subject: string }
+): string {
+  const categoryLower = categoryValue.toLowerCase();
+  const additionalParts: string[] = [];
+
+  // Collect additional details that aren't already in the base title
+  const baseTitleLower = baseTitle.toLowerCase();
+
+  if (categoryLower.includes('clothing')) {
+    // Add details not already in title
+    if (clothing.brand && !baseTitleLower.includes(clothing.brand.toLowerCase())) {
+      additionalParts.push(clothing.brand);
+    }
+    if (clothing.color && !baseTitleLower.includes(clothing.color.toLowerCase())) {
+      additionalParts.push(clothing.color);
+    }
+    if (clothing.material && !baseTitleLower.includes(clothing.material.toLowerCase())) {
+      additionalParts.push(clothing.material);
+    }
+    if (clothing.type && !baseTitleLower.includes(clothing.type.toLowerCase())) {
+      additionalParts.push(clothing.type);
+    }
+    if (clothing.size && !baseTitleLower.includes(clothing.size.toLowerCase())) {
+      additionalParts.push(`Size ${clothing.size}`);
+    }
+  } else if (categoryLower.includes('electronics')) {
+    if (electronics.brand && !baseTitleLower.includes(electronics.brand.toLowerCase())) {
+      additionalParts.push(electronics.brand);
+    }
+    if (electronics.model && !baseTitleLower.includes(electronics.model.toLowerCase())) {
+      additionalParts.push(electronics.model);
+    }
+    if (electronics.storage && !baseTitleLower.includes(electronics.storage.toLowerCase())) {
+      additionalParts.push(electronics.storage);
+    }
+    if (electronics.color && !baseTitleLower.includes(electronics.color.toLowerCase())) {
+      additionalParts.push(electronics.color);
+    }
+  } else if (categoryLower.includes('furniture')) {
+    if (furniture.style && !baseTitleLower.includes(furniture.style.toLowerCase())) {
+      additionalParts.push(furniture.style);
+    }
+    if (furniture.color && !baseTitleLower.includes(furniture.color.toLowerCase())) {
+      additionalParts.push(furniture.color);
+    }
+    if (furniture.material && !baseTitleLower.includes(furniture.material.toLowerCase())) {
+      additionalParts.push(furniture.material);
+    }
+  } else if (categoryLower.includes('book')) {
+    if (books.subject && !baseTitleLower.includes(books.subject.toLowerCase())) {
+      additionalParts.push(books.subject);
+    }
+    if (books.author && !baseTitleLower.includes(books.author.toLowerCase())) {
+      additionalParts.push(`by ${books.author}`);
+    }
+  }
+
+  // Combine base title with additional details
+  if (additionalParts.length > 0) {
+    return `${baseTitle} ${additionalParts.join(' ')}`.trim();
+  }
+  return baseTitle;
+}
+
 export default function ItemDetailsScreen({ navigation }: Props) {
   const draft = useItemsStore((state) => state.draft);
   const updateDraft = useItemsStore((state) => state.updateDraft);
   const user = useAuthStore((state) => state.user);
 
-  // Simplified form state: title, category, condition, notes
+  // Form state - title is kept for AI analysis results, not shown to user
   const [title, setTitle] = useState(draft?.title || '');
   const [category, setCategory] = useState(draft?.category || '');
   const [condition, setCondition] = useState<Condition>('good');
   const [notes, setNotes] = useState(draft?.notes || '');
+
+  // Category-specific fields
+  const [categoryDetails, setCategoryDetails] = useState<CategoryDetails | undefined>(undefined);
+
+  // Clothing-specific state
+  const [clothingSize, setClothingSize] = useState('');
+  const [clothingType, setClothingType] = useState('');
+  const [clothingBrand, setClothingBrand] = useState('');
+  const [clothingColor, setClothingColor] = useState('');
+  const [clothingMaterial, setClothingMaterial] = useState('');
+
+  // Electronics-specific state
+  const [electronicsBrand, setElectronicsBrand] = useState('');
+  const [electronicsModel, setElectronicsModel] = useState('');
+  const [electronicsStorage, setElectronicsStorage] = useState('');
+  const [electronicsColor, setElectronicsColor] = useState('');
+
+  // Furniture-specific state
+  const [furnitureMaterial, setFurnitureMaterial] = useState('');
+  const [furnitureColor, setFurnitureColor] = useState('');
+  const [furnitureStyle, setFurnitureStyle] = useState('');
+
+  // Books-specific state
+  const [bookAuthor, setBookAuthor] = useState('');
+  const [bookSubject, setBookSubject] = useState('');
+
   const [analyzing, setAnalyzing] = useState(false);
-  const [analyzed, setAnalyzed] = useState(false);
+  const analyzedRef = useRef(false);
   const [images, setImages] = useState<string[]>(draft?.imageUris || [draft?.imageUri].filter(Boolean) || []);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
@@ -54,22 +151,137 @@ export default function ItemDetailsScreen({ navigation }: Props) {
   const [fullscreenImageUri, setFullscreenImageUri] = useState<string | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
   const notesInputRef = useRef<TextInput>(null);
+  const isKeyboardVisibleRef = useRef(false);
+  const pendingAnalysisResultRef = useRef<{title?: string; category?: string; condition?: Condition} | null>(null);
+
+  // Store the base AI-detected title (before user adds details)
+  const [baseTitle, setBaseTitle] = useState(draft?.title || '');
+  // Track if user has manually edited the title (to prevent auto-overwriting)
+  const userEditedTitleRef = useRef(false);
+
 
   // Track keyboard visibility for extra padding
   useEffect(() => {
     const keyboardWillShow = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      () => setIsKeyboardVisible(true)
+      () => {
+        setIsKeyboardVisible(true);
+        isKeyboardVisibleRef.current = true;
+      }
     );
     const keyboardWillHide = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
-      () => setIsKeyboardVisible(false)
+      () => {
+        setIsKeyboardVisible(false);
+        isKeyboardVisibleRef.current = false;
+        // Apply any pending analysis results when keyboard hides
+        if (pendingAnalysisResultRef.current) {
+          const pending = pendingAnalysisResultRef.current;
+          if (pending.title) {
+            setBaseTitle(pending.title);
+            setTitle(pending.title);
+            userEditedTitleRef.current = false;
+          }
+          if (pending.category) setCategory(pending.category);
+          if (pending.condition) setCondition(pending.condition);
+          pendingAnalysisResultRef.current = null;
+        }
+      }
     );
     return () => {
       keyboardWillShow.remove();
       keyboardWillHide.remove();
     };
   }, []);
+
+  // Dynamically build item name: base AI title + additional category details
+  useEffect(() => {
+    // Skip if user has manually edited the title
+    if (userEditedTitleRef.current) return;
+
+    // Combine base title with any additional details user has entered
+    const combinedName = buildItemNameFromDetails(
+      baseTitle,
+      category,
+      { brand: clothingBrand, color: clothingColor, material: clothingMaterial, type: clothingType, size: clothingSize },
+      { brand: electronicsBrand, model: electronicsModel, storage: electronicsStorage, color: electronicsColor },
+      { material: furnitureMaterial, color: furnitureColor, style: furnitureStyle },
+      { author: bookAuthor, subject: bookSubject }
+    );
+
+    // Update the title with the combined name
+    if (combinedName.trim()) {
+      setTitle(combinedName);
+    }
+  }, [
+    baseTitle, category,
+    clothingBrand, clothingColor, clothingMaterial, clothingType, clothingSize,
+    electronicsBrand, electronicsModel, electronicsStorage, electronicsColor,
+    furnitureMaterial, furnitureColor, furnitureStyle,
+    bookAuthor, bookSubject
+  ]);
+
+  // Category options for dropdown
+  const categoryOptions = [
+    'Clothing',
+    'Electronics',
+    'Furniture',
+    'Books',
+    'Kitchen',
+    'Sports',
+    'Toys',
+    'Tools',
+    'Home Decor',
+    'Collectibles',
+    'Other',
+  ];
+
+  // Auto-detect category from item name keywords
+  const detectCategoryFromTitle = (titleText: string) => {
+    const titleLower = titleText.toLowerCase();
+
+    // Clothing keywords
+    const clothingKeywords = ['shirt', 'pants', 'jeans', 'dress', 'jacket', 'coat', 'sweater', 'hoodie', 'shorts', 'skirt', 'blouse', 'top', 'tee', 't-shirt', 'polo', 'cardigan', 'blazer', 'suit', 'vest', 'leggings', 'joggers', 'sweatpants', 'underwear', 'socks', 'shoes', 'sneakers', 'boots', 'sandals', 'heels', 'hat', 'cap', 'scarf', 'gloves', 'belt', 'tie', 'clothing', 'apparel', 'wear'];
+
+    // Electronics keywords
+    const electronicsKeywords = ['phone', 'iphone', 'samsung', 'android', 'laptop', 'macbook', 'computer', 'pc', 'tablet', 'ipad', 'monitor', 'tv', 'television', 'speaker', 'headphones', 'earbuds', 'airpods', 'watch', 'smartwatch', 'camera', 'gopro', 'drone', 'console', 'playstation', 'xbox', 'nintendo', 'switch', 'keyboard', 'mouse', 'charger', 'cable', 'electronics', 'tech', 'device'];
+
+    // Furniture keywords
+    const furnitureKeywords = ['chair', 'table', 'desk', 'sofa', 'couch', 'bed', 'mattress', 'dresser', 'drawer', 'cabinet', 'shelf', 'bookshelf', 'lamp', 'mirror', 'rug', 'carpet', 'curtain', 'ottoman', 'bench', 'stool', 'nightstand', 'wardrobe', 'closet', 'furniture', 'ikea'];
+
+    // Books keywords
+    const bookKeywords = ['book', 'textbook', 'novel', 'manga', 'comic', 'magazine', 'journal', 'notebook', 'planner', 'guide', 'manual', 'edition', 'hardcover', 'paperback', 'isbn'];
+
+    // Kitchen keywords
+    const kitchenKeywords = ['pot', 'pan', 'knife', 'blender', 'mixer', 'toaster', 'microwave', 'kettle', 'dishes', 'plates', 'cups', 'utensils', 'cookware', 'kitchen'];
+
+    // Sports keywords
+    const sportsKeywords = ['ball', 'racket', 'bat', 'glove', 'helmet', 'bike', 'bicycle', 'skateboard', 'weights', 'dumbbell', 'yoga', 'fitness', 'sports', 'gym', 'exercise'];
+
+    // Check which category the title matches
+    if (clothingKeywords.some(keyword => titleLower.includes(keyword))) {
+      return 'Clothing';
+    } else if (electronicsKeywords.some(keyword => titleLower.includes(keyword))) {
+      return 'Electronics';
+    } else if (furnitureKeywords.some(keyword => titleLower.includes(keyword))) {
+      return 'Furniture';
+    } else if (bookKeywords.some(keyword => titleLower.includes(keyword))) {
+      return 'Books';
+    } else if (kitchenKeywords.some(keyword => titleLower.includes(keyword))) {
+      return 'Kitchen';
+    } else if (sportsKeywords.some(keyword => titleLower.includes(keyword))) {
+      return 'Sports';
+    }
+    return null;
+  };
+
+  // Handle item name submit (when user presses enter/done)
+  const handleTitleSubmit = () => {
+    const detectedCategory = detectCategoryFromTitle(title);
+    if (detectedCategory) {
+      setCategory(detectedCategory);
+    }
+  };
 
   // Helper to scroll input into view when focused
   const scrollToInput = (inputRef: React.RefObject<TextInput>) => {
@@ -94,12 +306,12 @@ export default function ItemDetailsScreen({ navigation }: Props) {
     console.log('ItemDetails useEffect triggered', {
       imageCount: imagesToAnalyze.length,
       hasUser: !!user,
-      analyzed,
+      analyzed: analyzedRef.current,
       userId: user?.id
     });
 
     async function analyzeItemImages() {
-      if (imagesToAnalyze.length > 0 && user && !analyzed) {
+      if (imagesToAnalyze.length > 0 && user && !analyzedRef.current) {
         setAnalyzing(true);
         try {
           console.log(`Starting image analysis for ${imagesToAnalyze.length} image(s)`);
@@ -137,17 +349,73 @@ export default function ItemDetailsScreen({ navigation }: Props) {
                 // Auto-populate title and category from analysis
                 if (analysisResult.type === 'identified') {
                   console.log('Item identified:', analysisResult.item);
-                  setTitle(analysisResult.item.title);
-                  setCategory(analysisResult.item.category);
+
+                  const newTitle = analysisResult.item.title;
+                  const newCategory = analysisResult.item.category;
+                  let newCondition: Condition | undefined;
                   if (analysisResult.item.condition) {
                     const conditionLower = analysisResult.item.condition.toLowerCase().replace(' ', '_') as Condition;
                     if (['new', 'like_new', 'good', 'fair', 'poor'].includes(conditionLower)) {
-                      setCondition(conditionLower);
+                      newCondition = conditionLower;
+                    }
+                  }
+
+                  // Set the base title from AI (this will be combined with additional details)
+                  setBaseTitle(newTitle);
+                  // Reset user edit flag since AI is setting a new title
+                  userEditedTitleRef.current = false;
+
+                  // If keyboard is visible, defer the update to avoid dismissing it
+                  if (isKeyboardVisibleRef.current) {
+                    pendingAnalysisResultRef.current = {
+                      title: newTitle,
+                      category: newCategory,
+                      condition: newCondition,
+                    };
+                  } else {
+                    setTitle(newTitle);
+                    setCategory(newCategory);
+                    if (newCondition) setCondition(newCondition);
+                  }
+
+                  // Populate category-specific fields from analysis
+                  const details = analysisResult.item.categoryDetails;
+                  if (details) {
+                    setCategoryDetails(details);
+
+                    // Clothing fields
+                    if (details.clothing) {
+                      if (details.clothing.size) setClothingSize(details.clothing.size);
+                      if (details.clothing.clothingType) setClothingType(details.clothing.clothingType);
+                      if (details.clothing.brand) setClothingBrand(details.clothing.brand);
+                      if (details.clothing.color) setClothingColor(details.clothing.color);
+                      if (details.clothing.material) setClothingMaterial(details.clothing.material);
+                    }
+
+                    // Electronics fields
+                    if (details.electronics) {
+                      if (details.electronics.brand) setElectronicsBrand(details.electronics.brand);
+                      if (details.electronics.model) setElectronicsModel(details.electronics.model);
+                      if (details.electronics.storage) setElectronicsStorage(details.electronics.storage);
+                      if (details.electronics.color) setElectronicsColor(details.electronics.color);
+                    }
+
+                    // Furniture fields
+                    if (details.furniture) {
+                      if (details.furniture.material) setFurnitureMaterial(details.furniture.material);
+                      if (details.furniture.color) setFurnitureColor(details.furniture.color);
+                      if (details.furniture.style) setFurnitureStyle(details.furniture.style);
+                    }
+
+                    // Books fields
+                    if (details.books) {
+                      if (details.books.author) setBookAuthor(details.books.author);
+                      if (details.books.subject) setBookSubject(details.books.subject);
                     }
                   }
                 }
 
-                // Store the analysis result in draft
+                // Store the analysis result in draft (this doesn't affect keyboard)
                 updateDraft({
                   clarificationResponse: analysisResult,
                 });
@@ -161,7 +429,7 @@ export default function ItemDetailsScreen({ navigation }: Props) {
           // Non-critical error - user can still enter details manually
         } finally {
           setAnalyzing(false);
-          setAnalyzed(true);
+          analyzedRef.current = true;
         }
       }
     }
@@ -200,7 +468,7 @@ export default function ItemDetailsScreen({ navigation }: Props) {
       setImages(updatedImages);
       updateDraft({ imageUris: updatedImages });
       // Trigger re-analysis when new photo is added
-      setAnalyzed(false);
+      analyzedRef.current = false;
     }
   };
 
@@ -229,7 +497,7 @@ export default function ItemDetailsScreen({ navigation }: Props) {
       setImages(updatedImages);
       updateDraft({ imageUris: updatedImages });
       // Trigger re-analysis when new photos are added
-      setAnalyzed(false);
+      analyzedRef.current = false;
     }
   };
 
@@ -301,11 +569,44 @@ export default function ItemDetailsScreen({ navigation }: Props) {
       poor: 'Poor',
     };
 
+    const categoryLower = category.toLowerCase();
+
+    // Pass category-specific details to draft for title building in PriceReview
+    const clothingDetails = categoryLower.includes('clothing') ? {
+      brand: clothingBrand.trim(),
+      type: clothingType.trim(),
+      color: clothingColor.trim(),
+      size: clothingSize.trim(),
+      material: clothingMaterial.trim(),
+    } : undefined;
+
+    const electronicsDetails = categoryLower.includes('electronics') ? {
+      brand: electronicsBrand.trim(),
+      model: electronicsModel.trim(),
+      storage: electronicsStorage.trim(),
+      color: electronicsColor.trim(),
+    } : undefined;
+
+    const furnitureDetails = categoryLower.includes('furniture') ? {
+      material: furnitureMaterial.trim(),
+      color: furnitureColor.trim(),
+      style: furnitureStyle.trim(),
+    } : undefined;
+
+    const bookDetails = categoryLower.includes('book') ? {
+      author: bookAuthor.trim(),
+      subject: bookSubject.trim(),
+    } : undefined;
+
     updateDraft({
-      title: title.trim() || 'Untitled Item',
+      title: title.trim() || undefined, // May be empty, title built in PriceReview
       category: category.trim() || 'General',
       condition: conditionMap[condition],
       notes: notes.trim() || undefined,
+      clothingDetails,
+      electronicsDetails,
+      furnitureDetails,
+      bookDetails,
     });
 
     navigation.navigate('PriceReview');
@@ -324,41 +625,38 @@ export default function ItemDetailsScreen({ navigation }: Props) {
     }
   };
 
-  // Clearable Input component
-  const ClearableInput = ({
-    label,
-    value,
-    onChangeText,
-    placeholder,
-    multiline = false,
-    keyboardType = 'default',
-    inputRef,
-    onFocus,
-  }: {
-    label: string;
-    value: string;
-    onChangeText: (text: string) => void;
-    placeholder: string;
-    multiline?: boolean;
-    keyboardType?: 'default' | 'numeric';
-    inputRef?: React.RefObject<TextInput>;
-    onFocus?: () => void;
-  }) => (
+  // Render a clearable input field
+  const renderClearableInput = (
+    label: string,
+    value: string,
+    onChangeText: (text: string) => void,
+    placeholder: string,
+    options?: {
+      multiline?: boolean;
+      keyboardType?: 'default' | 'numeric';
+      inputRef?: React.RefObject<TextInput>;
+      onFocus?: () => void;
+      onSubmitEditing?: () => void;
+    }
+  ) => (
     <View style={styles.inputGroup}>
       <Text variant="body" size="sm" color="muted" style={styles.label}>
         {label}
       </Text>
       <View style={styles.inputWrapper}>
         <TextInput
-          ref={inputRef}
-          style={[styles.clearableInput, multiline && styles.multilineInput]}
+          ref={options?.inputRef}
+          style={[styles.clearableInput, options?.multiline && styles.multilineInput]}
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
           placeholderTextColor={colors.textMuted}
-          multiline={multiline}
-          keyboardType={keyboardType}
-          onFocus={onFocus}
+          multiline={options?.multiline}
+          keyboardType={options?.keyboardType || 'default'}
+          onFocus={options?.onFocus}
+          onSubmitEditing={options?.onSubmitEditing}
+          blurOnSubmit={options?.onSubmitEditing ? true : false}
+          returnKeyType={options?.onSubmitEditing ? 'done' : (options?.multiline ? 'default' : 'next')}
         />
         {value.length > 0 && (
           <Pressable style={styles.clearButton} onPress={() => onChangeText('')}>
@@ -411,7 +709,8 @@ export default function ItemDetailsScreen({ navigation }: Props) {
             styles.scrollContent,
             isKeyboardVisible && { paddingBottom: 150 },
           ]}
-          keyboardShouldPersistTaps="always"
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="none"
           showsVerticalScrollIndicator={true}
         >
           <Header title="Item details" onBack={() => navigation.goBack()} />
@@ -489,21 +788,180 @@ export default function ItemDetailsScreen({ navigation }: Props) {
           </Card>
         )}
 
-        {/* Item name */}
-        <ClearableInput
-          label="Item name"
-          placeholder={analyzing ? "Analyzing..." : "What is this item?"}
-          value={title}
-          onChangeText={setTitle}
-        />
+        {/* Item Name - editable (user edits stop auto-building) */}
+        {renderClearableInput(
+          "Item Name",
+          title,
+          (text) => {
+            userEditedTitleRef.current = true;
+            setTitle(text);
+          },
+          analyzing ? "Analyzing..." : "e.g. Nike Air Max 90 Sneakers",
+          { multiline: true, onSubmitEditing: handleTitleSubmit }
+        )}
 
-        {/* Category */}
-        <ClearableInput
-          label="Category"
-          placeholder={analyzing ? "Analyzing..." : "e.g. Electronics, Furniture"}
-          value={category}
-          onChangeText={setCategory}
-        />
+        {/* Category - Dropdown */}
+        <View style={styles.inputGroup}>
+          <Text variant="body" size="sm" color="muted" style={styles.label}>
+            Category
+          </Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.categoryScrollView}
+            contentContainerStyle={styles.categoryScrollContent}
+          >
+            {categoryOptions.map((option) => (
+              <Pressable
+                key={option}
+                style={[
+                  styles.categoryPill,
+                  category === option && styles.categoryPillSelected,
+                ]}
+                onPress={() => setCategory(option)}
+              >
+                <Text
+                  style={[
+                    styles.categoryPillText,
+                    category === option && styles.categoryPillTextSelected,
+                  ]}
+                >
+                  {option}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+
+        {/* Category-specific fields - Clothing */}
+        {category.toLowerCase().includes('clothing') && (
+          <View style={styles.categorySection}>
+            <Text variant="body" size="sm" color="accent" style={styles.categorySectionLabel}>
+              Clothing Details
+            </Text>
+            <View style={styles.categoryFieldsRow}>
+              {renderClearableInput(
+                "Brand",
+                clothingBrand,
+                setClothingBrand,
+                "e.g. Nike, Levi's"
+              )}
+              {renderClearableInput(
+                "Type",
+                clothingType,
+                setClothingType,
+                "e.g. High-rise jeans"
+              )}
+            </View>
+            <View style={styles.categoryFieldsRow}>
+              {renderClearableInput(
+                "Color",
+                clothingColor,
+                setClothingColor,
+                "e.g. Navy blue"
+              )}
+              {renderClearableInput(
+                "Size",
+                clothingSize,
+                setClothingSize,
+                "e.g. M, L, 32W"
+              )}
+            </View>
+            {renderClearableInput(
+              "Material",
+              clothingMaterial,
+              setClothingMaterial,
+              "e.g. Cotton, Denim"
+            )}
+          </View>
+        )}
+
+        {/* Category-specific fields - Electronics */}
+        {category.toLowerCase().includes('electronics') && (
+          <View style={styles.categorySection}>
+            <Text variant="body" size="sm" color="accent" style={styles.categorySectionLabel}>
+              Electronics Details
+            </Text>
+            <View style={styles.categoryFieldsRow}>
+              {renderClearableInput(
+                "Brand",
+                electronicsBrand,
+                setElectronicsBrand,
+                "e.g. Apple, Samsung"
+              )}
+              {renderClearableInput(
+                "Model",
+                electronicsModel,
+                setElectronicsModel,
+                "e.g. iPhone 14 Pro"
+              )}
+            </View>
+            <View style={styles.categoryFieldsRow}>
+              {renderClearableInput(
+                "Storage",
+                electronicsStorage,
+                setElectronicsStorage,
+                "e.g. 256GB"
+              )}
+              {renderClearableInput(
+                "Color",
+                electronicsColor,
+                setElectronicsColor,
+                "e.g. Space Gray"
+              )}
+            </View>
+          </View>
+        )}
+
+        {/* Category-specific fields - Furniture */}
+        {category.toLowerCase().includes('furniture') && (
+          <View style={styles.categorySection}>
+            <Text variant="body" size="sm" color="accent" style={styles.categorySectionLabel}>
+              Furniture Details
+            </Text>
+            <View style={styles.categoryFieldsRow}>
+              {renderClearableInput(
+                "Material",
+                furnitureMaterial,
+                setFurnitureMaterial,
+                "e.g. Wood, Metal"
+              )}
+              {renderClearableInput(
+                "Color/Finish",
+                furnitureColor,
+                setFurnitureColor,
+                "e.g. Walnut, White"
+              )}
+            </View>
+            {renderClearableInput(
+              "Style",
+              furnitureStyle,
+              setFurnitureStyle,
+              "e.g. Modern, Mid-century"
+            )}
+          </View>
+        )}
+
+        {/* Category-specific fields - Books */}
+        {category.toLowerCase().includes('book') && (
+          <View style={styles.categorySection}>
+            <Text variant="body" size="sm" color="accent" style={styles.categorySectionLabel}>
+              Book Details
+            </Text>
+            {renderClearableInput(
+              "Author",
+              bookAuthor,
+              setBookAuthor,
+              "e.g. John Smith"
+            )}
+            {renderClearableInput(
+              "Subject",
+              bookSubject,
+              setBookSubject,
+              "e.g. Computer Science"
+            )}
+          </View>
+        )}
 
         {/* Condition - inline pills with horizontal scroll for title */}
         <View style={styles.inputGroup}>
@@ -533,16 +991,18 @@ export default function ItemDetailsScreen({ navigation }: Props) {
           </View>
         </View>
 
-        {/* Additional Notes */}
-        <ClearableInput
-          label="Additional notes (optional)"
-          placeholder="Any other details buyers should know..."
-          value={notes}
-          onChangeText={setNotes}
-          multiline
-          inputRef={notesInputRef}
-          onFocus={scrollToNotesInput}
-        />
+        {/* Notes */}
+        {renderClearableInput(
+          "Notes",
+          notes,
+          setNotes,
+          "Add any additional details here",
+          {
+            multiline: true,
+            inputRef: notesInputRef,
+            onFocus: scrollToNotesInput,
+          }
+        )}
 
         <View style={styles.actions}>
           <Button
@@ -684,9 +1144,55 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: colors.textMuted,
   },
+  // Category-specific section styles
+  categorySection: {
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.accent,
+  },
+  categorySectionLabel: {
+    marginBottom: spacing.sm,
+    fontWeight: '600',
+  },
+  categoryFieldsRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  // Category dropdown styles
+  categoryScrollView: {
+    marginHorizontal: -spacing.lg,
+  },
+  categoryScrollContent: {
+    paddingHorizontal: spacing.lg,
+    gap: spacing.xs,
+  },
+  categoryPill: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  categoryPillSelected: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  categoryPillText: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    fontWeight: '500',
+  },
+  categoryPillTextSelected: {
+    color: '#FFFFFF',
+  },
   // Clearable input styles
   inputGroup: {
     marginBottom: spacing.sm,
+    flex: 1,
   },
   label: {
     marginBottom: spacing.xs,

@@ -95,9 +95,6 @@ export function FAB({ onPress, icon = '+', menuItems }: FABProps) {
             ]}
           >
             <Pressable style={styles.menuItemButton} onPress={handleMainAction}>
-              <View style={styles.menuItemIcon}>
-                <Text style={styles.menuItemIconText}>+</Text>
-              </View>
               <View style={styles.menuItemLabel}>
                 <Text style={styles.menuItemLabelText}>Add items</Text>
               </View>
@@ -122,9 +119,6 @@ export function FAB({ onPress, icon = '+', menuItems }: FABProps) {
               ]}
             >
               <Pressable style={styles.menuItemButton} onPress={() => handleMenuItemPress(item)}>
-                <View style={styles.menuItemIcon}>
-                  <Text style={styles.menuItemIconText}>{item.icon}</Text>
-                </View>
                 <View style={styles.menuItemLabel}>
                   <Text style={styles.menuItemLabelText}>{item.label}</Text>
                 </View>

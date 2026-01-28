@@ -43,6 +43,8 @@ export default function SignupStep2Screen({ navigation, route }: Props) {
   const [dormRoom, setDormRoom] = useState('');
   const [dormLocation, setDormLocation] = useState('');
   const [paymentPreferences, setPaymentPreferences] = useState<PaymentMethod[]>([]);
+  const [zelleHandle, setZelleHandle] = useState('');
+  const [venmoHandle, setVenmoHandle] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -129,6 +131,8 @@ export default function SignupStep2Screen({ navigation, route }: Props) {
       dormRoom: dormRoom.trim(),
       dormLocation: dormLocation.trim(),
       paymentPreference: paymentPreferences.join(','),
+      zelleHandle: zelleHandle.trim() || undefined,
+      venmoHandle: venmoHandle.trim() || undefined,
       loginPreference: 'email_code',
     };
 
@@ -267,7 +271,7 @@ export default function SignupStep2Screen({ navigation, route }: Props) {
           </View>
 
           <Input
-            label="Meetup location (optional)"
+            label="Location notes (optional)"
             placeholder="e.g. Adams House, B-entry, 3rd floor"
             value={dormLocation}
             onChangeText={setDormLocation}
@@ -300,6 +304,29 @@ export default function SignupStep2Screen({ navigation, route }: Props) {
                 </Pressable>
               ))}
             </View>
+
+            {paymentPreferences.includes('Zelle') && (
+              <Input
+                label="Zelle handle"
+                placeholder="Phone number or email"
+                value={zelleHandle}
+                onChangeText={setZelleHandle}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                style={styles.paymentHandleInput}
+              />
+            )}
+
+            {paymentPreferences.includes('Venmo') && (
+              <Input
+                label="Venmo handle"
+                placeholder="@username"
+                value={venmoHandle}
+                onChangeText={setVenmoHandle}
+                autoCapitalize="none"
+                style={styles.paymentHandleInput}
+              />
+            )}
           </View>
 
           <View style={styles.spacer} />
@@ -487,6 +514,9 @@ const styles = StyleSheet.create({
   },
   paymentOptionTextSelected: {
     color: '#FFFFFF',
+  },
+  paymentHandleInput: {
+    marginTop: spacing.md,
   },
   spacer: {
     height: 100,

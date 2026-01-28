@@ -273,10 +273,13 @@ export default function BrowseGridScreen({ navigation }: Props) {
     [fetchMore, displayItems.length, hasMore, cursor, loading, isFetchingMore, hasSearched, searchQuery]
   );
 
-  // Format price range display
+  // Format price range display (always lower-higher)
   const formatPriceRange = (item: SearchResultItem) => {
     if (item.priceMin && item.priceMax && item.priceMin !== item.priceMax) {
-      return `$${item.priceMin} – $${item.priceMax}`;
+      // Ensure lower number comes first
+      const lower = Math.min(item.priceMin, item.priceMax);
+      const higher = Math.max(item.priceMin, item.priceMax);
+      return `$${lower} – $${higher}`;
     } else if (item.priceMin) {
       return `$${item.priceMin}`;
     } else if (item.priceMax) {

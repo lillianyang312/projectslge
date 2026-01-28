@@ -18,12 +18,55 @@ export interface ClarificationOption {
   descriptor: string;
 }
 
+// Category-specific details that can be extracted from images
+export interface ClothingDetails {
+  size?: string;           // e.g., "S", "M", "L", "XL", "32", "34W x 30L"
+  clothingType?: string;   // e.g., "High-rise jeans", "Crop top", "Blazer"
+  brand?: string;          // e.g., "Nike", "Levi's"
+  color?: string;          // e.g., "Navy blue", "Black"
+  material?: string;       // e.g., "Cotton", "Denim", "Polyester"
+  gender?: string;         // e.g., "Men's", "Women's", "Unisex"
+  style?: string;          // e.g., "Casual", "Formal", "Athletic"
+}
+
+export interface ElectronicsDetails {
+  brand?: string;          // e.g., "Apple", "Samsung"
+  model?: string;          // e.g., "iPhone 14 Pro", "Galaxy S23"
+  storage?: string;        // e.g., "256GB", "1TB"
+  color?: string;          // e.g., "Space Gray", "Silver"
+  screenSize?: string;     // e.g., "6.1 inches", "27 inches"
+  specs?: string;          // e.g., "16GB RAM, M2 chip"
+}
+
+export interface FurnitureDetails {
+  material?: string;       // e.g., "Wood", "Metal", "Fabric"
+  color?: string;          // e.g., "Walnut", "White"
+  dimensions?: string;     // e.g., "72\" x 36\" x 30\""
+  style?: string;          // e.g., "Modern", "Mid-century", "Industrial"
+}
+
+export interface BookDetails {
+  author?: string;
+  isbn?: string;
+  edition?: string;
+  publisher?: string;
+  subject?: string;        // e.g., "Computer Science", "Biology"
+}
+
+export interface CategoryDetails {
+  clothing?: ClothingDetails;
+  electronics?: ElectronicsDetails;
+  furniture?: FurnitureDetails;
+  books?: BookDetails;
+}
+
 export interface IdentifiedItem {
   title: string;
   category: string;
   description?: string;
   condition?: string;
   tags?: string[];
+  categoryDetails?: CategoryDetails;  // Category-specific extracted details
 }
 
 export type IdentifiedResponse = {

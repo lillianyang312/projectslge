@@ -39,6 +39,8 @@ export type SignupData = {
   dormRoom: string;
   dormLocation: string;
   paymentPreference: string;
+  zelleHandle?: string;
+  venmoHandle?: string;
   loginPreference: 'email_code';
 };
 

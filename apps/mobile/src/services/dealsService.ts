@@ -361,32 +361,44 @@ export async function getDealById(dealId: string): Promise<Deal | null> {
     if (isAccepted) {
       console.log('📦 [getDealById] Fetching profiles for accepted deal:', dealId);
 
-      // Fetch both profiles
+      // Fetch both profiles (use maybeSingle to handle missing profiles gracefully)
+      // Note: We do NOT fetch email or phone_number for privacy - those should never be exposed
       const [buyerResult, sellerResult] = await Promise.all([
         supabase
           .from('user_profiles')
-          .select('id, full_name, harvard_email, house, graduation_year')
+          .select('id, full_name, house, graduation_year, dorm_building, dorm_room, last_seen_at, rating, rating_count, sales_completed, purchases_completed')
           .eq('id', deal.buyer_id)
-          .single(),
+          .maybeSingle(),
         supabase
           .from('user_profiles')
-          .select('id, full_name, harvard_email, house, graduation_year')
+          .select('id, full_name, house, graduation_year, dorm_building, dorm_room, last_seen_at, rating, rating_count, sales_completed, purchases_completed')
           .eq('id', deal.seller_id)
-          .single(),
+          .maybeSingle(),
       ]);
 
       console.log('📦 [getDealById] Buyer profile result:', buyerResult.data, buyerResult.error);
       console.log('📦 [getDealById] Seller profile result:', sellerResult.data, sellerResult.error);
 
-      // Handle buyer profile - if not in user_profiles, try to get email from auth
+      // Handle buyer profile
       if (buyerResult.data) {
-        const buyerDisplayName = buyerResult.data.full_name ||
-          (buyerResult.data.harvard_email ? buyerResult.data.harvard_email.split('@')[0] : 'Buyer');
+        const buyerData = buyerResult.data;
+        const buyerDisplayName = buyerData.full_name || 'Buyer';
+
+        // Build dorm location string
+        const buyerDormLocation = [buyerData.dorm_building, buyerData.dorm_room].filter(Boolean).join(' ');
+
         deal.buyer = {
-          id: buyerResult.data.id,
-          email: buyerResult.data.harvard_email || '',
+          id: buyerData.id,
+          email: '', // Never expose email
           display_name: buyerDisplayName,
-          neighborhood: buyerResult.data.house || undefined,
+          neighborhood: buyerData.house || undefined,
+          dorm_location: buyerDormLocation || undefined,
+          graduation_year: buyerData.graduation_year || undefined,
+          last_seen_at: buyerData.last_seen_at || undefined,
+          rating: buyerData.rating || undefined,
+          rating_count: buyerData.rating_count || 0,
+          sales_completed: buyerData.sales_completed || 0,
+          purchases_completed: buyerData.purchases_completed || 0,
           created_at: '',
         };
         console.log('✅ [getDealById] Set buyer display_name:', buyerDisplayName);
@@ -401,15 +413,26 @@ export async function getDealById(dealId: string): Promise<Deal | null> {
         };
       }
 
-      // Handle seller profile - if not in user_profiles, use default
+      // Handle seller profile
       if (sellerResult.data) {
-        const sellerDisplayName = sellerResult.data.full_name ||
-          (sellerResult.data.harvard_email ? sellerResult.data.harvard_email.split('@')[0] : 'Seller');
+        const sellerData = sellerResult.data;
+        const sellerDisplayName = sellerData.full_name || 'Seller';
+
+        // Build dorm location string
+        const sellerDormLocation = [sellerData.dorm_building, sellerData.dorm_room].filter(Boolean).join(' ');
+
         deal.seller = {
-          id: sellerResult.data.id,
-          email: sellerResult.data.harvard_email || '',
+          id: sellerData.id,
+          email: '', // Never expose email
           display_name: sellerDisplayName,
-          neighborhood: sellerResult.data.house || undefined,
+          neighborhood: sellerData.house || undefined,
+          dorm_location: sellerDormLocation || undefined,
+          graduation_year: sellerData.graduation_year || undefined,
+          last_seen_at: sellerData.last_seen_at || undefined,
+          rating: sellerData.rating || undefined,
+          rating_count: sellerData.rating_count || 0,
+          sales_completed: sellerData.sales_completed || 0,
+          purchases_completed: sellerData.purchases_completed || 0,
           created_at: '',
         };
         console.log('✅ [getDealById] Set seller display_name:', sellerDisplayName);
@@ -502,6 +525,178 @@ async function notifyOutbidBuyers(
   } catch (error) {
     console.error('Error notifying outbid buyers:', error);
     // Don't fail the main operation if notification fails
+  }
+}
+
+/**
+ * Counter an offer (seller makes a counter-offer)
+ * Updates the deal's current_offer and notifies the buyer
+ */
+export async function counterOffer(
+  dealId: string,
+  amount: number,
+  userId: string
+): Promise<boolean> {
+  try {
+    const deal = await getDealById(dealId);
+    if (!deal) return false;
+
+    const previousOffer = deal.current_offer;
+
+    const { error } = await supabase
+      .from('deals')
+      .update({
+        current_offer: amount,
+        last_offer_by: userId,
+      })
+      .eq('id', dealId);
+
+    if (error) throw error;
+
+    // Create message record
+    await sendMessage(dealId, userId, `Counter-offered $${amount}`, 'counter', {
+      amount,
+      previousOffer,
+    });
+
+    // Notify other buyers that a counter was made (changes the landscape)
+    await notifyCounterOffer(deal.item_id, dealId, amount, previousOffer || 0);
+
+    return true;
+  } catch (error) {
+    console.error('Error making counter offer:', error);
+    return false;
+  }
+}
+
+/**
+ * Notify other buyers when seller makes a counter-offer
+ */
+async function notifyCounterOffer(
+  itemId: string,
+  currentDealId: string,
+  newAmount: number,
+  previousAmount: number
+): Promise<void> {
+  try {
+    // Get all other active deals on this item
+    const { data: competingDeals, error } = await supabase
+      .from('deals')
+      .select('id, current_offer, buyer_id')
+      .eq('item_id', itemId)
+      .eq('status', 'negotiating')
+      .neq('id', currentDealId);
+
+    if (error || !competingDeals) return;
+
+    // Notify buyers who might want to adjust their offers
+    for (const deal of competingDeals) {
+      if (deal.current_offer) {
+        await sendAgentMessage(
+          deal.id,
+          `The seller just counter-offered another buyer at $${newAmount}. Your current offer is $${deal.current_offer}. This may be a signal of the seller's price expectations.`,
+          { counterOfferNotification: true, counterAmount: newAmount }
+        );
+        console.log(`[dealsService] Notified buyer ${deal.buyer_id} of counter-offer`);
+      }
+    }
+  } catch (error) {
+    console.error('Error notifying counter offer:', error);
+  }
+}
+
+/**
+ * Cancel a pending deal (in logistics/scheduling) and notify other active bidders
+ */
+export async function cancelPendingDeal(
+  dealId: string,
+  userId: string,
+  reason?: string
+): Promise<boolean> {
+  try {
+    const deal = await getDealById(dealId);
+    if (!deal) return false;
+
+    const itemId = deal.item_id;
+    const agreedPrice = deal.agreed_price;
+
+    // Cancel the deal
+    const { error } = await supabase
+      .from('deals')
+      .update({ status: 'cancelled' })
+      .eq('id', dealId);
+
+    if (error) throw error;
+
+    // Send cancellation message to the cancelled deal
+    await sendMessage(
+      dealId,
+      userId,
+      reason ? `Deal cancelled: ${reason}` : 'Deal cancelled',
+      'system'
+    );
+
+    // Notify other active bidders that the item is available again
+    await notifyDealFellThrough(itemId, dealId, agreedPrice);
+
+    return true;
+  } catch (error) {
+    console.error('Error cancelling pending deal:', error);
+    return false;
+  }
+}
+
+/**
+ * Notify other active bidders when a pending deal falls through
+ */
+async function notifyDealFellThrough(
+  itemId: string,
+  cancelledDealId: string,
+  previousAgreedPrice?: number | null
+): Promise<void> {
+  try {
+    // Get item title for the notification
+    const { data: item } = await supabase
+      .from('items')
+      .select('title')
+      .eq('id', itemId)
+      .single();
+
+    const itemTitle = item?.title || 'this item';
+
+    // Get all other active/negotiating deals on this item
+    const { data: activeDeals, error } = await supabase
+      .from('deals')
+      .select('id, current_offer, buyer_id')
+      .eq('item_id', itemId)
+      .eq('status', 'negotiating')
+      .neq('id', cancelledDealId);
+
+    if (error || !activeDeals || activeDeals.length === 0) return;
+
+    // Notify each active bidder
+    for (const deal of activeDeals) {
+      let message = `🔔 Good news! A previous deal for "${itemTitle}" fell through.`;
+
+      if (previousAgreedPrice) {
+        message += ` The item was previously agreed at $${previousAgreedPrice}.`;
+      }
+
+      if (deal.current_offer) {
+        message += ` Your offer of $${deal.current_offer} is still active. The seller may be more motivated now!`;
+      } else {
+        message += ` Consider making an offer to the seller.`;
+      }
+
+      await sendAgentMessage(deal.id, message, {
+        type: 'deal_fell_through',
+        previousAgreedPrice,
+      });
+
+      console.log(`[dealsService] Notified buyer ${deal.buyer_id} that deal fell through`);
+    }
+  } catch (error) {
+    console.error('Error notifying deal fell through:', error);
   }
 }
 
@@ -959,10 +1154,16 @@ export async function getUserSchedulingInfo(userId: string): Promise<UserSchedul
       .from('user_profiles')
       .select('full_name, first_name, last_name, dorm_location, payment_preference, house')
       .eq('id', userId)
-      .single();
+      .maybeSingle();
 
-    if (error || !data) {
+    if (error) {
       console.error('Error fetching user scheduling info:', error);
+      return null;
+    }
+
+    // Profile doesn't exist yet - return null gracefully
+    if (!data) {
+      console.log('[getUserSchedulingInfo] No profile found for user:', userId);
       return null;
     }
 
@@ -1020,5 +1221,65 @@ export async function markDealAsRead(dealId: string, userId: string): Promise<bo
     // Non-critical - don't block the chat experience
     console.log('[markDealAsRead] Failed:', error);
     return false;
+  }
+}
+
+/**
+ * User rating with rater info
+ */
+export interface UserRating {
+  id: string;
+  rating: number;
+  comment: string | null;
+  created_at: string;
+  rater_name: string;
+}
+
+/**
+ * Get ratings for a user (to display on their profile)
+ */
+export async function getUserRatings(userId: string): Promise<UserRating[]> {
+  try {
+    const { data, error } = await supabase
+      .from('user_ratings')
+      .select(`
+        id,
+        rating,
+        comment,
+        created_at,
+        rater_id
+      `)
+      .eq('rated_user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(20);
+
+    if (error) {
+      console.error('[getUserRatings] Error fetching ratings:', error);
+      return [];
+    }
+
+    if (!data || data.length === 0) {
+      return [];
+    }
+
+    // Fetch rater names
+    const raterIds = [...new Set(data.map(r => r.rater_id))];
+    const { data: profiles } = await supabase
+      .from('user_profiles')
+      .select('id, full_name')
+      .in('id', raterIds);
+
+    const profileMap = new Map(profiles?.map(p => [p.id, p.full_name]) || []);
+
+    return data.map(r => ({
+      id: r.id,
+      rating: r.rating,
+      comment: r.comment,
+      created_at: r.created_at,
+      rater_name: profileMap.get(r.rater_id) || 'User',
+    }));
+  } catch (error) {
+    console.error('[getUserRatings] Failed:', error);
+    return [];
   }
 }

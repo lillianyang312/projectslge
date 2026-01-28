@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -7,7 +7,6 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
-  Keyboard,
   Image,
 } from 'react-native';
 import { useNavigation, CommonActions } from '@react-navigation/native';
@@ -22,7 +21,6 @@ import {
   getDealsWithExpiration,
   replyToQuestion,
   acceptOffer,
-  cancelDeal,
 } from '../../services/dealsService';
 import { updateItem } from '../../services/itemsService';
 import { getSignedUrl } from '../../services/imageService';
@@ -35,9 +33,6 @@ import {
 } from '../../utils/pricingUtils';
 import { SellIntent } from '../../state/itemsStore';
 import { Item } from '../../services/itemsService';
-import { useFocusEffect } from '@react-navigation/native';
-import { useChatLLM } from '../../hooks/useChatLLM';
-import { formatMessageTime, generateMessageId, type ChatMessage } from '../../services/chatService';
 
 type TabNavProp = BottomTabNavigationProp<AppTabsParamList>;
 
@@ -51,12 +46,6 @@ interface SellerDashboardProps {
   sellIntent: SellIntent;
 }
 
-// Agent action types
-interface AgentAction {
-  type: 'update_min_price' | 'accept_offer' | 'update_description';
-  value?: string | number;
-  dealId?: string;
-}
 
 export default function SellerDashboard({
   item,
@@ -79,11 +68,12 @@ export default function SellerDashboard({
   const [offersExpanded, setOffersExpanded] = useState(!hasPendingDeal);
   const [questionsExpanded, setQuestionsExpanded] = useState(!hasPendingDeal);
   const [showHistory, setShowHistory] = useState(false);
-  const [chatExpanded, setChatExpanded] = useState(true);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
   const [submittingReply, setSubmittingReply] = useState(false);
   const [pendingDealImageUrl, setPendingDealImageUrl] = useState<string | null>(null);
+  const [lastChanceDealId, setLastChanceDealId] = useState<string | null>(null);
+  const [sendingLastChance, setSendingLastChance] = useState(false);
 
   // Load pending deal image
   useEffect(() => {
@@ -98,139 +88,18 @@ export default function SellerDashboard({
     }
   }, [pendingDeal?.id]);
 
-  // Agent chat state
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [chatInput, setChatInput] = useState('');
-  const [pendingAction, setPendingAction] = useState<AgentAction | null>(null);
-  const [executingAction, setExecutingAction] = useState(false);
-  const chatScrollRef = useRef<ScrollView>(null);
-
-  // Create a seller-specific system prompt
-  const sellerSystemPrompt = `You are a helpful selling assistant for a marketplace app. The user is a seller managing their item listing.
-
-Current item details:
-- Title: ${item.title}
-- Category: ${item.category}
-- Min price: ${item.min_price ? `$${item.min_price}` : 'Not set'}
-- Estimated value: $${item.estimated_value_min || 0} - $${item.estimated_value_max || 100}
-- Current offers: ${deals.filter(d => d.current_offer).length}
-- Top offer: ${getBestOffer(deals) ? `$${getBestOffer(deals)}` : 'None'}
-- Interested buyers: ${countInterestedBuyers(deals)}
-
-Help the seller manage their listing. When they ask to:
-1. "Sell this week" or express urgency - Recommend lowering the minimum price and respond with a suggested new price
-2. "Raise minimum to $X" - Confirm the new minimum price they want
-3. "Update description" - Ask what they want to change
-4. "Accept highest offer" - Recommend accepting the current top offer
-
-Be concise and helpful. Focus on actionable recommendations. If you suggest an action, clearly state what the action is so the user can confirm.`;
-
-  const { isLoading: chatLoading, sendMessage: sendChatMessage, agentResponse } = useChatLLM(
-    chatMessages,
-    {
-      context: { itemId: item.id },
-      autoSend: true,
-      systemPrompt: sellerSystemPrompt,
-    }
-  );
-
-  // Add agent response to messages when it arrives
-  useEffect(() => {
-    if (agentResponse) {
-      const exists = chatMessages.some((msg) => msg.id === agentResponse.id);
-      if (!exists) {
-        setChatMessages((prev) => [...prev, agentResponse]);
-        // Check for action suggestions in the response
-        parseAgentAction(agentResponse.text);
-      }
-    }
-  }, [agentResponse, chatMessages]);
-
-  // Parse agent response for actionable suggestions
-  const parseAgentAction = (text: string) => {
-    const lowerText = text.toLowerCase();
-
-    // Look for price suggestion patterns
-    const priceMatch = text.match(/\$(\d+)/);
-
-    if (lowerText.includes('minimum price') && lowerText.includes('$') && priceMatch) {
-      setPendingAction({
-        type: 'update_min_price',
-        value: parseInt(priceMatch[1], 10),
-      });
-    } else if (lowerText.includes('accept') && lowerText.includes('offer') && getBestOffer(deals)) {
-      const bestDeal = deals.find(d => d.current_offer === getBestOffer(deals));
-      if (bestDeal) {
-        setPendingAction({
-          type: 'accept_offer',
-          dealId: bestDeal.id,
-          value: bestDeal.current_offer,
-        });
-      }
-    }
-  };
-
-  // Execute pending action
-  const handleExecuteAction = async () => {
-    if (!pendingAction) return;
-
-    setExecutingAction(true);
-    try {
-      if (pendingAction.type === 'update_min_price' && typeof pendingAction.value === 'number') {
-        await updateItem(item.id, { min_price: pendingAction.value });
-        Alert.alert('Success', `Minimum price updated to $${pendingAction.value}`);
-        onRefresh();
-      } else if (pendingAction.type === 'accept_offer' && pendingAction.dealId) {
-        onAcceptOffer(pendingAction.dealId);
-      }
-      setPendingAction(null);
-    } catch (error) {
-      Alert.alert('Error', 'Failed to execute action');
-    } finally {
-      setExecutingAction(false);
-    }
-  };
-
-  // Handle sending chat message
-  const handleSendChat = async () => {
-    const text = chatInput.trim();
-    if (!text || chatLoading) return;
-
-    const userMessage: ChatMessage = {
-      id: generateMessageId(),
-      sender: 'user',
-      text,
-      time: formatMessageTime(),
-    };
-
-    setChatMessages((prev) => [...prev, userMessage]);
-    setChatInput('');
-    setPendingAction(null);
-    Keyboard.dismiss();
-
-    // Scroll to bottom
-    setTimeout(() => {
-      chatScrollRef.current?.scrollToEnd({ animated: true });
-    }, 100);
-
-    // Send to LLM
-    await sendChatMessage(text, userMessage.id, [...chatMessages, userMessage]);
-  };
-
-  // Handle quick action
-  const handleQuickAction = (action: string) => {
-    setChatInput(action);
-  };
 
   // Filter active offers (non-question deals with offers that are still negotiating)
-  const activeOffers = deals.filter(
-    (d) => d.current_offer && !d.is_question && d.status === 'negotiating'
-  );
+  // Sort by highest offer first
+  const activeOffers = deals
+    .filter((d) => d.current_offer && !d.is_question && d.status === 'negotiating')
+    .sort((a, b) => (b.current_offer || 0) - (a.current_offer || 0));
 
   // All offers for history (includes declined, cancelled etc - excludes the pending deal)
-  const allPreviousOffers = deals.filter(
-    (d) => d.current_offer && !d.is_question && d.id !== pendingDeal?.id
-  );
+  // Sort by highest offer first
+  const allPreviousOffers = deals
+    .filter((d) => d.current_offer && !d.is_question && d.id !== pendingDeal?.id)
+    .sort((a, b) => (b.current_offer || 0) - (a.current_offer || 0));
 
   // Unanswered questions
   const unansweredQuestions = questions.filter((q) => !q.isAnswered);
@@ -273,28 +142,6 @@ Be concise and helpful. Focus on actionable recommendations. If you suggest an a
     );
   };
 
-  const handleDeclineOffer = async (dealId: string, offerAmount: number) => {
-    Alert.alert(
-      'Decline Offer',
-      `Are you sure you want to decline the $${offerAmount} offer?`,
-      [
-        { text: 'Keep Offer', style: 'cancel' },
-        {
-          text: 'Decline',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await cancelDeal(dealId, item.owner_id);
-              Alert.alert('Done', 'Offer declined');
-              onRefresh();
-            } catch (error) {
-              Alert.alert('Error', 'Failed to decline offer');
-            }
-          },
-        },
-      ]
-    );
-  };
 
   const handleNavigateToDeal = (dealId: string) => {
     // Navigate to the Deals tab and then to DealChat
@@ -304,10 +151,57 @@ Be concise and helpful. Focus on actionable recommendations. If you suggest an a
     } as any);
   };
 
-  const getStatusLabel = (status: string) => {
+  const handleLastChance = async (dealId: string, offerAmount: number) => {
+    const otherOffers = activeOffers.filter(d => d.id !== dealId);
+    if (otherOffers.length === 0) {
+      // No other offers, just accept
+      handleAcceptOffer(dealId, offerAmount);
+      return;
+    }
+
+    Alert.alert(
+      'Send Last Chance',
+      `This will notify ${otherOffers.length} other buyer${otherOffers.length > 1 ? 's' : ''} that you're about to accept $${offerAmount}. They'll have a chance to counter-bid. If no higher offer comes in, you must accept this offer.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Send Last Chance',
+          onPress: async () => {
+            setSendingLastChance(true);
+            setLastChanceDealId(dealId);
+            try {
+              // Send notification to all other buyers via chat message
+              const { sendSystemMessage } = await import('../../services/chatService');
+              for (const otherDeal of otherOffers) {
+                await sendSystemMessage(
+                  otherDeal.id,
+                  `⚠️ LAST CHANCE: The seller is about to accept a $${offerAmount} offer for "${item.title}". This is your last chance to counter-bid!`
+                );
+              }
+              Alert.alert(
+                'Last Chance Sent',
+                `Notified ${otherOffers.length} buyer${otherOffers.length > 1 ? 's' : ''}. Wait for counter-bids or accept the offer.`,
+                [
+                  { text: 'Wait', style: 'cancel' },
+                  { text: 'Accept Now', onPress: () => onAcceptOffer(dealId) },
+                ]
+              );
+            } catch (error) {
+              Alert.alert('Error', 'Failed to send last chance notifications');
+            } finally {
+              setSendingLastChance(false);
+              setLastChanceDealId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const getStatusLabel = (status: string, pickupDate?: string | null) => {
     switch (status) {
       case 'agreed': return 'Agreed';
-      case 'logistics': return 'Scheduling';
+      case 'logistics': return pickupDate ? 'Scheduled' : 'Scheduling';
       case 'completed': return 'Complete';
       default: return status;
     }
@@ -331,6 +225,11 @@ Be concise and helpful. Focus on actionable recommendations. If you suggest an a
     console.log('📦 [SellerDashboard] Display name:', buyerName);
     const agreedPrice = pendingDeal.agreed_price || pendingDeal.current_offer;
 
+    // Format pickup date for display
+    const formattedPickupDate = pendingDeal.pickup_date
+      ? new Date(pendingDeal.pickup_date).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : null;
+
     return (
       <Pressable onPress={() => handleNavigateToDeal(pendingDeal.id)}>
         <Card style={styles.pendingDealCard}>
@@ -353,16 +252,24 @@ Be concise and helpful. Focus on actionable recommendations. If you suggest an a
               <Text variant="body" size="sm" color="success">
                 ${agreedPrice}
               </Text>
+              {/* Show pickup time when scheduled */}
+              {formattedPickupDate && (
+                <Text variant="body" size="xs" color="muted">
+                  Pickup: {formattedPickupDate}
+                </Text>
+              )}
             </View>
             <Badge variant={getStatusBadgeVariant(pendingDeal.status)}>
-              {getStatusLabel(pendingDeal.status)}
+              {getStatusLabel(pendingDeal.status, pendingDeal.pickup_date)}
             </Badge>
           </View>
           <View style={styles.pendingDealAction}>
             <Text variant="body" size="sm" color="accent">
               {pendingDeal.status === 'agreed'
                 ? 'Tap to finalize pickup schedule →'
-                : 'Tap to view pickup details →'}
+                : formattedPickupDate
+                  ? 'Tap to view deal details →'
+                  : 'Tap to view pickup details →'}
             </Text>
           </View>
         </Card>
@@ -406,11 +313,9 @@ Be concise and helpful. Focus on actionable recommendations. If you suggest an a
               Interested for {interestedForText}
             </Text>
           )}
-          {expirationText && (
-            <Text variant="body" size="xs" color="muted">
-              {expirationText}
-            </Text>
-          )}
+          <Text variant="body" size="xs" color="warning">
+            {expirationText || 'No expiration'}
+          </Text>
           <Text variant="body" size="xs" color="muted">
             {lastActiveText}
           </Text>
@@ -454,14 +359,17 @@ Be concise and helpful. Focus on actionable recommendations. If you suggest an a
               Chat
             </Text>
           </Pressable>
-          <Pressable
-            style={styles.declineBtn}
-            onPress={() => handleDeclineOffer(deal.id, deal.current_offer || 0)}
-          >
-            <Text variant="bodyMedium" size="sm" color="danger">
-              Decline
-            </Text>
-          </Pressable>
+          {activeOffers.length > 1 && (
+            <Pressable
+              style={styles.lastChanceBtn}
+              onPress={() => handleLastChance(deal.id, deal.current_offer || 0)}
+              disabled={sendingLastChance}
+            >
+              <Text variant="bodyMedium" size="sm" color="warning">
+                {sendingLastChance && lastChanceDealId === deal.id ? '...' : 'Last Chance'}
+              </Text>
+            </Pressable>
+          )}
           <Pressable
             style={[styles.acceptBtn, !recommendation.isRecommended && styles.acceptBtnSecondary]}
             onPress={() => handleAcceptOffer(deal.id, deal.current_offer || 0)}
@@ -678,145 +586,6 @@ Be concise and helpful. Focus on actionable recommendations. If you suggest an a
         </>
       )}
 
-      {/* Agent Chat Section */}
-      <Pressable
-        style={styles.sectionHeader}
-        onPress={() => setChatExpanded(!chatExpanded)}
-      >
-        <View style={styles.sectionTitleRow}>
-          <Text variant="bodyMedium" size="md">
-            {chatExpanded ? '▼' : '▶'} AGENT CHAT
-          </Text>
-          <Badge variant="purple" text="AI" />
-        </View>
-      </Pressable>
-
-      {chatExpanded && (
-        <View style={styles.chatSection}>
-          {/* Quick Actions */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.quickActionsScroll}
-            contentContainerStyle={styles.quickActions}
-          >
-            <Pressable
-              style={styles.quickActionChip}
-              onPress={() => handleQuickAction('I want to sell this week')}
-            >
-              <Text variant="body" size="xs">Sell this week</Text>
-            </Pressable>
-            <Pressable
-              style={styles.quickActionChip}
-              onPress={() => handleQuickAction('Raise minimum price')}
-            >
-              <Text variant="body" size="xs">Raise minimum</Text>
-            </Pressable>
-            <Pressable
-              style={styles.quickActionChip}
-              onPress={() => handleQuickAction('Accept highest offer')}
-            >
-              <Text variant="body" size="xs">Accept top offer</Text>
-            </Pressable>
-            <Pressable
-              style={styles.quickActionChip}
-              onPress={() => handleQuickAction('Update description')}
-            >
-              <Text variant="body" size="xs">Update details</Text>
-            </Pressable>
-          </ScrollView>
-
-          {/* Chat Messages */}
-          <ScrollView
-            ref={chatScrollRef}
-            style={styles.chatMessages}
-            contentContainerStyle={styles.chatMessagesContent}
-          >
-            {chatMessages.length === 0 ? (
-              <Text variant="body" size="sm" color="muted" style={styles.chatEmptyText}>
-                Ask me anything about your listing
-              </Text>
-            ) : (
-              chatMessages.map((msg) => (
-                <View
-                  key={msg.id}
-                  style={[
-                    styles.chatBubble,
-                    msg.sender === 'user' ? styles.chatBubbleUser : styles.chatBubbleAgent,
-                  ]}
-                >
-                  <Text
-                    variant="body"
-                    size="sm"
-                    color={msg.sender === 'user' ? 'white' : 'primary'}
-                  >
-                    {msg.text}
-                  </Text>
-                </View>
-              ))
-            )}
-            {chatLoading && (
-              <View style={styles.chatBubbleAgent}>
-                <ActivityIndicator size="small" color={colors.accent} />
-              </View>
-            )}
-          </ScrollView>
-
-          {/* Pending Action Bar */}
-          {pendingAction && (
-            <View style={styles.pendingActionBar}>
-              <Text variant="body" size="sm" color="primary" style={styles.pendingActionText}>
-                {pendingAction.type === 'update_min_price'
-                  ? `Update minimum price to $${pendingAction.value}?`
-                  : pendingAction.type === 'accept_offer'
-                  ? `Accept offer for $${pendingAction.value}?`
-                  : 'Confirm action?'}
-              </Text>
-              <View style={styles.pendingActionButtons}>
-                <Pressable
-                  style={styles.pendingActionCancel}
-                  onPress={() => setPendingAction(null)}
-                >
-                  <Text variant="body" size="sm" color="secondary">Cancel</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.pendingActionConfirm}
-                  onPress={handleExecuteAction}
-                  disabled={executingAction}
-                >
-                  {executingAction ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <Text variant="bodyMedium" size="sm" style={styles.pendingActionConfirmText}>
-                      Confirm
-                    </Text>
-                  )}
-                </Pressable>
-              </View>
-            </View>
-          )}
-
-          {/* Chat Input */}
-          <View style={styles.chatInputRow}>
-            <TextInput
-              style={styles.chatInput}
-              placeholder="Ask about your listing..."
-              placeholderTextColor={colors.textMuted}
-              value={chatInput}
-              onChangeText={setChatInput}
-              onSubmitEditing={handleSendChat}
-              returnKeyType="send"
-            />
-            <Pressable
-              style={[styles.chatSendBtn, (!chatInput.trim() || chatLoading) && styles.chatSendBtnDisabled]}
-              onPress={handleSendChat}
-              disabled={!chatInput.trim() || chatLoading}
-            >
-              <Text style={styles.chatSendBtnText}>↑</Text>
-            </Pressable>
-          </View>
-        </View>
-      )}
     </View>
   );
 }
@@ -966,13 +735,14 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: radius.sm,
   },
-  declineBtn: {
+  lastChanceBtn: {
     flex: 1,
     paddingVertical: spacing.sm,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: colors.danger,
+    borderColor: colors.warning,
     borderRadius: radius.sm,
+    backgroundColor: colors.warningSoft,
   },
   acceptBtn: {
     flex: 1,
@@ -1077,116 +847,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
   },
   sendBtnText: {
-    color: '#FFFFFF',
-  },
-  // Agent Chat Styles
-  chatSection: {
-    marginBottom: spacing.lg,
-  },
-  quickActionsScroll: {
-    marginBottom: spacing.md,
-  },
-  quickActions: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  quickActionChip: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    backgroundColor: colors.purpleSoft,
-    borderRadius: radius.pill,
-  },
-  chatMessages: {
-    maxHeight: 200,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    marginBottom: spacing.sm,
-  },
-  chatMessagesContent: {
-    padding: spacing.md,
-    flexGrow: 1,
-    justifyContent: 'flex-end',
-  },
-  chatEmptyText: {
-    textAlign: 'center',
-    fontStyle: 'italic',
-    paddingVertical: spacing.lg,
-  },
-  chatBubble: {
-    padding: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.md,
-    marginBottom: spacing.sm,
-    maxWidth: '85%',
-  },
-  chatBubbleUser: {
-    backgroundColor: colors.accent,
-    alignSelf: 'flex-end',
-  },
-  chatBubbleAgent: {
-    backgroundColor: colors.purpleSoft,
-    alignSelf: 'flex-start',
-  },
-  chatInputRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    alignItems: 'center',
-  },
-  chatInput: {
-    flex: 1,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    color: colors.textPrimary,
-    fontFamily: typography?.fonts?.body,
-    fontSize: typography?.sizes?.sm,
-  },
-  chatSendBtn: {
-    width: 36,
-    height: 36,
-    backgroundColor: colors.accent,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  chatSendBtnDisabled: {
-    opacity: 0.5,
-  },
-  chatSendBtnText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  pendingActionBar: {
-    backgroundColor: colors.successSoft,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  pendingActionText: {
-    marginBottom: spacing.sm,
-  },
-  pendingActionButtons: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: spacing.sm,
-  },
-  pendingActionCancel: {
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.md,
-  },
-  pendingActionConfirm: {
-    backgroundColor: colors.success,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.lg,
-    borderRadius: radius.sm,
-  },
-  pendingActionConfirmText: {
     color: '#FFFFFF',
   },
 });

@@ -75,7 +75,7 @@ export default function WelcomeScreen({ navigation }: Props) {
             color="muted"
             style={styles.logo}
           >
-            @harvard
+            at Harvard
           </Text>
         </Pressable>
 
@@ -113,7 +113,7 @@ export default function WelcomeScreen({ navigation }: Props) {
           color="secondary"
           style={styles.subtext}
         >
-          List what you own. Collect offers. We'll handle the rest.
+          List what you own. Collect offers. Senior sales on steroids.
         </Text>
         <View style={styles.buttons}>
           <Button

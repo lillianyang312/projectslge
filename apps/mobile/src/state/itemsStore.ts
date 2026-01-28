@@ -58,6 +58,33 @@ export interface BulkUploadItem {
   isPriceConfirmed: boolean;
 }
 
+// Category-specific detail types for draft
+export type ClothingDetailsInput = {
+  brand?: string;
+  type?: string;
+  color?: string;
+  size?: string;
+  material?: string;
+};
+
+export type ElectronicsDetailsInput = {
+  brand?: string;
+  model?: string;
+  storage?: string;
+  color?: string;
+};
+
+export type FurnitureDetailsInput = {
+  material?: string;
+  color?: string;
+  style?: string;
+};
+
+export type BookDetailsInput = {
+  author?: string;
+  subject?: string;
+};
+
 // Draft type for creating new listings
 export type DraftListing = Partial<OriginalListingData> & {
   imageUri?: string;
@@ -68,6 +95,11 @@ export type DraftListing = Partial<OriginalListingData> & {
   sellIntent?: SellIntent;        // How likely to sell
   estimatedPrice?: number;        // API estimated price
   minimumPrice?: number;          // Optional minimum price to sell
+  // Category-specific details (for building title in PriceReview)
+  clothingDetails?: ClothingDetailsInput;
+  electronicsDetails?: ElectronicsDetailsInput;
+  furnitureDetails?: FurnitureDetailsInput;
+  bookDetails?: BookDetailsInput;
 };
 
 type ItemsStore = {
