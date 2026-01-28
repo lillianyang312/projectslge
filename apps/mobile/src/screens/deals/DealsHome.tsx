@@ -10,8 +10,6 @@ import {
   Image,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useNavigation } from '@react-navigation/native';
-import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { DealsStackParamList, AppTabsParamList } from '../../navigation/types';
 import { Text, Card, Badge, ToggleGroup } from '../../ui/components';
 import { colors, spacing, radius } from '../../ui/tokens';
@@ -24,7 +22,6 @@ import { INBOX_PAGE_SIZE } from '../../lib/constants';
 
 type Props = NativeStackScreenProps<DealsStackParamList, 'DealsHome'>;
 type DealsRouteProp = RouteProp<AppTabsParamList, 'Deals'>;
-type TabNavProp = BottomTabNavigationProp<AppTabsParamList>;
 
 // Category to emoji mapping
 const CATEGORY_EMOJI: Record<string, string> = {
@@ -90,7 +87,6 @@ function getDealMeta(deal: Deal, isSelling: boolean): string {
 
 export default function DealsHomeScreen({ navigation, route }: Props) {
   const tabRoute = useRoute<DealsRouteProp>();
-  const tabNavigation = useNavigation<TabNavProp>();
   const user = useAuthStore((state) => state.user);
 
   // Get initialMode from both tab params and route params
@@ -314,22 +310,8 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
   };
 
   const handleDealPress = (deal: Deal) => {
-    const isSelling = deal.seller_id === user?.id;
-    const itemId = deal.item_id;
-
-    if (isSelling) {
-      // Seller: navigate to ItemDetail in List tab
-      tabNavigation.navigate('List', {
-        screen: 'ItemDetail',
-        params: { itemId },
-      } as any);
-    } else {
-      // Buyer: navigate to BrowseItemDetail in Swipe tab
-      tabNavigation.navigate('Swipe', {
-        screen: 'BrowseItemDetail',
-        params: { itemId },
-      } as any);
-    }
+    // Mirror Inbox behavior: go straight to the deal chat for this deal
+    navigation.navigate('DealChat', { dealId: deal.id });
   };
 
   const handleRefresh = () => {
