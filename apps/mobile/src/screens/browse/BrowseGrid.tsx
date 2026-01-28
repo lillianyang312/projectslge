@@ -19,6 +19,7 @@ import { semanticSearch, SearchResultItem } from '../../services/searchService';
 import { useAuthStore } from '../../state/authStore';
 import { getSignedUrlCached } from '../../services/imageService';
 import { BROWSE_PAGE_SIZE } from '../../lib/constants';
+import { getStatusColor } from '../../lib/statusColorMap';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const NUM_COLUMNS = 3;
@@ -293,26 +294,55 @@ export default function BrowseGridScreen({ navigation }: Props) {
   const renderItem = ({ item }: { item: SearchResultItem }) => {
     const imageUrl = imageUrls[item.id];
     const hasDeal = item.dealStatus && item.dealStatus !== 'completed' && item.dealStatus !== 'cancelled';
+    const statusColor = hasDeal ? getStatusColor(item.dealStatus) : null;
 
     return (
       <Pressable
-        style={styles.galleryItem}
+        style={[
+          styles.galleryItem,
+          statusColor
+            ? {
+                borderColor: statusColor,
+                borderWidth: 2,
+              }
+            : null,
+        ]}
         onPress={() => handleItemPress(item.id)}
       >
         <View style={styles.galleryThumb}>
           {imageUrl ? (
             <Image
               source={{ uri: imageUrl }}
-              style={styles.galleryImage}
+              style={[
+                styles.galleryImage,
+                statusColor
+                  ? {
+                      borderColor: statusColor,
+                      borderWidth: 2,
+                    }
+                  : null,
+              ]}
               resizeMode="cover"
             />
           ) : (
-            <Text style={styles.galleryEmoji}>{item.emoji}</Text>
+            <View
+              style={[
+                styles.emojiWrapper,
+                statusColor
+                  ? {
+                      borderColor: statusColor,
+                      borderWidth: 2,
+                    }
+                  : null,
+              ]}
+            >
+              <Text style={styles.galleryEmoji}>{item.emoji}</Text>
+            </View>
           )}
         </View>
         {/* Deal status badge - top left */}
         {hasDeal && (
-          <View style={styles.dealStatusBadge}>
+          <View style={[styles.dealStatusBadge, statusColor ? { backgroundColor: statusColor } : null]}>
             <Text style={styles.dealStatusText}>
               {item.dealStatus === 'negotiating' ? 'Pending' :
                item.dealStatus === 'agreed' ? 'Agreed' :
@@ -579,6 +609,12 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  emojiWrapper: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   galleryEmoji: {
     fontSize: 32,
   },
@@ -617,7 +653,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 6,
     left: 6,
-    backgroundColor: colors.purple || '#8B5CF6',
     paddingHorizontal: 6,
     paddingVertical: 3,
     borderRadius: radius.sm,
