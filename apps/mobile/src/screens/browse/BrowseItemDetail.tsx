@@ -25,6 +25,7 @@ import { getSignedUrlCached } from '../../services/imageService';
 import { expressInterest, getDealsByItemId } from '../../services/dealsService';
 import { useAuthStore } from '../../state/authStore';
 import { getStatusColor, DealStatus } from '../../lib/statusColorMap';
+import { dealEvents } from '../../lib/dealEvents';
 
 type Props = NativeStackScreenProps<SwipeStackParamList, 'BrowseItemDetail'>;
 type TabNavProp = BottomTabNavigationProp<AppTabsParamList>;
@@ -202,6 +203,9 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
       if (deal) {
         // Update deal status immediately to show border/badge
         setDealStatus(deal.status as DealStatus);
+        
+        // Notify other screens (e.g., InboxHome) that a deal was created
+        dealEvents.emit();
         
         Alert.alert(
           'Success!',

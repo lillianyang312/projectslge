@@ -18,6 +18,7 @@ import { useAuthStore } from '../../state/authStore';
 import { getMyDeals, getMessages } from '../../services/dealsService';
 import { getSignedUrlCached } from '../../services/imageService';
 import { Deal, Message } from '../../types/models';
+import { dealEvents } from '../../lib/dealEvents';
 
 type Props = NativeStackScreenProps<InboxStackParamList, 'InboxHome'>;
 
@@ -212,6 +213,21 @@ export default function InboxHomeScreen({ navigation }: Props) {
       loadConversations();
     }, [loadConversations])
   );
+
+  // Subscribe to deal update events for real-time updates
+  useEffect(() => {
+    const handleDealUpdate = () => {
+      // Refresh conversations when a deal is created/updated
+      loadConversations();
+    };
+
+    const unsubscribe = dealEvents.subscribe(handleDealUpdate);
+
+    // Cleanup subscription on unmount
+    return () => {
+      unsubscribe();
+    };
+  }, [loadConversations]);
 
   const handleRefresh = () => loadConversations(true);
 

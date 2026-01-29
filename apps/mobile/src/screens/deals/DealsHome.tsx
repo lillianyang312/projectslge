@@ -19,6 +19,7 @@ import { useAuthStore } from '../../state/authStore';
 import { Deal } from '../../types/models';
 import { getSignedUrlCached } from '../../services/imageService';
 import { INBOX_PAGE_SIZE } from '../../lib/constants';
+import { dealEvents } from '../../lib/dealEvents';
 
 type Props = NativeStackScreenProps<DealsStackParamList, 'DealsHome'>;
 type DealsRouteProp = RouteProp<AppTabsParamList, 'Deals'>;
@@ -243,11 +244,37 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
     }, [user?.id]) // Only depend on user.id
   );
 
+
+  // Reset initial load ref when user changes
   useEffect(() => {
-    // Update mode when params change
-    const newMode = initialModeFromRoute || initialModeFromTab;
-    if (newMode && newMode !== mode) {
-      setMode(newMode);
+    initialLoadRef.current = false;
+  }, [user?.id]);
+
+  // Subscribe to deal update events for real-time updates
+  useEffect(() => {
+    const handleDealUpdate = () => {
+      // Refresh deals when a deal is created/updated
+      loadDeals(false, false, undefined);
+    };
+
+    const unsubscribe = dealEvents.subscribe(handleDealUpdate);
+
+    // Cleanup subscription on unmount
+    return () => {
+      unsubscribe();
+    };
+  }, [loadDeals]);
+
+  // Update mode when params change (e.g., when navigating from BrowseItemDetail)
+  // This handles both route params and tab params
+  useEffect(() => {
+    const currentModeFromRoute = route.params?.initialMode;
+    const currentModeFromTab = tabRoute.params?.initialMode;
+    const currentMode = currentModeFromRoute || currentModeFromTab;
+    
+    if (currentMode && currentMode !== mode) {
+      console.log('🔄 [DealsHome] Mode change detected:', { currentMode, previousMode: mode });
+      setMode(currentMode);
       // Reset pagination when mode changes
       setCursor(undefined);
       cursorRef.current = undefined;
@@ -255,14 +282,35 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
       setDeals([]);
       initialLoadRef.current = false; // Allow reload on next focus
       // Reload deals with new mode
-      loadDeals(false, false, undefined);
+      if (user?.id) {
+        loadDeals(false, false, undefined);
+      }
     }
-  }, [initialModeFromRoute, initialModeFromTab, mode, user?.id, loadDeals]);
+  }, [route.params?.initialMode, tabRoute.params?.initialMode, mode, user?.id, loadDeals]);
 
-  // Reset initial load ref when user changes
-  useEffect(() => {
-    initialLoadRef.current = false;
-  }, [user?.id]);
+  // Also check params when screen is focused (backup for navigation edge cases)
+  useFocusEffect(
+    useCallback(() => {
+      const currentModeFromRoute = route.params?.initialMode;
+      const currentModeFromTab = tabRoute.params?.initialMode;
+      const currentMode = currentModeFromRoute || currentModeFromTab;
+      
+      if (currentMode && currentMode !== mode) {
+        console.log('🔄 [DealsHome] Mode change detected on focus:', { currentMode, previousMode: mode });
+        setMode(currentMode);
+        // Reset pagination when mode changes
+        setCursor(undefined);
+        cursorRef.current = undefined;
+        setHasMore(true);
+        setDeals([]);
+        initialLoadRef.current = false;
+        // Reload deals with new mode
+        if (user?.id) {
+          loadDeals(false, false, undefined);
+        }
+      }
+    }, [route.params?.initialMode, tabRoute.params?.initialMode, mode, user?.id, loadDeals])
+  );
 
   // Filter deals based on mode
   const filteredDeals = deals.filter((deal) => {
