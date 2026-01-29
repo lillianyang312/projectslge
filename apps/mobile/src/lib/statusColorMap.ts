@@ -16,12 +16,12 @@ export type DealStatus =
  * Default is "no color" (null) when status is unknown/unmapped.
  */
 export const statusColorMap: Record<string, string> = {
-  negotiating: colors.warning,
-  pending: colors.warning,
+  negotiating: colors.purple,
+  pending: colors.purple,
   agreed: colors.success,
   logistics: colors.blue,
   scheduled: colors.blue,
-  active: colors.purple,
+  active: colors.warning,
 };
 
 export function getStatusColor(status?: DealStatus | null): string | null {

@@ -81,6 +81,7 @@ export default function MyListScreen({ navigation }: Props) {
   const [showMenu, setShowMenu] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<ListTab>('live');
+  const [dbFetchFailed, setDbFetchFailed] = useState(false);
 
   // Fetch items from Supabase
   const fetchItems = useCallback(async () => {
@@ -92,6 +93,16 @@ export default function MyListScreen({ navigation }: Props) {
         getMyActiveItems(),
         getMyGoneItems(),
       ]);
+
+      // Check if database fetch failed (only check active items - gone items failure is non-critical)
+      const fetchFailed = activeResult.error !== null;
+      setDbFetchFailed(fetchFailed);
+
+      if (fetchFailed) {
+        console.error('[MyList] Database fetch failed. Active error:', activeResult.error);
+        // Only seed demo listings if database fetch failed
+        seedDemoListings();
+      }
 
       if (!activeResult.error && activeResult.data) {
         console.log('[MyList] Successfully fetched active items:', activeResult.data.length);
@@ -128,7 +139,7 @@ export default function MyListScreen({ navigation }: Props) {
         if (!goneResult.error && goneResult.data) {
           for (const item of goneResult.data) {
             if (item.photos?.[0] && !urlMap[item.id]) {
-              const url = await getSignedUrl(item.photos[0]);
+              const url = await getSignedUrlCached(item.photos[0]);
               if (url) {
                 urlMap[item.id] = url;
               }
@@ -149,13 +160,13 @@ export default function MyListScreen({ navigation }: Props) {
       }
     } else {
       console.log('[MyList] No user, skipping fetch');
+      setDbFetchFailed(false);
     }
-  }, [user]);
+  }, [user, seedDemoListings]);
 
   useEffect(() => {
-    seedDemoListings();
     fetchItems();
-  }, [seedDemoListings, fetchItems]);
+  }, [fetchItems]);
 
   // Refresh items when screen comes into focus
   useFocusEffect(
@@ -251,11 +262,11 @@ export default function MyListScreen({ navigation }: Props) {
   }));
 
   // Combine all items: Supabase items first, then local items
-  // Only show demo items if user has no real items
+  // Only show demo items if database fetch failed (not just if empty)
   const hasRealItems = supabaseDisplayItems.length > 0 || localListings.length > 0;
-  const combinedItems = hasRealItems
-    ? [...supabaseDisplayItems, ...localListings]
-    : [...supabaseDisplayItems, ...localListings, ...demoItems];
+  const combinedItems = dbFetchFailed
+    ? [...supabaseDisplayItems, ...localListings, ...demoItems]
+    : [...supabaseDisplayItems, ...localListings];
 
   // Sort: items with bids float to the top, then by bid amount descending
   const displayItems = [...combinedItems].sort((a, b) => {
