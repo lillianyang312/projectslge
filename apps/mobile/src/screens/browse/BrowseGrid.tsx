@@ -12,6 +12,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
 import { SwipeStackParamList } from '../../navigation/types';
 import { Text } from '../../ui/components';
 import { colors, spacing, radius, typography } from '../../ui/tokens';
@@ -20,6 +21,7 @@ import { useAuthStore } from '../../state/authStore';
 import { getSignedUrlCached } from '../../services/imageService';
 import { BROWSE_PAGE_SIZE } from '../../lib/constants';
 import { getStatusColor } from '../../lib/statusColorMap';
+import { getDealsByItemId } from '../../services/dealsService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const NUM_COLUMNS = 3;
@@ -43,7 +45,13 @@ export default function BrowseGridScreen({ navigation }: Props) {
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
 
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const displayItemsRef = useRef<SearchResultItem[]>([]);
   const user = useAuthStore((state) => state.user);
+
+  // Keep ref in sync with displayItems
+  useEffect(() => {
+    displayItemsRef.current = displayItems;
+  }, [displayItems]);
 
   // Load signed URLs for item photos (using cached signing)
   const loadImageUrls = useCallback(async (items: SearchResultItem[]) => {
@@ -91,6 +99,63 @@ export default function BrowseGridScreen({ navigation }: Props) {
   useEffect(() => {
     loadInitialItems();
   }, [loadInitialItems]);
+
+  // Refresh deal statuses when screen comes into focus (e.g., returning from BrowseItemDetail)
+  useFocusEffect(
+    useCallback(() => {
+      const currentItems = displayItemsRef.current;
+      if (!user?.id || currentItems.length === 0) return;
+
+      // Update deal statuses for items in the current view
+      const updateDealStatuses = async () => {
+        try {
+          const itemIds = currentItems.map(item => item.id);
+          const dealStatusUpdates: Record<string, string | null> = {};
+
+          // Fetch deal statuses for all items in parallel
+          await Promise.all(
+            itemIds.map(async (itemId) => {
+              try {
+                const deals = await getDealsByItemId(itemId);
+                const userDeal = deals.find(d => d.buyer_id === user.id && d.status !== 'cancelled');
+                if (userDeal) {
+                  dealStatusUpdates[itemId] = userDeal.status;
+                } else {
+                  dealStatusUpdates[itemId] = null;
+                }
+              } catch (error) {
+                console.error(`Error fetching deal status for item ${itemId}:`, error);
+                // Keep existing dealStatus on error
+                dealStatusUpdates[itemId] = currentItems.find(i => i.id === itemId)?.dealStatus ?? null;
+              }
+            })
+          );
+
+          // Update displayItems with new deal statuses only if they changed
+          setDisplayItems(prevItems =>
+            prevItems.map(item => {
+              const newStatus = dealStatusUpdates[item.id];
+              // Only update if status actually changed to avoid unnecessary re-renders
+              if (newStatus !== undefined && newStatus !== item.dealStatus) {
+                const updatedItem: SearchResultItem = { 
+                  ...item, 
+                  dealStatus: (newStatus as 'negotiating' | 'agreed' | 'logistics' | 'completed' | 'cancelled' | null | undefined) ?? undefined
+                };
+                return updatedItem;
+              }
+              return item;
+            })
+          );
+        } catch (error) {
+          console.error('Error updating deal statuses:', error);
+        }
+      };
+
+      // Small delay to avoid running on initial mount (loadInitialItems already fetches statuses)
+      const timeoutId = setTimeout(updateDealStatuses, 100);
+      return () => clearTimeout(timeoutId);
+    }, [user?.id])
+  );
 
   // Debounced search
   const performSearch = useCallback(async (query: string) => {

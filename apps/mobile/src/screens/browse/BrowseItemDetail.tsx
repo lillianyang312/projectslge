@@ -22,8 +22,9 @@ import { Text, Button, Input, Card } from '../../ui/components';
 import { colors, spacing, radius, typography } from '../../ui/tokens';
 import { getItemById, Item } from '../../services/itemsService';
 import { getSignedUrlCached } from '../../services/imageService';
-import { expressInterest } from '../../services/dealsService';
+import { expressInterest, getDealsByItemId } from '../../services/dealsService';
 import { useAuthStore } from '../../state/authStore';
+import { getStatusColor, DealStatus } from '../../lib/statusColorMap';
 
 type Props = NativeStackScreenProps<SwipeStackParamList, 'BrowseItemDetail'>;
 type TabNavProp = BottomTabNavigationProp<AppTabsParamList>;
@@ -80,6 +81,32 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [showFullscreenPhoto, setShowFullscreenPhoto] = useState(false);
+  const [dealStatus, setDealStatus] = useState<DealStatus | null>(null);
+
+  // Fetch deal status for current user
+  useEffect(() => {
+    async function fetchDealStatus() {
+      if (!user?.id) {
+        setDealStatus(null);
+        return;
+      }
+      
+      try {
+        const deals = await getDealsByItemId(itemId);
+        // Find deal for current user (as buyer)
+        const userDeal = deals.find(d => d.buyer_id === user.id && d.status !== 'cancelled');
+        if (userDeal) {
+          setDealStatus(userDeal.status as DealStatus);
+        } else {
+          setDealStatus(null);
+        }
+      } catch (error) {
+        console.error('Error fetching deal status:', error);
+        setDealStatus(null);
+      }
+    }
+    fetchDealStatus();
+  }, [itemId, user?.id]);
 
   // Fetch item data from Supabase
   useEffect(() => {
@@ -128,6 +155,19 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
 
   const likelyOfferRange = getLikelyOfferRange();
 
+  // Get status color for border/badge
+  const statusColor = dealStatus ? getStatusColor(dealStatus) : null;
+  const hasDeal = dealStatus && dealStatus !== 'completed' && dealStatus !== 'cancelled';
+  
+  // Get status label for badge
+  const getStatusLabel = () => {
+    if (!dealStatus) return null;
+    if (dealStatus === 'negotiating') return 'Pending';
+    if (dealStatus === 'agreed') return 'Agreed';
+    if (dealStatus === 'logistics') return 'Scheduled';
+    return 'Active';
+  };
+
   const handleSendInterest = async () => {
     if (!user?.id) {
       Alert.alert('Error', 'Please log in to express interest');
@@ -159,6 +199,9 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
       }
 
       if (deal) {
+        // Update deal status immediately to show border/badge
+        setDealStatus(deal.status as DealStatus);
+        
         Alert.alert(
           'Success!',
           `Your bid of $${bidAmount} has been submitted. The seller will be notified.`,
@@ -211,6 +254,9 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
       }
 
       if (deal) {
+        // Update deal status immediately to show border/badge
+        setDealStatus(deal.status as DealStatus);
+        
         Alert.alert(
           'Question Sent',
           'The seller has been notified. You can continue the conversation in your Deals.',
@@ -375,18 +421,58 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Item Image - Tappable for fullscreen */}
         <Pressable
-          style={styles.detailImage}
+          style={[
+            styles.detailImage,
+            statusColor
+              ? {
+                  borderColor: statusColor,
+                  borderWidth: 2,
+                }
+              : null,
+          ]}
           onPress={() => itemData.imageUri && setShowFullscreenPhoto(true)}
         >
           {itemData.imageUri ? (
             <>
-              <Image source={{ uri: itemData.imageUri }} style={styles.image} resizeMode="cover" />
+              <Image 
+                source={{ uri: itemData.imageUri }} 
+                style={[
+                  styles.image,
+                  statusColor
+                    ? {
+                        borderColor: statusColor,
+                        borderWidth: 2,
+                      }
+                    : null,
+                ]} 
+                resizeMode="cover" 
+              />
               <View style={styles.tapToExpandHint}>
                 <Text style={styles.tapToExpandText}>Tap to view full photo</Text>
               </View>
             </>
           ) : (
-            <Text style={styles.imageEmoji}>{itemData.emoji}</Text>
+            <View
+              style={[
+                styles.emojiContainer,
+                statusColor
+                  ? {
+                      borderColor: statusColor,
+                      borderWidth: 2,
+                    }
+                  : null,
+              ]}
+            >
+              <Text style={styles.imageEmoji}>{itemData.emoji}</Text>
+            </View>
+          )}
+          {/* Deal status badge - top left */}
+          {hasDeal && (
+            <View style={[styles.dealStatusBadge, statusColor ? { backgroundColor: statusColor } : null]}>
+              <Text style={styles.dealStatusText}>
+                {getStatusLabel()}
+              </Text>
+            </View>
           )}
         </Pressable>
 
@@ -490,6 +576,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.xl,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  emojiContainer: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   imageEmoji: {
     fontSize: 80,
@@ -497,6 +591,7 @@ const styles = StyleSheet.create({
   image: {
     width: '100%',
     height: '100%',
+    borderRadius: radius.md,
   },
   detailTitle: {
     marginBottom: 4,
@@ -706,5 +801,20 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: radius.pill,
     overflow: 'hidden',
+  },
+  dealStatusBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.pill,
+    zIndex: 10,
+  },
+  dealStatusText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
   },
 });
