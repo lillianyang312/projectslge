@@ -18,6 +18,7 @@ import { DealsStackParamList } from '../../navigation/types';
 import { Text, Button, Card, Badge, RichPriceText, type PriceReference } from '../../ui/components';
 import { colors, spacing, radius, typography } from '../../ui/tokens';
 import { Deal, Message, DealStatus } from '../../types/models';
+import { getStatusBadgeVariant } from '../../lib/statusColorMap';
 import {
   getDealById,
   getMessages,
@@ -59,19 +60,9 @@ function getEmojiForCategory(category: string): string {
   return CATEGORY_EMOJI[category] || '📦';
 }
 
-function getStatusBadgeVariant(status: DealStatus): 'warning' | 'success' | 'purple' | 'default' {
-  switch (status) {
-    case 'negotiating': return 'purple';
-    case 'agreed': return 'success';
-    case 'logistics': return 'warning';
-    case 'completed': return 'success';
-    case 'cancelled': return 'default';
-    default: return 'default';
-  }
-}
-
 function getStatusLabel(status: DealStatus): string {
   switch (status) {
+    case 'pending': return 'Pending';
     case 'negotiating': return 'Negotiating';
     case 'agreed': return 'Agreed';
     case 'logistics': return 'Scheduling';
@@ -577,6 +568,74 @@ export default function DealChatScreen({ navigation, route }: Props) {
     if (!deal) return null;
 
     switch (deal.status) {
+      case 'pending':
+        if (isSelling) {
+          // Seller: can reply to start negotiation or accept offer if there is one
+          if (deal.current_offer) {
+            // There's an offer from buyer - seller can accept or counter
+            return (
+              <View style={styles.actionBar}>
+                <View style={styles.actionInfo}>
+                  <Text variant="bodyMedium" size="sm" color="warning">
+                    Offer: ${deal.current_offer}
+                  </Text>
+                  <Text variant="body" size="xs" color="secondary">
+                    From buyer
+                  </Text>
+                </View>
+                <View style={styles.actionButtons}>
+                  <Pressable
+                    style={[styles.counterBtn, actionLoading === 'offer' && styles.btnLoading]}
+                    onPress={handleMakeOffer}
+                    disabled={actionLoading === 'offer'}
+                  >
+                    <Text style={styles.counterBtnText}>Counter</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.acceptBtn, actionLoading === 'accept' && styles.btnLoading]}
+                    onPress={handleAcceptOffer}
+                    disabled={actionLoading === 'accept'}
+                  >
+                    {actionLoading === 'accept' ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Text style={styles.acceptBtnText}>Accept</Text>
+                    )}
+                  </Pressable>
+                </View>
+              </View>
+            );
+          } else {
+            // No offer yet - seller can reply to start conversation
+            return (
+              <View style={styles.actionBar}>
+                <View style={styles.actionInfo}>
+                  <Text variant="body" size="sm" color="secondary">
+                    Buyer expressed interest
+                  </Text>
+                  <Text variant="body" size="xs" color="secondary">
+                    Reply to start negotiation
+                  </Text>
+                </View>
+              </View>
+            );
+          }
+        } else {
+          // Buyer: waiting for seller response
+          return (
+            <View style={styles.actionBar}>
+              <View style={styles.actionInfo}>
+                <Text variant="bodyMedium" size="sm" color="muted">
+                  {deal.current_offer ? `Your offer: $${deal.current_offer}` : 'Interest expressed'}
+                </Text>
+                <Text variant="body" size="xs" color="secondary">
+                  Waiting for seller to respond
+                </Text>
+              </View>
+            </View>
+          );
+        }
+
       case 'negotiating':
         if (deal.current_offer) {
           // Show accept button for the other party

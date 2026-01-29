@@ -409,7 +409,8 @@ export default function BrowseGridScreen({ navigation }: Props) {
         {hasDeal && (
           <View style={[styles.dealStatusBadge, statusColor ? { backgroundColor: statusColor } : null]}>
             <Text style={styles.dealStatusText}>
-              {item.dealStatus === 'negotiating' ? 'Pending' :
+              {item.dealStatus === 'pending' ? 'Pending' :
+               item.dealStatus === 'negotiating' ? 'Negotiating' :
                item.dealStatus === 'agreed' ? 'Agreed' :
                item.dealStatus === 'logistics' ? 'Scheduled' : 'Active'}
             </Text>

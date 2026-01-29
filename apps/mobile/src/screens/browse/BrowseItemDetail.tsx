@@ -162,7 +162,8 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
   // Get status label for badge
   const getStatusLabel = () => {
     if (!dealStatus) return null;
-    if (dealStatus === 'negotiating') return 'Pending';
+    if (dealStatus === 'pending') return 'Pending';
+    if (dealStatus === 'negotiating') return 'Negotiating';
     if (dealStatus === 'agreed') return 'Agreed';
     if (dealStatus === 'logistics') return 'Scheduled';
     return 'Active';

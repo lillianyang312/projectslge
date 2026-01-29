@@ -109,7 +109,7 @@ export async function expressInterest(
         buyer_id: buyerId,
         seller_id: item.owner_id,
         item_id: itemId,
-        status: 'negotiating',
+        status: 'pending',
         current_offer: maxBid || null,
         last_offer_by: maxBid ? buyerId : null,
         interested_for: interestedFor || null,
@@ -165,7 +165,7 @@ export async function createDealFromMatch(
         buyer_id: buyerId,
         seller_id: sellerId,
         item_id: itemId,
-        status: 'negotiating',
+        status: 'pending',
       })
       .select()
       .single();
@@ -856,6 +856,24 @@ export async function sendMessage(
   metadata?: Record<string, any>
 ): Promise<Message | null> {
   try {
+    // Check if we need to transition from 'pending' to 'negotiating'
+    // This happens when seller sends their first message (text or counter-offer)
+    if (messageType === 'text' || messageType === 'counter') {
+      const { data: deal } = await supabase
+        .from('deals')
+        .select('status, seller_id')
+        .eq('id', dealId)
+        .single();
+
+      if (deal && deal.status === 'pending' && deal.seller_id === senderId) {
+        // Seller is replying - transition to negotiating
+        await supabase
+          .from('deals')
+          .update({ status: 'negotiating' })
+          .eq('id', dealId);
+      }
+    }
+
     const { data: message, error } = await supabase
       .from('messages')
       .insert({

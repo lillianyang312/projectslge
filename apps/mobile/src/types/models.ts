@@ -63,7 +63,7 @@ export interface Match {
   seller?: User;
 }
 
-export type DealStatus = 'negotiating' | 'agreed' | 'logistics' | 'completed' | 'cancelled';
+export type DealStatus = 'pending' | 'negotiating' | 'agreed' | 'logistics' | 'completed' | 'cancelled';
 export type DeliveryMethod = 'pickup' | 'shipping';
 
 export interface Deal {

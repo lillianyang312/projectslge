@@ -126,13 +126,22 @@ export default function InboxHomeScreen({ navigation }: Props) {
           // Determine badge
           // "Action needed" only when:
           // 1. Pending sale (agreed/logistics) - both parties need to coordinate
-          // 2. Buying and there's an offer from seller to respond to
+          // 2. Pending status - seller needs to respond
+          // 3. Buying and there's an offer from seller to respond to
           // For sellers receiving bids during negotiation, show "New bid" instead
           // Badges disappear once the chat has been read
           let badge: InboxConversation['badge'];
           if (deal.status === 'agreed' || deal.status === 'logistics') {
             // Pending sale - action needed for scheduling/completion
             badge = { label: 'Action needed', variant: 'danger' };
+          } else if (deal.status === 'pending') {
+            if (isSelling) {
+              // Seller: pending deal waiting for seller response - action needed
+              badge = { label: 'Pending', variant: 'warning' };
+            } else {
+              // Buyer: waiting for seller to respond
+              badge = { label: 'Pending', variant: 'purple' };
+            }
           } else if (deal.status === 'negotiating') {
             if (isSelling) {
               // Seller: if there's an offer from buyer and not yet read, show "New bid"
@@ -164,7 +173,8 @@ export default function InboxHomeScreen({ navigation }: Props) {
 
           // Determine if conversation needs attention (for "Needs Response" section)
           // Only action-needed items go here, not just any new bid
-          const needsAction = badge?.variant === 'danger';
+          // Pending deals need action from seller
+          const needsAction = badge?.variant === 'danger' || (deal.status === 'pending' && isSelling);
 
           return {
             id: deal.id,
