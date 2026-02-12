@@ -450,7 +450,7 @@ export async function markDealAsRead(dealId: string, userId: string): Promise<bo
 
 export async function getTopBidsForItems(
   itemIds: string[]
-): Promise<Record<string, { topBid: number | undefined; interestedCount: number }>> {
+): Promise<Record<string, { topBid: number | undefined; interestedCount: number; dealStatus?: 'pending' | 'sold' }>> {
   if (itemIds.length === 0) return {};
 
   try {
@@ -463,7 +463,7 @@ export async function getTopBidsForItems(
 
     if (error) throw error;
 
-    const result: Record<string, { topBid: number | undefined; interestedCount: number }> = {};
+    const result: Record<string, { topBid: number | undefined; interestedCount: number; dealStatus?: 'pending' | 'sold' }> = {};
     for (const itemId of itemIds) {
       result[itemId] = { topBid: undefined, interestedCount: 0 };
     }
@@ -478,6 +478,13 @@ export async function getTopBidsForItems(
         if (!result[itemId].topBid || offer > result[itemId].topBid!) {
           result[itemId].topBid = offer;
         }
+      }
+
+      // Track item deal status for public display
+      if (deal.status === 'completed') {
+        result[itemId].dealStatus = 'sold';
+      } else if (['agreed', 'logistics'].includes(deal.status) && result[itemId].dealStatus !== 'sold') {
+        result[itemId].dealStatus = 'pending';
       }
     }
 

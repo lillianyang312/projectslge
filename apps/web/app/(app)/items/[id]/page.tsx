@@ -6,7 +6,7 @@ import Link from 'next/link';
 import PageContainer from '@/components/layout/PageContainer';
 import { Badge, Button, Spinner, Modal } from '@/components/ui';
 import { getItemById } from '@/services/itemsService';
-import { expressInterest, getDealsByItemId } from '@/services/dealsService';
+import { expressInterest, getDealsByItemId, acceptOffer } from '@/services/dealsService';
 import { getPublicUrl } from '@/services/imageService';
 import { useAuthStore } from '@/stores/authStore';
 import type { Item, Deal } from '@/types/models';
@@ -32,6 +32,8 @@ export default function ItemDetailPage(): React.ReactElement {
   const [bidQuestion, setBidQuestion] = useState<string>('');
   const [allDeals, setAllDeals] = useState<Deal[]>([]);
   const [isSold, setIsSold] = useState<boolean>(false);
+  const [isPending, setIsPending] = useState<boolean>(false);
+  const [acceptingDealId, setAcceptingDealId] = useState<string | null>(null);
 
   useEffect(() => {
     async function load(): Promise<void> {
@@ -42,9 +44,11 @@ export default function ItemDetailPage(): React.ReactElement {
       const deals = await getDealsByItemId(itemId);
       setAllDeals(deals);
 
-      // Check if item is sold
+      // Check if item is sold or pending
       const sold = deals.some((d) => d.status === 'completed');
       setIsSold(sold);
+      const pending = deals.some((d) => ['agreed', 'logistics'].includes(d.status));
+      setIsPending(pending);
 
       // Check if the current user already has an active deal on this item
       if (user) {
@@ -81,6 +85,24 @@ export default function ItemDetailPage(): React.ReactElement {
     setBidModalOpen(false);
     setBidQuestion('');
     router.push('/deals');
+  };
+
+  const handleAcceptOffer = async (dealId: string): Promise<void> => {
+    if (!user) return;
+    const confirmed = window.confirm('Accept this offer? The item will be marked as pending.');
+    if (!confirmed) return;
+    setAcceptingDealId(dealId);
+    const success = await acceptOffer(dealId, user.id);
+    if (success) {
+      // Refresh deals
+      const deals = await getDealsByItemId(itemId);
+      setAllDeals(deals);
+      const sold = deals.some((d) => d.status === 'completed');
+      setIsSold(sold);
+      const pending = deals.some((d) => ['agreed', 'logistics'].includes(d.status));
+      setIsPending(pending);
+    }
+    setAcceptingDealId(null);
   };
 
   if (loading) {
@@ -199,27 +221,55 @@ export default function ItemDetailPage(): React.ReactElement {
             </div>
           )}
 
+          {/* Pending banner */}
+          {isPending && !isSold && (
+            <div className="mt-xl rounded-md bg-purple-100 py-md text-center">
+              <span className="text-sm font-semibold text-purple-700">⏳ PENDING — A deal has been accepted on this item</span>
+            </div>
+          )}
+
           {/* Offers Section */}
           {activeOffers.length > 0 && (
             <div className="mt-xl">
               <h3 className="mb-md text-sm font-medium text-text-secondary">Offers ({activeOffers.length})</h3>
               <div className="space-y-sm">
-                {activeOffers.map((deal) => (
-                  <div key={deal.id} className="flex items-center justify-between rounded-md border border-border bg-card px-lg py-md">
-                    <div>
-                      <span className="text-lg font-semibold text-success">${deal.current_offer}</span>
-                      <span className="ml-sm text-xs text-text-muted">
-                        {deal.buyer?.display_name || 'Buyer'}
-                        {deal.interested_for ? ` · ${deal.interested_for}` : ''}
-                      </span>
+                {activeOffers.map((deal) => {
+                  const isAgreed = ['agreed', 'logistics'].includes(deal.status);
+                  return (
+                    <div key={deal.id} className={`flex items-center justify-between rounded-md border px-lg py-md ${
+                      isAgreed ? 'border-purple-300 bg-purple-50' : 'border-border bg-card'
+                    }`}>
+                      <div>
+                        <span className="text-lg font-semibold text-success">${deal.current_offer}</span>
+                        <span className="ml-sm text-xs text-text-muted">
+                          {deal.buyer?.display_name || 'Buyer'}
+                          {deal.interested_for ? ` · ${deal.interested_for}` : ''}
+                        </span>
+                        {isAgreed && (
+                          <Badge variant="purple" className="ml-sm">Accepted</Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-sm">
+                        {/* Seller can accept negotiating offers (if no pending deal yet) */}
+                        {isOwner && deal.status === 'negotiating' && deal.current_offer && !isPending && (
+                          <button
+                            onClick={() => handleAcceptOffer(deal.id)}
+                            disabled={!!acceptingDealId}
+                            className="rounded-full bg-success px-lg py-xs text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+                          >
+                            {acceptingDealId === deal.id ? '...' : `Accept $${deal.current_offer}`}
+                          </button>
+                        )}
+                        {/* Chat links */}
+                        {(user?.id === deal.buyer_id || isOwner) && (
+                          <Link href={`/deals/${deal.id}`} className="rounded-full border border-accent px-lg py-xs text-xs font-medium text-accent hover:bg-accent-soft">
+                            Chat
+                          </Link>
+                        )}
+                      </div>
                     </div>
-                    {user?.id === deal.buyer_id && (
-                      <Link href={`/deals/${deal.id}`} className="rounded-full border border-accent px-lg py-xs text-xs font-medium text-accent hover:bg-accent-soft">
-                        Chat
-                      </Link>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -253,7 +303,10 @@ export default function ItemDetailPage(): React.ReactElement {
 
           {isOwner && (
             <div className="mt-2xl">
-              <Badge variant="neutral">This is your listing</Badge>
+              <Badge variant="neutral">Your listing</Badge>
+              {activeOffers.length === 0 && (
+                <p className="mt-sm text-sm text-text-muted">No offers yet. Share the link to get buyers!</p>
+              )}
             </div>
           )}
         </div>
