@@ -176,48 +176,74 @@ export async function getDealById(dealId: string): Promise<Deal | null> {
     if (error || !deal) return null;
 
     const isAccepted = ['agreed', 'logistics', 'completed'].includes(deal.status);
+
+    // Always fetch basic profile info (first name, year, rating, stats)
+    const [buyerBasic, sellerBasic] = await Promise.all([
+      supabase.from('user_profiles')
+        .select('id, full_name, first_name, graduation_year, rating, rating_count, sales_completed, purchases_completed')
+        .eq('id', deal.buyer_id).maybeSingle(),
+      supabase.from('user_profiles')
+        .select('id, full_name, first_name, graduation_year, rating, rating_count, sales_completed, purchases_completed')
+        .eq('id', deal.seller_id).maybeSingle(),
+    ]);
+
+    // After acceptance, also fetch sensitive fields (location, payment, phone)
+    let buyerSensitive: Record<string, unknown> | null = null;
+    let sellerSensitive: Record<string, unknown> | null = null;
     if (isAccepted) {
-      const [buyerResult, sellerResult] = await Promise.all([
+      const [bSens, sSens] = await Promise.all([
         supabase.from('user_profiles')
-          .select('id, full_name, house, graduation_year, dorm_building, dorm_room, last_seen_at, rating, rating_count, sales_completed, purchases_completed')
+          .select('house, dorm_building, dorm_room, dorm_location, last_seen_at, payment_preference, phone_number, zelle_handle, venmo_handle')
           .eq('id', deal.buyer_id).maybeSingle(),
         supabase.from('user_profiles')
-          .select('id, full_name, house, graduation_year, dorm_building, dorm_room, last_seen_at, rating, rating_count, sales_completed, purchases_completed')
+          .select('house, dorm_building, dorm_room, dorm_location, last_seen_at, payment_preference, phone_number, zelle_handle, venmo_handle')
           .eq('id', deal.seller_id).maybeSingle(),
       ]);
-
-      if (buyerResult.data) {
-        const b = buyerResult.data;
-        deal.buyer = {
-          id: b.id, email: '', display_name: b.full_name || 'Buyer',
-          neighborhood: b.house || undefined,
-          dorm_location: [b.dorm_building, b.dorm_room].filter(Boolean).join(' ') || undefined,
-          graduation_year: b.graduation_year || undefined,
-          last_seen_at: b.last_seen_at || undefined,
-          rating: b.rating || undefined, rating_count: b.rating_count || 0,
-          sales_completed: b.sales_completed || 0, purchases_completed: b.purchases_completed || 0,
-          created_at: '',
-        };
-      } else {
-        deal.buyer = { id: deal.buyer_id, email: '', display_name: 'Buyer', created_at: '' };
-      }
-
-      if (sellerResult.data) {
-        const s = sellerResult.data;
-        deal.seller = {
-          id: s.id, email: '', display_name: s.full_name || 'Seller',
-          neighborhood: s.house || undefined,
-          dorm_location: [s.dorm_building, s.dorm_room].filter(Boolean).join(' ') || undefined,
-          graduation_year: s.graduation_year || undefined,
-          last_seen_at: s.last_seen_at || undefined,
-          rating: s.rating || undefined, rating_count: s.rating_count || 0,
-          sales_completed: s.sales_completed || 0, purchases_completed: s.purchases_completed || 0,
-          created_at: '',
-        };
-      } else {
-        deal.seller = { id: deal.seller_id, email: '', display_name: 'Seller', created_at: '' };
-      }
+      buyerSensitive = bSens.data as Record<string, unknown> | null;
+      sellerSensitive = sSens.data as Record<string, unknown> | null;
     }
+
+    const buildUser = (
+      basic: Record<string, unknown> | null,
+      sensitive: Record<string, unknown> | null,
+      fallbackName: string,
+      fallbackId: string
+    ): Deal['buyer'] => {
+      if (!basic) return { id: fallbackId, email: '', display_name: fallbackName, created_at: '' };
+      const b = basic;
+      const user: Deal['buyer'] = {
+        id: b.id as string, email: '',
+        display_name: (b.full_name as string) || fallbackName,
+        first_name: (b.first_name as string) || undefined,
+        graduation_year: (b.graduation_year as number) || undefined,
+        rating: (b.rating as number) || undefined,
+        rating_count: (b.rating_count as number) || 0,
+        sales_completed: (b.sales_completed as number) || 0,
+        purchases_completed: (b.purchases_completed as number) || 0,
+        created_at: '',
+      };
+      if (sensitive) {
+        user.neighborhood = (sensitive.house as string) || undefined;
+        user.dorm_location = [sensitive.dorm_building, sensitive.dorm_room].filter(Boolean).join(' ') || (sensitive.dorm_location as string) || undefined;
+        user.last_seen_at = (sensitive.last_seen_at as string) || undefined;
+        user.payment_preference = (sensitive.payment_preference as string) || undefined;
+        user.phone_number = (sensitive.phone_number as string) || undefined;
+        user.zelle_handle = (sensitive.zelle_handle as string) || undefined;
+        user.venmo_handle = (sensitive.venmo_handle as string) || undefined;
+      }
+      return user;
+    };
+
+    deal.buyer = buildUser(
+      buyerBasic.data as Record<string, unknown> | null,
+      buyerSensitive,
+      'Buyer', deal.buyer_id
+    );
+    deal.seller = buildUser(
+      sellerBasic.data as Record<string, unknown> | null,
+      sellerSensitive,
+      'Seller', deal.seller_id
+    );
 
     return deal;
   } catch {

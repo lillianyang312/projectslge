@@ -373,7 +373,8 @@ export default function BrowseGridScreen({ navigation }: Props) {
   const renderItem = ({ item }: { item: SearchResultItem }) => {
     const imageUrl = imageUrls[item.id];
     const isSold = item.dealStatus === 'completed';
-    const hasDeal = item.dealStatus && item.dealStatus !== 'completed' && item.dealStatus !== 'cancelled';
+    const isPending = item.dealStatus === 'agreed' || item.dealStatus === 'logistics';
+    const hasDeal = isPending;
     const statusColor = hasDeal ? getStatusColor(item.dealStatus) : null;
 
     return (
@@ -432,12 +433,7 @@ export default function BrowseGridScreen({ navigation }: Props) {
         {/* Deal status badge - top left (active deals) */}
         {hasDeal && (
           <View style={[styles.dealStatusBadge, statusColor ? { backgroundColor: statusColor } : null]}>
-            <Text style={styles.dealStatusText}>
-              {item.dealStatus === 'pending' ? 'Pending' :
-               item.dealStatus === 'negotiating' ? 'Negotiating' :
-               item.dealStatus === 'agreed' ? 'Agreed' :
-               item.dealStatus === 'logistics' ? 'Scheduled' : 'Active'}
-            </Text>
+            <Text style={styles.dealStatusText}>Pending</Text>
           </View>
         )}
         {/* Sold badge - top left (completed deals) */}

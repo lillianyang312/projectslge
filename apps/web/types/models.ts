@@ -117,6 +117,7 @@ export interface User {
   id: string;
   email: string;
   display_name?: string;
+  first_name?: string;
   neighborhood?: string;
   dorm_location?: string;
   graduation_year?: number;
@@ -126,6 +127,10 @@ export interface User {
   rating_count?: number;
   sales_completed?: number;
   purchases_completed?: number;
+  payment_preference?: string;
+  phone_number?: string;
+  zelle_handle?: string;
+  venmo_handle?: string;
   created_at: string;
 }
 

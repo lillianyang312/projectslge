@@ -199,30 +199,34 @@ export default function DealDetailPage(): React.ReactElement {
         </div>
         {counterparty && (
           <div className="flex items-center gap-sm">
-            <Avatar name={counterparty.display_name || (isSeller ? 'Buyer' : 'Seller')} size="sm" />
-            <span className="text-sm text-text-secondary">
-              {isAccepted ? counterparty.display_name || (isSeller ? 'Buyer' : 'Seller') : 'Anonymous'}
-            </span>
+            <Avatar name={counterparty.first_name || counterparty.display_name || (isSeller ? 'Buyer' : 'Seller')} size="sm" />
+            <div className="text-right">
+              <span className="text-sm text-text-secondary">
+                {counterparty.first_name || counterparty.display_name || (isSeller ? 'Buyer' : 'Seller')}
+              </span>
+              {counterparty.graduation_year && (
+                <p className="text-xs text-text-muted">&apos;{String(counterparty.graduation_year).slice(-2)}</p>
+              )}
+            </div>
           </div>
         )}
       </div>
 
-      {/* Profile card — visible after deal is accepted */}
-      {isAccepted && counterparty && (
+      {/* Basic profile — always visible (name, year, rating, transaction history) */}
+      {counterparty && (
         <div className="mb-xl rounded-md border border-border bg-card p-lg">
-          <h3 className="mb-md text-sm font-medium text-text-secondary">{isSeller ? 'Buyer' : 'Seller'} Profile</h3>
+          <div className="flex items-center justify-between mb-md">
+            <h3 className="text-sm font-medium text-text-secondary">{isSeller ? 'Buyer' : 'Seller'} Profile</h3>
+            <a href={`/users/${counterparty.id}`} className="text-xs text-accent hover:underline">View full profile →</a>
+          </div>
           <div className="flex items-center gap-lg">
-            <Avatar name={counterparty.display_name || ''} size="md" />
+            <Avatar name={counterparty.first_name || counterparty.display_name || ''} size="md" />
             <div className="flex-1 space-y-xs">
-              <p className="text-md font-medium text-text-primary">{counterparty.display_name || 'Unknown'}</p>
+              <p className="text-md font-medium text-text-primary">
+                {counterparty.first_name || counterparty.display_name || 'Unknown'}
+              </p>
               {counterparty.graduation_year && (
                 <p className="text-sm text-text-muted">Class of {counterparty.graduation_year}</p>
-              )}
-              {counterparty.neighborhood && (
-                <p className="text-sm text-text-muted">{counterparty.neighborhood}</p>
-              )}
-              {counterparty.dorm_location && (
-                <p className="text-sm text-text-muted">📍 {counterparty.dorm_location}</p>
               )}
               <div className="flex gap-lg text-xs text-text-muted">
                 {counterparty.rating && (
@@ -235,6 +239,35 @@ export default function DealDetailPage(): React.ReactElement {
                   <span>{counterparty.purchases_completed} purchases</span>
                 )}
               </div>
+
+              {/* Sensitive fields — only after deal accepted */}
+              {isAccepted && (
+                <div className="mt-sm space-y-xs border-t border-border pt-sm">
+                  {counterparty.neighborhood && (
+                    <p className="text-sm text-text-primary">🏠 {counterparty.neighborhood}</p>
+                  )}
+                  {counterparty.dorm_location && (
+                    <p className="text-sm text-text-primary">📍 {counterparty.dorm_location}</p>
+                  )}
+                  {counterparty.phone_number && (
+                    <p className="text-sm text-text-primary">📱 {counterparty.phone_number}</p>
+                  )}
+                  {counterparty.payment_preference && (
+                    <div className="flex flex-wrap gap-xs">
+                      <span className="text-xs text-text-muted">Accepts:</span>
+                      {counterparty.payment_preference.split(',').filter(Boolean).map((m) => (
+                        <span key={m} className="rounded-full bg-accent-soft px-sm py-0.5 text-xs text-text-primary">{m.trim()}</span>
+                      ))}
+                    </div>
+                  )}
+                  {counterparty.zelle_handle && (
+                    <p className="text-xs text-text-muted">Zelle: {counterparty.zelle_handle}</p>
+                  )}
+                  {counterparty.venmo_handle && (
+                    <p className="text-xs text-text-muted">Venmo: {counterparty.venmo_handle}</p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
