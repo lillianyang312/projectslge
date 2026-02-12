@@ -251,6 +251,60 @@ export const CATEGORY_FIELDS: Record<string, CategoryField[]> = {
       placeholder: 'Select markings',
     },
   ],
+  'Tickets': [
+    {
+      key: 'eventType',
+      label: 'Event type',
+      type: 'select',
+      required: true,
+      options: ['Concert', 'Sports', 'Theater', 'Festival', 'Comedy', 'Conference', 'Other'],
+      placeholder: 'Select event type',
+    },
+    {
+      key: 'eventName',
+      label: 'Event name',
+      type: 'text',
+      required: true,
+      placeholder: 'e.g. Taylor Swift Eras Tour',
+    },
+    {
+      key: 'eventDate',
+      label: 'Event date',
+      type: 'text',
+      required: true,
+      placeholder: 'e.g. March 15, 2026',
+    },
+    {
+      key: 'venue',
+      label: 'Venue',
+      type: 'text',
+      required: false,
+      placeholder: 'e.g. TD Garden, Boston',
+    },
+    {
+      key: 'quantity',
+      label: 'Number of tickets',
+      type: 'number',
+      required: true,
+      placeholder: 'e.g. 2',
+    },
+  ],
+  'Other': [
+    {
+      key: 'itemType',
+      label: 'Item type',
+      type: 'text',
+      required: true,
+      placeholder: 'Describe the type of item',
+    },
+    {
+      key: 'brand',
+      label: 'Brand',
+      type: 'text',
+      required: false,
+      placeholder: 'e.g. Brand name (if applicable)',
+    },
+  ],
   'Generic': [
     {
       key: 'brand',
