@@ -69,6 +69,13 @@ export default function ItemCard({ item, topBid }: ItemCardProps): React.ReactEl
             </div>
           )}
 
+          {/* Retail price badge — top right */}
+          {item.retail_price && !isSold && (
+            <div className="absolute top-1.5 right-1.5 rounded bg-black/70 px-1.5 py-0.5 text-xs font-medium text-white backdrop-blur-sm">
+              Retail: ${item.retail_price}
+            </div>
+          )}
+
           {/* Top bid overlay badge */}
           {hasBid && !isSold && (
             <div className="absolute bottom-1.5 left-1.5 rounded bg-black/70 px-1.5 py-0.5 text-xs font-medium text-white backdrop-blur-sm">
@@ -95,9 +102,6 @@ export default function ItemCard({ item, topBid }: ItemCardProps): React.ReactEl
               <span className="text-xs text-text-muted">{topBid.interestedCount} interested</span>
             )}
           </div>
-          {item.retail_price && (
-            <p className="mt-xs text-xs text-text-muted">Paid ${item.retail_price}</p>
-          )}
         </div>
       </div>
     </Link>
