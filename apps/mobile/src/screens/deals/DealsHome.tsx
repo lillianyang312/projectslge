@@ -11,10 +11,10 @@ import {
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { DealsStackParamList, AppTabsParamList } from '../../navigation/types';
-import { Text, Card, Badge, ToggleGroup } from '../../ui/components';
+import { Text, Card, Badge } from '../../ui/components';
 import { colors, spacing, radius } from '../../ui/tokens';
 import { useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
-import { getMyDeals, DealsCursor } from '../../services/dealsService';
+import { getMyDeals, DealsCursor, getHighestBuyerOfferForItem } from '../../services/dealsService';
 import { useAuthStore } from '../../state/authStore';
 import { Deal } from '../../types/models';
 import { getSignedUrlCached } from '../../services/imageService';
@@ -47,16 +47,13 @@ function getEmojiForCategory(category: string): string {
   return CATEGORY_EMOJI[category] || '📦';
 }
 
-function getStatusBadge(deal: Deal, isSelling: boolean): { label: string; variant: 'warning' | 'success' | 'purple' | 'neutral' } {
+function getStatusBadge(deal: Deal): { label: string; variant: 'warning' | 'success' | 'purple' | 'neutral' } {
   switch (deal.status) {
     case 'negotiating':
-      return isSelling
-        ? { label: 'New Offer', variant: 'purple' }
-        : { label: 'Pending', variant: 'purple' };
+      return { label: 'Pending', variant: 'purple' };
     case 'agreed':
       return { label: 'Agreed', variant: 'success' };
     case 'logistics':
-      // Show "Scheduled" when pickup_date is set, otherwise "Scheduling"
       return { label: deal.pickup_date ? 'Scheduled' : 'Scheduling', variant: 'warning' };
     case 'completed':
       return { label: 'Complete', variant: 'success' };
@@ -67,39 +64,33 @@ function getStatusBadge(deal: Deal, isSelling: boolean): { label: string; varian
   }
 }
 
-function getDealMeta(deal: Deal, isSelling: boolean): string {
+function getDealMeta(deal: Deal): string {
   if (deal.agreed_price) {
-    return isSelling ? `Sold for $${deal.agreed_price}` : `Accepted at $${deal.agreed_price}`;
+    return `Accepted at $${deal.agreed_price}`;
   }
   if (deal.current_offer) {
-    const bidText = isSelling ? `Offer: $${deal.current_offer}` : `Your bid: $${deal.current_offer}`;
-    // Add interested_for info for buyers
-    if (!isSelling && deal.interested_for) {
+    const bidText = `Your bid: $${deal.current_offer}`;
+    if (deal.interested_for) {
       return `${bidText} · ${deal.interested_for}`;
     }
     return bidText;
   }
-  // Show interested_for for interest without bid
-  if (!isSelling && deal.interested_for) {
+  if (deal.interested_for) {
     return `Interest sent · ${deal.interested_for}`;
   }
-  return isSelling ? 'Awaiting offer' : 'Interest sent';
+  return 'Interest sent';
 }
 
 export default function DealsHomeScreen({ navigation, route }: Props) {
   const tabRoute = useRoute<DealsRouteProp>();
   const user = useAuthStore((state) => state.user);
 
-  // Get initialMode from both tab params and route params
-  const initialModeFromTab = tabRoute.params?.initialMode;
-  const initialModeFromRoute = route.params?.initialMode;
-  const initialMode = initialModeFromRoute || initialModeFromTab || 'selling';
-
-  const [mode, setMode] = useState<'selling' | 'buying'>(initialMode);
+  // Always show buying mode (selling is handled via My Items → Offers tab)
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
+  const [highestOffers, setHighestOffers] = useState<Record<string, number | null>>({});
   const [cursor, setCursor] = useState<DealsCursor | undefined>(undefined);
   const [hasMore, setHasMore] = useState(true);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
@@ -210,7 +201,7 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
       }
 
       getMyDeals(user.id, INBOX_PAGE_SIZE, undefined)
-        .then(response => {
+        .then(async response => {
           setDeals(response.deals);
           setCursor(response.nextCursor);
           cursorRef.current = response.nextCursor;
@@ -218,7 +209,7 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
 
           // Load images
           const newUrls: Record<string, string> = {};
-          return Promise.all(
+          await Promise.all(
             response.deals.map(async (deal) => {
               if (deal.item?.photos && deal.item.photos.length > 0) {
                 const url = await getSignedUrlCached(deal.item.photos[0]);
@@ -227,9 +218,23 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
                 }
               }
             })
-          ).then(() => {
-            setImageUrls(prev => ({ ...prev, ...newUrls }));
-          });
+          );
+          setImageUrls(prev => ({ ...prev, ...newUrls }));
+
+          // Fetch highest buyer offer for buying deals
+          const buyingDeals = response.deals.filter(d => d.buyer_id === user.id);
+          const uniqueItemIds = [...new Set(buyingDeals.map(d => d.item_id))];
+          if (uniqueItemIds.length > 0) {
+            const offerResults = await Promise.all(
+              uniqueItemIds.map(async (itemId) => {
+                const highest = await getHighestBuyerOfferForItem(itemId);
+                return { itemId, highest };
+              })
+            );
+            const offerMap: Record<string, number | null> = {};
+            offerResults.forEach(r => { offerMap[r.itemId] = r.highest; });
+            setHighestOffers(prev => ({ ...prev, ...offerMap }));
+          }
         })
         .catch(error => {
           console.error('❌ [DealsHome] Error loading deals:', error);
@@ -265,97 +270,19 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
     };
   }, [loadDeals]);
 
-  // Update mode when params change (e.g., when navigating from BrowseItemDetail)
-  // This handles both route params and tab params
-  useEffect(() => {
-    const currentModeFromRoute = route.params?.initialMode;
-    const currentModeFromTab = tabRoute.params?.initialMode;
-    const currentMode = currentModeFromRoute || currentModeFromTab;
-    
-    if (currentMode && currentMode !== mode) {
-      console.log('🔄 [DealsHome] Mode change detected:', { currentMode, previousMode: mode });
-      setMode(currentMode);
-      // Reset pagination when mode changes
-      setCursor(undefined);
-      cursorRef.current = undefined;
-      setHasMore(true);
-      setDeals([]);
-      initialLoadRef.current = false; // Allow reload on next focus
-      // Reload deals with new mode
-      if (user?.id) {
-        loadDeals(false, false, undefined);
-      }
-    }
-  }, [route.params?.initialMode, tabRoute.params?.initialMode, mode, user?.id, loadDeals]);
-
-  // Also check params when screen is focused (backup for navigation edge cases)
-  useFocusEffect(
-    useCallback(() => {
-      const currentModeFromRoute = route.params?.initialMode;
-      const currentModeFromTab = tabRoute.params?.initialMode;
-      const currentMode = currentModeFromRoute || currentModeFromTab;
-      
-      if (currentMode && currentMode !== mode) {
-        console.log('🔄 [DealsHome] Mode change detected on focus:', { currentMode, previousMode: mode });
-        setMode(currentMode);
-        // Reset pagination when mode changes
-        setCursor(undefined);
-        cursorRef.current = undefined;
-        setHasMore(true);
-        setDeals([]);
-        initialLoadRef.current = false;
-        // Reload deals with new mode
-        if (user?.id) {
-          loadDeals(false, false, undefined);
-        }
-      }
-    }, [route.params?.initialMode, tabRoute.params?.initialMode, mode, user?.id, loadDeals])
-  );
-
-  // Filter deals based on mode
-  const filteredDeals = deals.filter((deal) => {
-    if (mode === 'selling') {
-      return deal.seller_id === user?.id;
-    } else {
-      return deal.buyer_id === user?.id;
-    }
-  });
+  // Filter to only buying deals
+  const filteredDeals = deals.filter((deal) => deal.buyer_id === user?.id);
 
   // Separate pending purchases (accepted deals) from active bids
   const pendingPurchases = filteredDeals.filter(deal =>
-    mode === 'buying' && ['agreed', 'logistics'].includes(deal.status)
+    ['agreed', 'logistics'].includes(deal.status)
   );
 
   const activeBids = filteredDeals.filter(deal =>
-    mode === 'buying' ? deal.status === 'negotiating' : true
-  );
-
-  // For selling mode, separate by status as well
-  const pendingSales = filteredDeals.filter(deal =>
-    mode === 'selling' && ['agreed', 'logistics'].includes(deal.status)
-  );
-
-  const activeOffers = filteredDeals.filter(deal =>
-    mode === 'selling' ? deal.status === 'negotiating' : true
+    deal.status === 'negotiating'
   );
 
   const completedDeals = filteredDeals.filter(deal => deal.status === 'completed');
-
-  const sectionLabel = mode === 'selling' ? 'Pending sales' : 'Bids you\'ve sent';
-
-  const handleToggle = (index: number) => {
-    const newMode = index === 0 ? 'selling' : 'buying';
-    if (newMode !== mode) {
-      setMode(newMode);
-      // Reset pagination when mode changes
-      setCursor(undefined);
-      cursorRef.current = undefined;
-      setHasMore(true);
-      setDeals([]);
-      initialLoadRef.current = false; // Allow reload on next focus
-      loadDeals(false, false, undefined);
-    }
-  };
 
   const handleDealPress = (deal: Deal) => {
     // Mirror Inbox behavior: go straight to the deal chat for this deal
@@ -449,25 +376,13 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
   const buildListData = (): ListItem[] => {
     const items: ListItem[] = [];
 
-    if (mode === 'buying') {
-      if (pendingPurchases.length > 0) {
-        items.push(...pendingPurchases.map(deal => ({ type: 'deal' as const, deal })));
-        if (activeBids.length > 0) {
-          items.push({ type: 'section', label: 'Active bids' });
-        }
+    if (pendingPurchases.length > 0) {
+      items.push(...pendingPurchases.map(deal => ({ type: 'deal' as const, deal })));
+      if (activeBids.length > 0) {
+        items.push({ type: 'section', label: 'Active bids' });
       }
-      activeBids.forEach(deal => items.push({ type: 'deal', deal }));
-    } else {
-      if (pendingSales.length > 0) {
-        items.push(...pendingSales.map(deal => ({ type: 'deal' as const, deal })));
-        if (activeOffers.filter(d => d.status === 'negotiating').length > 0) {
-          items.push({ type: 'section', label: 'Incoming offers' });
-        }
-      }
-      activeOffers.filter(d => d.status === 'negotiating').forEach(deal => {
-        items.push({ type: 'deal', deal });
-      });
     }
+    activeBids.forEach(deal => items.push({ type: 'deal', deal }));
 
     if (completedDeals.length > 0) {
       items.push({ type: 'section', label: 'Completed' });
@@ -489,9 +404,8 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
     }
 
     const deal = item.deal;
-    const isSelling = deal.seller_id === user?.id;
-    const badge = getStatusBadge(deal, isSelling);
-    const meta = getDealMeta(deal, isSelling);
+    const badge = getStatusBadge(deal);
+    const meta = getDealMeta(deal);
     const emoji = deal.item?.category ? getEmojiForCategory(deal.item.category) : '📦';
     const title = deal.item?.title || 'Untitled Item';
     const imageUrl = imageUrls[deal.id];
@@ -519,6 +433,24 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
               <Text variant="body" size="sm" color="secondary">
                 {meta}
               </Text>
+              {/* Item details */}
+              {deal.item?.condition && (
+                <Text variant="body" size="xs" color="muted">
+                  {deal.item.condition.charAt(0).toUpperCase() + deal.item.condition.slice(1).replace('_', ' ')}
+                  {deal.item?.estimated_value_min && deal.item?.estimated_value_max
+                    ? ` · Est. $${deal.item.estimated_value_min} – $${deal.item.estimated_value_max}`
+                    : ''}
+                </Text>
+              )}
+              {/* Show highest offer */}
+              {highestOffers[deal.item_id] && (
+                <Text variant="body" size="xs" color={
+                  deal.buyer_offer === highestOffers[deal.item_id] ? 'success' : 'danger'
+                }>
+                  Top offer: ${highestOffers[deal.item_id]}
+                  {deal.buyer_offer === highestOffers[deal.item_id] ? ' (yours)' : ''}
+                </Text>
+              )}
               {/* Show pickup time when scheduled */}
               {formattedPickupDate && (
                 <Text variant="body" size="xs" color="muted">
@@ -547,23 +479,9 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
       {/* Header */}
       <View style={styles.header}>
         <Text variant="headingMedium" size="heading2">
-          Deals
+          My Offers
         </Text>
       </View>
-
-      {/* Toggle: Selling / Buying */}
-      <View style={styles.toggleContainer}>
-        <ToggleGroup
-          options={['Selling', 'Buying']}
-          selectedIndex={mode === 'selling' ? 0 : 1}
-          onSelect={handleToggle}
-        />
-      </View>
-
-      {/* Section Label */}
-      <Text variant="body" size="sm" color="secondary" style={styles.sectionLabel}>
-        {sectionLabel}
-      </Text>
 
       {/* Content */}
       {loading ? (
@@ -572,14 +490,12 @@ export default function DealsHomeScreen({ navigation, route }: Props) {
         </View>
       ) : filteredDeals.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Text style={styles.emptyIcon}>{mode === 'selling' ? '📤' : '🛒'}</Text>
+          <Text style={styles.emptyIcon}>🛒</Text>
           <Text variant="bodyMedium" size="md" style={styles.emptyTitle}>
-            {mode === 'selling' ? 'No sales yet' : 'No bids yet'}
+            No offers yet
           </Text>
           <Text variant="body" size="sm" color="secondary" style={styles.emptyText}>
-            {mode === 'selling'
-              ? 'When buyers express interest in your items, they\'ll show up here.'
-              : 'When you express interest in items, your bids will show up here.'}
+            Browse items and make offers to get started.
           </Text>
         </View>
       ) : (
@@ -612,14 +528,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xxl,
     paddingTop: spacing.sm,
     paddingBottom: spacing.sm,
-  },
-  toggleContainer: {
-    paddingHorizontal: spacing.xxl,
-    marginBottom: spacing.lg,
-  },
-  sectionLabel: {
-    paddingHorizontal: spacing.xxl,
-    marginBottom: spacing.lg,
   },
   loadingContainer: {
     flex: 1,

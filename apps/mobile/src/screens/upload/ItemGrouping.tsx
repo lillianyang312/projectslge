@@ -26,7 +26,6 @@ export default function ItemGroupingScreen({ navigation }: Props) {
   const bulkItems = useItemsStore((state) => state.bulkItems);
   const createItemGroup = useItemsStore((state) => state.createItemGroup);
   const ungroupItem = useItemsStore((state) => state.ungroupItem);
-  const autoGroupUnassignedPhotos = useItemsStore((state) => state.autoGroupUnassignedPhotos);
   const setCurrentItemIndex = useItemsStore((state) => state.setCurrentItemIndex);
 
   const [selectedPhotos, setSelectedPhotos] = useState<string[]>([]);
@@ -56,17 +55,15 @@ export default function ItemGroupingScreen({ navigation }: Props) {
   };
 
   const handleContinue = () => {
-    // Auto-group any remaining unassigned photos
-    if (bulkPhotos.length > 0) {
-      autoGroupUnassignedPhotos();
+    if (bulkItems.length === 0) {
+      Alert.alert('No items', 'Create at least one group to continue.');
+      return;
     }
 
-    // Navigate to item verification
+    // Navigate to item verification (unassigned photos are ignored)
     setCurrentItemIndex(0);
     navigation.navigate('ItemVerification', { itemIndex: 0 });
   };
-
-  const totalItems = bulkItems.length + (bulkPhotos.length > 0 ? bulkPhotos.length : 0);
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -165,8 +162,7 @@ export default function ItemGroupingScreen({ navigation }: Props) {
         {bulkPhotos.length > 0 && bulkItems.length > 0 && (
           <Card style={styles.infoCard}>
             <Text variant="body" size="sm" color="secondary">
-              💡 {bulkPhotos.length} unassigned photo{bulkPhotos.length !== 1 ? 's' : ''} will become{' '}
-              {bulkPhotos.length !== 1 ? 'separate items' : 'a single item'} when you continue.
+              {bulkPhotos.length} unassigned photo{bulkPhotos.length !== 1 ? 's' : ''} will not be included. Group them or they'll be skipped.
             </Text>
           </Card>
         )}
@@ -177,9 +173,9 @@ export default function ItemGroupingScreen({ navigation }: Props) {
         <Button
           variant="primary"
           onPress={handleContinue}
-          disabled={bulkItems.length === 0 && bulkPhotos.length === 0}
+          disabled={bulkItems.length === 0}
         >
-          Continue with {totalItems} item{totalItems !== 1 ? 's' : ''} →
+          Continue with {bulkItems.length} item{bulkItems.length !== 1 ? 's' : ''} →
         </Button>
       </View>
     </SafeAreaView>

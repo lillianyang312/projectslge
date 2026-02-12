@@ -164,10 +164,6 @@ export default function SwipeBuyScreen({ navigation }: Props) {
             <Text variant="bodyMedium" size="sm" color="muted">
               OUR TAKE
             </Text>
-            <Badge
-              variant={evaluation.is_good_deal ? 'success' : 'soft'}
-              text={evaluation.market_comparison}
-            />
           </View>
 
           <Text variant="bodyMedium" size="lg" style={styles.agentTake}>

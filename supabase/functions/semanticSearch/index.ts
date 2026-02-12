@@ -27,6 +27,8 @@ export interface SearchResultItem {
   title: string;
   category: string;
   description: string;
+  condition?: string;
+  retailPrice?: number;
   price: number;
   priceMin: number;
   priceMax: number;
@@ -34,7 +36,7 @@ export interface SearchResultItem {
   photos: string[];
   relevanceScore: number;
   matchReason: string;
-  dealStatus?: 'negotiating' | 'agreed' | 'logistics' | 'completed' | 'cancelled' | null;
+  dealStatus?: 'pending' | 'negotiating' | 'agreed' | 'logistics' | 'completed' | 'cancelled' | null;
 }
 
 export interface SearchResponse {
@@ -170,6 +172,7 @@ async function fetchItemsFromDatabase(opts: {
     category: string | null;
     description: string | null;
     condition: string | null;
+    retail_price: number | null;
     photos: string[] | null;
     estimated_value_min: number | null;
     estimated_value_max: number | null;
@@ -218,7 +221,7 @@ async function fetchItemsFromDatabase(opts: {
         
         let itemQuery = supabase
           .from('items')
-          .select('id, title, category, description, condition, photos, estimated_value_min, estimated_value_max, owner_id, created_at')
+          .select('id, title, category, description, condition, retail_price, photos, estimated_value_min, estimated_value_max, owner_id, created_at')
           .or(orFilter)
           .order('created_at', { ascending: false })
           .order('id', { ascending: false })
@@ -248,7 +251,7 @@ async function fetchItemsFromDatabase(opts: {
     // Browse-all: regular query without search
     let itemQuery = supabase
       .from('items')
-      .select('id, title, category, description, condition, photos, estimated_value_min, estimated_value_max, owner_id, created_at')
+      .select('id, title, category, description, condition, retail_price, photos, estimated_value_min, estimated_value_max, owner_id, created_at')
       .eq('is_active', true) // Only show active items
       .order('created_at', { ascending: false })
       .order('id', { ascending: false })
@@ -361,6 +364,8 @@ async function fetchItemsFromDatabase(opts: {
         title: item.title || 'Untitled Item',
         category: item.category || 'Other',
         description: item.description || `${item.condition || 'Good'} condition`,
+        condition: item.condition || undefined,
+        retailPrice: item.retail_price || undefined,
         price: item.estimated_value_min || item.estimated_value_max || 0,
         priceMin: item.estimated_value_min || 0,
         priceMax: item.estimated_value_max || 0,

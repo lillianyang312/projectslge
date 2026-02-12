@@ -52,17 +52,25 @@ export default function BulkSummaryScreen({ navigation }: Props) {
         setProgress(((i + 1) / totalItems) * 100);
 
         try {
-          // Upload all images as a group
-          const { paths: photoPaths, groupId, errors: uploadErrors } = await uploadImageGroup(
-            item.imageUris,
-            user.id
-          );
+          // Upload all images as a group (skip if no images)
+          const validImageUris = item.imageUris.filter((uri) => uri && uri.length > 0);
+          let photoPaths: string[] = [];
 
-          if (uploadErrors.length > 0) {
-            console.warn(`[BulkSummary] Item ${i + 1} had upload errors:`, uploadErrors);
+          if (validImageUris.length > 0) {
+            const { paths, groupId, errors: uploadErrors } = await uploadImageGroup(
+              validImageUris,
+              user.id
+            );
+            photoPaths = paths;
+
+            if (uploadErrors.length > 0) {
+              console.warn(`[BulkSummary] Item ${i + 1} had upload errors:`, uploadErrors);
+            }
+
+            console.log(`[BulkSummary] Item ${i + 1} images uploaded with groupId: ${groupId}`);
+          } else {
+            console.log(`[BulkSummary] Item ${i + 1} has no images, proceeding without photos`);
           }
-
-          console.log(`[BulkSummary] Item ${i + 1} images uploaded with groupId: ${groupId}`);
 
           // Create item in database
           const { data, error } = await createItem({
@@ -220,14 +228,23 @@ interface ItemSummaryCardProps {
 }
 
 function ItemSummaryCard({ item, itemNumber, onEdit }: ItemSummaryCardProps) {
+  const hasImage = item.imageUris.length > 0 && item.imageUris[0];
+  const itemInitial = (item.verifiedTitle || item.title || 'I').charAt(0).toUpperCase();
+
   return (
     <Card style={styles.itemCard}>
       <View style={styles.itemContent}>
         {/* Thumbnail */}
-        <Image
-          source={{ uri: item.imageUris[0] }}
-          style={styles.itemThumbnail}
-        />
+        {hasImage ? (
+          <Image
+            source={{ uri: item.imageUris[0] }}
+            style={styles.itemThumbnail}
+          />
+        ) : (
+          <View style={[styles.itemThumbnail, styles.itemThumbnailPlaceholder]}>
+            <Text style={styles.itemThumbnailPlaceholderText}>{itemInitial}</Text>
+          </View>
+        )}
 
         {/* Details */}
         <View style={styles.itemDetails}>
@@ -335,6 +352,16 @@ const styles = StyleSheet.create({
     height: 80,
     borderRadius: radius.md,
     backgroundColor: colors.accentSoft,
+  },
+  itemThumbnailPlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.accent,
+  },
+  itemThumbnailPlaceholderText: {
+    color: '#FFFFFF',
+    fontSize: 28,
+    fontWeight: '700',
   },
   itemDetails: {
     flex: 1,

@@ -1,4 +1,4 @@
-import { supabase } from '../lib/supabase';
+import { createClient } from '@/lib/supabase/client';
 
 export interface SearchResultItem {
   id: string;
@@ -25,47 +25,22 @@ export interface SearchResponse {
   hasMore: boolean;
 }
 
-/**
- * Performs full-text search using PostgreSQL full-text search
- *
- * @param query - Natural language search query
- * @param limit - Maximum number of results to return
- * @param excludeUserId - Optional user ID to exclude their items from results
- * @returns Search results with relevance scores and explanations
- */
 export async function semanticSearch(
   query: string,
   limit: number = 10,
   excludeUserId?: string,
   cursor?: { created_at: string; id: string }
 ): Promise<SearchResponse> {
-  console.log('🔍 [searchService] Starting semantic search:', { query, limit, excludeUserId, cursor });
-
   try {
+    const supabase = createClient();
     const { data, error } = await supabase.functions.invoke('semanticSearch', {
       body: { query, limit, excludeUserId, cursor },
     });
 
-    if (error) {
-      console.error('❌ [searchService] Supabase function error:', error);
-      throw error;
-    }
-
-    if (!data) {
-      throw new Error('No data returned from search function');
-    }
-
-    console.log('✅ [searchService] Search completed:', {
-      resultCount: data?.results?.length || 0,
-      interpretation: data?.interpretation,
-    });
-
+    if (error) throw error;
+    if (!data) throw new Error('No data returned from search function');
     return data;
-  } catch (err) {
-    const error = err as Error;
-    console.error('❌ [searchService] Search failed:', error);
-
-    // Return empty results on error
+  } catch {
     return {
       results: [],
       interpretation: 'Search failed. Please try again.',
@@ -76,31 +51,23 @@ export async function semanticSearch(
   }
 }
 
-/**
- * Debounced search - waits for user to stop typing before searching
- */
 export function createDebouncedSearch(delayMs: number = 500) {
-  let timeoutId: NodeJS.Timeout | null = null;
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
   return (
     query: string,
     callback: (response: SearchResponse) => void,
     limit?: number
   ) => {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
+    if (timeoutId) clearTimeout(timeoutId);
 
     timeoutId = setTimeout(async () => {
       const response = await semanticSearch(query, limit);
       callback(response);
     }, delayMs);
 
-    // Return cleanup function
     return () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
+      if (timeoutId) clearTimeout(timeoutId);
     };
   };
 }

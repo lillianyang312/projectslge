@@ -29,6 +29,49 @@ import type { CategoryDetails } from '../../types/analyzeImage';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
+// Build item name by combining base title with additional category details
+// Brand always comes first, then base title, then remaining details
+function buildItemNameFromDetails(
+  baseTitle: string,
+  categoryValue: string,
+  clothing: { brand: string; color: string; material: string; type: string; size: string },
+  electronics: { brand: string; model: string; storage: string; color: string },
+  furniture: { material: string; color: string; style: string },
+  books: { author: string; subject: string }
+): string {
+  const categoryLower = categoryValue.toLowerCase();
+  const baseTitleLower = baseTitle.toLowerCase();
+
+  let brand = '';
+  const additionalParts: string[] = [];
+
+  if (categoryLower.includes('clothing')) {
+    brand = clothing.brand;
+    if (clothing.color && !baseTitleLower.includes(clothing.color.toLowerCase())) additionalParts.push(clothing.color);
+    if (clothing.material && !baseTitleLower.includes(clothing.material.toLowerCase())) additionalParts.push(clothing.material);
+    if (clothing.type && !baseTitleLower.includes(clothing.type.toLowerCase())) additionalParts.push(clothing.type);
+    if (clothing.size && !baseTitleLower.includes(clothing.size.toLowerCase())) additionalParts.push(`Size ${clothing.size}`);
+  } else if (categoryLower.includes('electronics')) {
+    brand = electronics.brand;
+    if (electronics.model && !baseTitleLower.includes(electronics.model.toLowerCase())) additionalParts.push(electronics.model);
+    if (electronics.storage && !baseTitleLower.includes(electronics.storage.toLowerCase())) additionalParts.push(electronics.storage);
+    if (electronics.color && !baseTitleLower.includes(electronics.color.toLowerCase())) additionalParts.push(electronics.color);
+  } else if (categoryLower.includes('furniture')) {
+    if (furniture.style && !baseTitleLower.includes(furniture.style.toLowerCase())) additionalParts.push(furniture.style);
+    if (furniture.color && !baseTitleLower.includes(furniture.color.toLowerCase())) additionalParts.push(furniture.color);
+    if (furniture.material && !baseTitleLower.includes(furniture.material.toLowerCase())) additionalParts.push(furniture.material);
+  } else if (categoryLower.includes('book')) {
+    if (books.subject && !baseTitleLower.includes(books.subject.toLowerCase())) additionalParts.push(books.subject);
+    if (books.author && !baseTitleLower.includes(books.author.toLowerCase())) additionalParts.push(`by ${books.author}`);
+  }
+
+  const parts: string[] = [];
+  if (brand && !baseTitleLower.includes(brand.toLowerCase())) parts.push(brand);
+  parts.push(baseTitle);
+  parts.push(...additionalParts);
+  return parts.join(' ').trim();
+}
+
 type Props = NativeStackScreenProps<ListStackParamList, 'ItemVerification'>;
 
 type Condition = 'new' | 'like_new' | 'good' | 'fair' | 'poor';
@@ -78,9 +121,14 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
   const [bookAuthor, setBookAuthor] = useState('');
   const [bookSubject, setBookSubject] = useState('');
 
+  // Store the base title (from AI or user input, before category details are appended)
+  const [baseTitle, setBaseTitle] = useState(currentItem?.verifiedTitle || currentItem?.title || '');
+  // Track if user is currently focused on the title input (to prevent overwriting while typing)
+  const titleFocusedRef = useRef(false);
+
   // UI state
   const [analyzing, setAnalyzing] = useState(false);
-  const analyzedRef = useRef(!!currentItem?.title);
+  const [analysisApplied, setAnalysisApplied] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const isKeyboardVisibleRef = useRef(false);
   const pendingAnalysisResultRef = useRef<{title?: string; category?: string; condition?: Condition} | null>(null);
@@ -91,15 +139,6 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
   const [images, setImages] = useState<string[]>(currentItem?.imageUris || []);
   const scrollViewRef = useRef<ScrollView>(null);
   const notesInputRef = useRef<TextInput>(null);
-
-  // Helper to check if a field should be hidden (value is in the title)
-  // Returns true if the value exists AND is found in the title (case-insensitive)
-  const shouldHideField = (value: string): boolean => {
-    const trimmedValue = value?.trim();
-    const trimmedTitle = title?.trim();
-    if (!trimmedValue || !trimmedTitle) return false;
-    return trimmedTitle.toLowerCase().includes(trimmedValue.toLowerCase());
-  };
 
   // Track keyboard visibility for extra padding
   useEffect(() => {
@@ -118,7 +157,10 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
         // Apply any pending analysis results when keyboard hides
         if (pendingAnalysisResultRef.current) {
           const pending = pendingAnalysisResultRef.current;
-          if (pending.title) setTitle(pending.title);
+          if (pending.title) {
+            setBaseTitle(pending.title);
+            setTitle(pending.title);
+          }
           if (pending.category) setCategory(pending.category);
           if (pending.condition) setCondition(pending.condition);
           pendingAnalysisResultRef.current = null;
@@ -131,111 +173,123 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
     };
   }, []);
 
-  // Auto-analyze images when screen loads
+  // Dynamically build item name: base title + additional category details
+  // Rebuilds whenever category fields change (but not while user is actively typing in title)
   useEffect(() => {
-    async function analyzeItemImages() {
-      if (images.length > 0 && user && !analyzedRef.current && !currentItem?.title) {
-        setAnalyzing(true);
-        try {
-          // Upload all images as a group
-          const { paths, groupId, errors } = await uploadImageGroup(images, user.id);
+    if (titleFocusedRef.current) return;
 
-          if (errors.length > 0) {
-            console.warn('[ItemVerification] Some images failed to upload:', errors);
-          }
+    const combinedName = buildItemNameFromDetails(
+      baseTitle,
+      category,
+      { brand: clothingBrand, color: clothingColor, material: clothingMaterial, type: clothingType, size: clothingSize },
+      { brand: electronicsBrand, model: electronicsModel, storage: electronicsStorage, color: electronicsColor },
+      { material: furnitureMaterial, color: furnitureColor, style: furnitureStyle },
+      { author: bookAuthor, subject: bookSubject }
+    );
 
-          console.log(`[ItemVerification] Uploaded ${paths.length} images with groupId: ${groupId}`);
+    if (combinedName.trim()) {
+      setTitle(combinedName);
+    }
+  }, [
+    baseTitle, category,
+    clothingBrand, clothingColor, clothingMaterial, clothingType, clothingSize,
+    electronicsBrand, electronicsModel, electronicsStorage, electronicsColor,
+    furnitureMaterial, furnitureColor, furnitureStyle,
+    bookAuthor, bookSubject
+  ]);
 
-          if (paths.length > 0) {
-            const signedUrlPromises = paths.map((path) => getSignedUrl(path));
-            const signedUrls = await Promise.all(signedUrlPromises);
-            const validSignedUrls = signedUrls.filter((url): url is string => url !== null);
-            const validPaths = paths.filter((_, i) => signedUrls[i] !== null);
+  // AI auto-fill triggered by button press
+  const handleAutoFill = async () => {
+    if (images.length === 0 || !user) return;
 
-            if (validSignedUrls.length > 0) {
-              const analysisResult = await analyzeImages(validSignedUrls, validPaths);
+    setAnalyzing(true);
+    setAnalysisApplied(false);
+    try {
+      const { paths, errors } = await uploadImageGroup(images, user.id);
 
-              if (analysisResult && analysisResult.type === 'identified') {
-                const newTitle = analysisResult.item.title;
-                const newCategory = analysisResult.item.category;
-                let newCondition: Condition | undefined;
-                if (analysisResult.item.condition) {
-                  const conditionLower = analysisResult.item.condition
-                    .toLowerCase()
-                    .replace(' ', '_') as Condition;
-                  if (['new', 'like_new', 'good', 'fair', 'poor'].includes(conditionLower)) {
-                    newCondition = conditionLower;
-                  }
-                }
+      if (errors.length > 0) {
+        console.warn('[ItemVerification] Some images failed to upload:', errors);
+      }
 
-                // If keyboard is visible, defer the update to avoid dismissing it
-                if (isKeyboardVisibleRef.current) {
-                  pendingAnalysisResultRef.current = {
-                    title: newTitle,
-                    category: newCategory,
-                    condition: newCondition,
-                  };
-                } else {
-                  setTitle(newTitle);
-                  setCategory(newCategory);
-                  if (newCondition) setCondition(newCondition);
-                }
+      if (paths.length > 0) {
+        const signedUrlPromises = paths.map((path) => getSignedUrl(path));
+        const signedUrls = await Promise.all(signedUrlPromises);
+        const validSignedUrls = signedUrls.filter((url): url is string => url !== null);
+        const validPaths = paths.filter((_, i) => signedUrls[i] !== null);
 
-                // Populate category-specific fields from analysis
-                const details = analysisResult.item.categoryDetails;
-                if (details) {
-                  setCategoryDetails(details);
+        if (validSignedUrls.length > 0) {
+          const analysisResult = await analyzeImages(validSignedUrls, validPaths);
 
-                  // Clothing fields
-                  if (details.clothing) {
-                    if (details.clothing.size) setClothingSize(details.clothing.size);
-                    if (details.clothing.clothingType) setClothingType(details.clothing.clothingType);
-                    if (details.clothing.brand) setClothingBrand(details.clothing.brand);
-                    if (details.clothing.color) setClothingColor(details.clothing.color);
-                    if (details.clothing.material) setClothingMaterial(details.clothing.material);
-                  }
-
-                  // Electronics fields
-                  if (details.electronics) {
-                    if (details.electronics.brand) setElectronicsBrand(details.electronics.brand);
-                    if (details.electronics.model) setElectronicsModel(details.electronics.model);
-                    if (details.electronics.storage) setElectronicsStorage(details.electronics.storage);
-                    if (details.electronics.color) setElectronicsColor(details.electronics.color);
-                  }
-
-                  // Furniture fields
-                  if (details.furniture) {
-                    if (details.furniture.material) setFurnitureMaterial(details.furniture.material);
-                    if (details.furniture.color) setFurnitureColor(details.furniture.color);
-                    if (details.furniture.style) setFurnitureStyle(details.furniture.style);
-                  }
-
-                  // Books fields
-                  if (details.books) {
-                    if (details.books.author) setBookAuthor(details.books.author);
-                    if (details.books.subject) setBookSubject(details.books.subject);
-                  }
-                }
-
-                updateBulkItem(currentItem.id, {
-                  title: analysisResult.item.title,
-                  category: analysisResult.item.category,
-                  condition: analysisResult.item.condition,
-                });
+          if (analysisResult && analysisResult.type === 'identified') {
+            const newTitle = analysisResult.item.title;
+            const newCategory = analysisResult.item.category;
+            let newCondition: Condition | undefined;
+            if (analysisResult.item.condition) {
+              const conditionLower = analysisResult.item.condition
+                .toLowerCase()
+                .replace(' ', '_') as Condition;
+              if (['new', 'like_new', 'good', 'fair', 'poor'].includes(conditionLower)) {
+                newCondition = conditionLower;
               }
             }
+
+            setBaseTitle(newTitle);
+
+            if (isKeyboardVisibleRef.current) {
+              pendingAnalysisResultRef.current = {
+                title: newTitle,
+                category: newCategory,
+                condition: newCondition,
+              };
+            } else {
+              setTitle(newTitle);
+              setCategory(newCategory);
+              if (newCondition) setCondition(newCondition);
+            }
+
+            const details = analysisResult.item.categoryDetails;
+            if (details) {
+              setCategoryDetails(details);
+              if (details.clothing) {
+                if (details.clothing.size) setClothingSize(details.clothing.size);
+                if (details.clothing.clothingType) setClothingType(details.clothing.clothingType);
+                if (details.clothing.brand) setClothingBrand(details.clothing.brand);
+                if (details.clothing.color) setClothingColor(details.clothing.color);
+                if (details.clothing.material) setClothingMaterial(details.clothing.material);
+              }
+              if (details.electronics) {
+                if (details.electronics.brand) setElectronicsBrand(details.electronics.brand);
+                if (details.electronics.model) setElectronicsModel(details.electronics.model);
+                if (details.electronics.storage) setElectronicsStorage(details.electronics.storage);
+                if (details.electronics.color) setElectronicsColor(details.electronics.color);
+              }
+              if (details.furniture) {
+                if (details.furniture.material) setFurnitureMaterial(details.furniture.material);
+                if (details.furniture.color) setFurnitureColor(details.furniture.color);
+                if (details.furniture.style) setFurnitureStyle(details.furniture.style);
+              }
+              if (details.books) {
+                if (details.books.author) setBookAuthor(details.books.author);
+                if (details.books.subject) setBookSubject(details.books.subject);
+              }
+            }
+
+            updateBulkItem(currentItem.id, {
+              title: analysisResult.item.title,
+              category: analysisResult.item.category,
+              condition: analysisResult.item.condition,
+            });
+
+            setAnalysisApplied(true);
           }
-        } catch (error) {
-          console.warn('[ItemVerification] Image analysis failed:', error);
-        } finally {
-          setAnalyzing(false);
-          analyzedRef.current = true;
         }
       }
+    } catch (error) {
+      console.warn('[ItemVerification] Image analysis failed:', error);
+    } finally {
+      setAnalyzing(false);
     }
-
-    analyzeItemImages();
-  }, [images, user, itemIndex]);
+  };
 
   const conditionOptions: { value: Condition; label: string }[] = [
     { value: 'new', label: 'New' },
@@ -259,7 +313,7 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
     }
 
     const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: false,
       quality: 0.8,
     });
@@ -269,8 +323,7 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
       const updatedImages = [...images, newUri].slice(0, 5);
       setImages(updatedImages);
       updateBulkItem(currentItem.id, { imageUris: updatedImages });
-      // Trigger re-analysis when new photo is added
-      analyzedRef.current = false;
+      setAnalysisApplied(false);
     }
   };
 
@@ -282,7 +335,7 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: false,
       allowsMultipleSelection: true,
       quality: 0.8,
@@ -294,8 +347,7 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
       const updatedImages = [...images, ...newUris].slice(0, 5);
       setImages(updatedImages);
       updateBulkItem(currentItem.id, { imageUris: updatedImages });
-      // Trigger re-analysis when new photos are added
-      analyzedRef.current = false;
+      setAnalysisApplied(false);
     }
   };
 
@@ -321,8 +373,8 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
   };
 
   const removePhoto = (index: number) => {
-    if (images.length <= 1) {
-      Alert.alert('Cannot remove', 'At least one photo is required.');
+    if (images.length <= 1 && images.length > 0) {
+      Alert.alert('Cannot remove', 'At least one photo is required for items that started with photos.');
       return;
     }
     const updatedImages = images.filter((_, i) => i !== index);
@@ -364,34 +416,8 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
       poor: 'Poor',
     };
 
-    // Build an enriched title that includes category details NOT already in the title
-    let enrichedTitle = title.trim();
+    // Title is already built dynamically via buildItemNameFromDetails useEffect
     const categoryLower = category.toLowerCase();
-    const titleEnrichments: string[] = [];
-
-    if (categoryLower.includes('clothing')) {
-      // Add details to title if not already present
-      if (clothingBrand && !shouldHideField(clothingBrand)) titleEnrichments.push(clothingBrand);
-      if (clothingType && !shouldHideField(clothingType)) titleEnrichments.push(clothingType);
-      if (clothingSize && !shouldHideField(clothingSize)) titleEnrichments.push(`Size ${clothingSize}`);
-      if (clothingColor && !shouldHideField(clothingColor)) titleEnrichments.push(clothingColor);
-    } else if (categoryLower.includes('electronics')) {
-      if (electronicsBrand && !shouldHideField(electronicsBrand)) titleEnrichments.push(electronicsBrand);
-      if (electronicsModel && !shouldHideField(electronicsModel)) titleEnrichments.push(electronicsModel);
-      if (electronicsStorage && !shouldHideField(electronicsStorage)) titleEnrichments.push(electronicsStorage);
-      if (electronicsColor && !shouldHideField(electronicsColor)) titleEnrichments.push(electronicsColor);
-    } else if (categoryLower.includes('furniture')) {
-      if (furnitureMaterial && !shouldHideField(furnitureMaterial)) titleEnrichments.push(furnitureMaterial);
-      if (furnitureColor && !shouldHideField(furnitureColor)) titleEnrichments.push(furnitureColor);
-      if (furnitureStyle && !shouldHideField(furnitureStyle)) titleEnrichments.push(`${furnitureStyle} style`);
-    } else if (categoryLower.includes('book')) {
-      if (bookAuthor && !shouldHideField(bookAuthor)) titleEnrichments.push(`by ${bookAuthor}`);
-    }
-
-    // Append enrichments to title if any
-    if (titleEnrichments.length > 0) {
-      enrichedTitle = `${enrichedTitle} - ${titleEnrichments.join(', ')}`;
-    }
 
     // Build categoryFields object for pricing service
     const categoryFields: Record<string, any> = {};
@@ -416,7 +442,7 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
     }
 
     updateBulkItem(currentItem.id, {
-      verifiedTitle: enrichedTitle || 'Untitled Item',
+      verifiedTitle: title.trim() || 'Untitled Item',
       verifiedCategory: category.trim() || 'General',
       verifiedCondition: conditionMap[condition],
       categoryFields,
@@ -429,13 +455,8 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
   const handleNext = () => {
     saveCurrentItem();
 
-    if (itemIndex < totalItems - 1) {
-      setCurrentItemIndex(itemIndex + 1);
-      navigation.push('ItemVerification', { itemIndex: itemIndex + 1 });
-    } else {
-      setCurrentItemIndex(0);
-      navigation.navigate('BulkPriceReview', { itemIndex: 0 });
-    }
+    // Go to pricing for this item right after ID
+    navigation.navigate('BulkPriceReview', { itemIndex });
   };
 
   const handlePrevious = () => {
@@ -558,77 +579,167 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
           keyboardDismissMode="none"
           showsVerticalScrollIndicator={true}
         >
-          {/* Header with item count */}
+          {/* Header with item count + AI button */}
           <Header
             title={`Item ${itemIndex + 1} of ${totalItems}`}
             onBack={() => navigation.goBack()}
+            rightElement={
+              images.length > 0 ? (
+                analyzing ? (
+                  <View style={styles.headerAiBtn}>
+                    <ActivityIndicator size="small" color={colors.accent} />
+                  </View>
+                ) : (
+                  <Pressable style={styles.headerAiBtn} onPress={handleAutoFill}>
+                    <Text style={styles.headerAiBtnText}>AI</Text>
+                  </Pressable>
+                )
+              ) : undefined
+            }
           />
 
-          {/* Photo Carousel with add/remove - matching ItemDetails */}
-          <View style={styles.imageGallery}>
-            <View style={styles.galleryHeader}>
-              <Text variant="body" size="sm" color="muted">
-                Photos ({images.length}/5)
-              </Text>
-              {analyzing && (
-                <View style={styles.analyzingBadge}>
-                  <ActivityIndicator size="small" color={colors.accent} />
-                  <Text variant="body" size="xs" color="accent">Analyzing...</Text>
-                </View>
-              )}
+          {/* Photo Carousel with add/remove - hidden when no photos */}
+          {images.length > 0 && (
+            <View style={styles.imageGallery}>
+              <View style={styles.galleryHeader}>
+                <Text variant="body" size="sm" color="muted">
+                  Photos ({images.length}/5)
+                </Text>
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imageScroll}>
+                {images.map((uri, index) => (
+                  <View key={uri} style={styles.imageWrapper}>
+                    <Pressable onPress={() => openFullscreenPhoto(uri)}>
+                      <Image source={{ uri }} style={styles.thumbnail} />
+                    </Pressable>
+                    <Pressable
+                      style={styles.removeBtn}
+                      onPress={() => removePhoto(index)}
+                    >
+                      <Text style={styles.removeBtnText}>✕</Text>
+                    </Pressable>
+                  </View>
+                ))}
+                {images.length < 5 && (
+                  <Pressable style={styles.addPhotoBtn} onPress={addMorePhotos}>
+                    <Text style={styles.addPhotoIcon}>+</Text>
+                  </Pressable>
+                )}
+              </ScrollView>
             </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imageScroll}>
-              {images.map((uri, index) => (
-                <View key={uri} style={styles.imageWrapper}>
-                  <Pressable onPress={() => openFullscreenPhoto(uri)}>
-                    <Image source={{ uri }} style={styles.thumbnail} />
-                  </Pressable>
-                  <Pressable
-                    style={styles.removeBtn}
-                    onPress={() => removePhoto(index)}
-                  >
-                    <Text style={styles.removeBtnText}>✕</Text>
-                  </Pressable>
-                </View>
-              ))}
-              {images.length < 5 && (
-                <Pressable style={styles.addPhotoBtn} onPress={addMorePhotos}>
-                  <Text style={styles.addPhotoIcon}>+</Text>
+          )}
+
+          {/* AI applied indicator */}
+          {analyzing ? (
+            <View style={styles.autoFillStatus}>
+              <ActivityIndicator size="small" color={colors.accent} />
+              <Text variant="body" size="sm" color="accent" style={{ marginLeft: spacing.sm }}>
+                Analyzing...
+              </Text>
+            </View>
+          ) : analysisApplied ? (
+            <View style={styles.autoFillApplied}>
+              <Text variant="body" size="sm" color="success">✓ Auto-filled by AI</Text>
+              <Pressable onPress={handleAutoFill}>
+                <Text variant="body" size="xs" color="accent">Re-analyze</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          {/* Item name - editable; updates base title for auto-building */}
+          <View style={styles.inputGroup}>
+            <Text variant="body" size="sm" color="muted" style={styles.inputLabel}>
+              Item name
+            </Text>
+            <View style={styles.inputWrapper}>
+              <TextInput
+                style={[styles.input, styles.inputMultiline]}
+                value={title}
+                onChangeText={(text) => {
+                  setBaseTitle(text);
+                  setTitle(text);
+                }}
+                onFocus={() => { titleFocusedRef.current = true; }}
+                onBlur={() => {
+                  titleFocusedRef.current = false;
+                  // Rebuild title with category details on blur
+                  const built = buildItemNameFromDetails(
+                    baseTitle, category,
+                    { brand: clothingBrand, color: clothingColor, material: clothingMaterial, type: clothingType, size: clothingSize },
+                    { brand: electronicsBrand, model: electronicsModel, storage: electronicsStorage, color: electronicsColor },
+                    { material: furnitureMaterial, color: furnitureColor, style: furnitureStyle },
+                    { author: bookAuthor, subject: bookSubject }
+                  );
+                  if (built.trim()) setTitle(built);
+                }}
+                placeholder="What is this item?"
+                placeholderTextColor={colors.textMuted}
+                multiline
+                blurOnSubmit={false}
+                returnKeyType="default"
+              />
+              {title.length > 0 && (
+                <Pressable style={styles.clearButton} onPress={() => { setBaseTitle(''); setTitle(''); }}>
+                  <Text style={styles.clearButtonText}>✕</Text>
                 </Pressable>
               )}
-            </ScrollView>
+            </View>
           </View>
 
-          {/* Item name */}
-          {renderClearableInput(
-            "Item name",
-            title,
-            setTitle,
-            analyzing ? "Analyzing..." : "What is this item?"
-          )}
+          {/* Category - Dropdown */}
+          <View style={styles.inputGroup}>
+            <Text variant="body" size="sm" color="muted" style={styles.inputLabel}>
+              Category
+            </Text>
+            <Pressable
+              style={styles.dropdownSelector}
+              onPress={() => {
+                const categoryOptions = [
+                  'Clothing', 'Electronics', 'Furniture', 'Books', 'Kitchen',
+                  'Sports', 'Toys', 'Tools', 'Home Decor', 'Collectibles', 'Other',
+                ];
+                if (Platform.OS === 'ios') {
+                  ActionSheetIOS.showActionSheetWithOptions(
+                    {
+                      options: ['Cancel', ...categoryOptions],
+                      cancelButtonIndex: 0,
+                    },
+                    (buttonIndex) => {
+                      if (buttonIndex > 0) setCategory(categoryOptions[buttonIndex - 1]);
+                    }
+                  );
+                } else {
+                  Alert.alert('Select Category', undefined, [
+                    { text: 'Cancel', style: 'cancel' },
+                    ...categoryOptions.map((opt) => ({
+                      text: opt,
+                      onPress: () => setCategory(opt),
+                    })),
+                  ]);
+                }
+              }}
+            >
+              <Text style={[styles.dropdownText, !category && styles.dropdownPlaceholder]}>
+                {category || 'Select a category...'}
+              </Text>
+              <Text style={styles.dropdownArrow}>▼</Text>
+            </Pressable>
+          </View>
 
-          {/* Category */}
-          {renderClearableInput(
-            "Category",
-            category,
-            setCategory,
-            analyzing ? "Analyzing..." : "e.g. Electronics, Furniture"
-          )}
-
-          {/* Category-specific fields - Clothing (only show fields not in title) */}
+          {/* Category-specific fields - Clothing */}
           {category.toLowerCase().includes('clothing') && (
             <View style={styles.categorySection}>
               <Text variant="body" size="sm" color="accent" style={styles.categorySectionLabel}>
                 Clothing Details
               </Text>
               <View style={styles.categoryFieldsRow}>
-                {!shouldHideField(clothingSize) && renderClearableInput(
-                  "Size",
-                  clothingSize,
-                  setClothingSize,
-                  "e.g. M, L, 32W"
+                {renderClearableInput(
+                  "Brand",
+                  clothingBrand,
+                  setClothingBrand,
+                  "e.g. Nike, Levi's"
                 )}
-                {!shouldHideField(clothingType) && renderClearableInput(
+                {renderClearableInput(
                   "Type",
                   clothingType,
                   setClothingType,
@@ -636,20 +747,20 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
                 )}
               </View>
               <View style={styles.categoryFieldsRow}>
-                {!shouldHideField(clothingBrand) && renderClearableInput(
-                  "Brand",
-                  clothingBrand,
-                  setClothingBrand,
-                  "e.g. Nike, Levi's"
-                )}
-                {!shouldHideField(clothingColor) && renderClearableInput(
+                {renderClearableInput(
                   "Color",
                   clothingColor,
                   setClothingColor,
                   "e.g. Navy blue"
                 )}
+                {renderClearableInput(
+                  "Size",
+                  clothingSize,
+                  setClothingSize,
+                  "e.g. M, L, 32W"
+                )}
               </View>
-              {!shouldHideField(clothingMaterial) && renderClearableInput(
+              {renderClearableInput(
                 "Material",
                 clothingMaterial,
                 setClothingMaterial,
@@ -658,20 +769,20 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
             </View>
           )}
 
-          {/* Category-specific fields - Electronics (only show fields not in title) */}
+          {/* Category-specific fields - Electronics */}
           {category.toLowerCase().includes('electronics') && (
             <View style={styles.categorySection}>
               <Text variant="body" size="sm" color="accent" style={styles.categorySectionLabel}>
                 Electronics Details
               </Text>
               <View style={styles.categoryFieldsRow}>
-                {!shouldHideField(electronicsBrand) && renderClearableInput(
+                {renderClearableInput(
                   "Brand",
                   electronicsBrand,
                   setElectronicsBrand,
                   "e.g. Apple, Samsung"
                 )}
-                {!shouldHideField(electronicsModel) && renderClearableInput(
+                {renderClearableInput(
                   "Model",
                   electronicsModel,
                   setElectronicsModel,
@@ -679,13 +790,13 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
                 )}
               </View>
               <View style={styles.categoryFieldsRow}>
-                {!shouldHideField(electronicsStorage) && renderClearableInput(
+                {renderClearableInput(
                   "Storage",
                   electronicsStorage,
                   setElectronicsStorage,
                   "e.g. 256GB"
                 )}
-                {!shouldHideField(electronicsColor) && renderClearableInput(
+                {renderClearableInput(
                   "Color",
                   electronicsColor,
                   setElectronicsColor,
@@ -695,27 +806,27 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
             </View>
           )}
 
-          {/* Category-specific fields - Furniture (only show fields not in title) */}
+          {/* Category-specific fields - Furniture */}
           {category.toLowerCase().includes('furniture') && (
             <View style={styles.categorySection}>
               <Text variant="body" size="sm" color="accent" style={styles.categorySectionLabel}>
                 Furniture Details
               </Text>
               <View style={styles.categoryFieldsRow}>
-                {!shouldHideField(furnitureMaterial) && renderClearableInput(
+                {renderClearableInput(
                   "Material",
                   furnitureMaterial,
                   setFurnitureMaterial,
                   "e.g. Wood, Metal"
                 )}
-                {!shouldHideField(furnitureColor) && renderClearableInput(
+                {renderClearableInput(
                   "Color/Finish",
                   furnitureColor,
                   setFurnitureColor,
                   "e.g. Walnut, White"
                 )}
               </View>
-              {!shouldHideField(furnitureStyle) && renderClearableInput(
+              {renderClearableInput(
                 "Style",
                 furnitureStyle,
                 setFurnitureStyle,
@@ -724,19 +835,19 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
             </View>
           )}
 
-          {/* Category-specific fields - Books (only show fields not in title) */}
+          {/* Category-specific fields - Books */}
           {category.toLowerCase().includes('book') && (
             <View style={styles.categorySection}>
               <Text variant="body" size="sm" color="accent" style={styles.categorySectionLabel}>
                 Book Details
               </Text>
-              {!shouldHideField(bookAuthor) && renderClearableInput(
+              {renderClearableInput(
                 "Author",
                 bookAuthor,
                 setBookAuthor,
                 "e.g. John Smith"
               )}
-              {!shouldHideField(bookSubject) && renderClearableInput(
+              {renderClearableInput(
                 "Subject",
                 bookSubject,
                 setBookSubject,
@@ -786,6 +897,44 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
             }
           )}
 
+          {/* Browse preview — shows exactly what buyers will see */}
+          {(title.trim() || category || images.length > 0) && (
+            <View style={styles.browsePreviewSection}>
+              <Text variant="body" size="sm" color="muted" style={styles.inputLabel}>
+                Browse Preview
+              </Text>
+              <View style={styles.browsePreviewCard}>
+                <View style={styles.browsePreviewThumb}>
+                  {images[0] ? (
+                    <Image source={{ uri: images[0] }} style={styles.browsePreviewImage} resizeMode="cover" />
+                  ) : (
+                    <Text style={styles.browsePreviewEmoji}>{'\u{1F4E6}'}</Text>
+                  )}
+                </View>
+                <View style={styles.browsePreviewInfo}>
+                  <Text style={styles.browsePreviewTitle} numberOfLines={1}>
+                    {title.trim() || 'Untitled Item'}
+                  </Text>
+                  <View style={styles.browsePreviewBadges}>
+                    {category ? (
+                      <View style={styles.browsePreviewBadge}>
+                        <Text style={styles.browsePreviewBadgeText}>{category}</Text>
+                      </View>
+                    ) : null}
+                    {condition ? (
+                      <View style={[styles.browsePreviewBadge, styles.browsePreviewConditionBadge]}>
+                        <Text style={styles.browsePreviewBadgeText}>
+                          {conditionOptions.find((c) => c.value === condition)?.label || condition}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Text style={styles.browsePreviewPriceHint}>Price added next step</Text>
+                </View>
+              </View>
+            </View>
+          )}
+
           {/* Action Buttons */}
           <View style={styles.actions}>
             <View style={styles.actionRow}>
@@ -803,7 +952,7 @@ export default function ItemVerificationScreen({ navigation, route }: Props) {
                 onPress={handleNext}
                 style={itemIndex === 0 ? styles.fullWidthBtn : styles.nextBtn}
               >
-                {itemIndex < totalItems - 1 ? 'Next Item' : 'Continue to Pricing'}
+                Continue to Pricing
               </Button>
             </View>
             <Pressable style={styles.deleteLink} onPress={handleDeleteItem}>
@@ -1041,5 +1190,132 @@ const styles = StyleSheet.create({
   deleteLinkText: {
     color: colors.danger || '#E53935',
     fontSize: 14,
+  },
+  // Header AI button styles
+  headerAiBtn: {
+    backgroundColor: colors.accentSoft,
+    borderWidth: 1,
+    borderColor: colors.accent,
+    borderRadius: radius.md,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 60,
+    minHeight: 32,
+  },
+  headerAiBtnText: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  dropdownSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.card,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+  },
+  dropdownText: {
+    fontFamily: typography?.fonts?.body || 'DMSans_400Regular',
+    fontSize: typography?.sizes?.md || 14,
+    color: colors.textPrimary,
+    flex: 1,
+  },
+  dropdownPlaceholder: {
+    color: colors.textMuted,
+  },
+  dropdownArrow: {
+    color: colors.textMuted,
+    fontSize: 10,
+    marginLeft: spacing.sm,
+  },
+  autoFillStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.accentSoft,
+    borderWidth: 1,
+    borderColor: colors.accent,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  autoFillApplied: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#E8F5E9',
+    borderWidth: 1,
+    borderColor: '#4CAF50',
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  // Browse preview styles
+  browsePreviewSection: {
+    marginBottom: spacing.md,
+  },
+  browsePreviewCard: {
+    width: 140,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    overflow: 'hidden',
+  },
+  browsePreviewThumb: {
+    width: 140,
+    height: 140,
+    backgroundColor: colors.accentSoft,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  browsePreviewImage: {
+    width: '100%',
+    height: '100%',
+  },
+  browsePreviewEmoji: {
+    fontSize: 32,
+  },
+  browsePreviewInfo: {
+    padding: spacing.sm,
+  },
+  browsePreviewTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  browsePreviewBadges: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginTop: 4,
+  },
+  browsePreviewBadge: {
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.sm,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  browsePreviewConditionBadge: {
+    backgroundColor: '#E3F2FD',
+  },
+  browsePreviewBadgeText: {
+    fontSize: 10,
+    color: colors.textSecondary,
+    fontWeight: '500',
+  },
+  browsePreviewPriceHint: {
+    fontSize: 10,
+    color: colors.textMuted,
+    fontStyle: 'italic',
+    marginTop: 4,
   },
 });

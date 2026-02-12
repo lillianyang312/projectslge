@@ -51,6 +51,7 @@ export interface BulkUploadItem {
   estimatedPriceMin?: number;
   estimatedPriceMax?: number;
   minimumPrice?: number;
+  retailPrice?: number;
   priceConfidence?: number;
   priceReasoning?: string;
   // Status

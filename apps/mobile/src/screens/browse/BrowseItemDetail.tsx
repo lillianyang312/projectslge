@@ -11,6 +11,7 @@ import {
   Modal,
   Dimensions,
   StatusBar,
+  TextInput,
 } from 'react-native';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -23,6 +24,7 @@ import { colors, spacing, radius, typography } from '../../ui/tokens';
 import { getItemById, Item } from '../../services/itemsService';
 import { getSignedUrlCached } from '../../services/imageService';
 import { expressInterest, getDealsByItemId } from '../../services/dealsService';
+import { Deal } from '../../types/models';
 import { useAuthStore } from '../../state/authStore';
 import { getStatusColor, DealStatus } from '../../lib/statusColorMap';
 import { dealEvents } from '../../lib/dealEvents';
@@ -79,35 +81,45 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
   const [interestedFor, setInterestedFor] = useState<'1 week' | '2 weeks' | '1 month' | 'Flexible'>('2 weeks');
   const [supabaseItem, setSupabaseItem] = useState<Item | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [allImageUrls, setAllImageUrls] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [showFullscreenPhoto, setShowFullscreenPhoto] = useState(false);
+  const [question, setQuestion] = useState('');
   const [dealStatus, setDealStatus] = useState<DealStatus | null>(null);
+  const [allDeals, setAllDeals] = useState<Deal[]>([]);
+  const [isSold, setIsSold] = useState(false);
 
-  // Fetch deal status for current user
+  // Fetch all deals for this item (for offers list + user's deal status)
   useEffect(() => {
-    async function fetchDealStatus() {
-      if (!user?.id) {
-        setDealStatus(null);
-        return;
-      }
-      
+    async function fetchDeals() {
       try {
         const deals = await getDealsByItemId(itemId);
+        setAllDeals(deals);
+
+        // Check if item is sold
+        const sold = deals.some(d => d.status === 'completed');
+        setIsSold(sold);
+
         // Find deal for current user (as buyer)
-        const userDeal = deals.find(d => d.buyer_id === user.id && d.status !== 'cancelled');
-        if (userDeal) {
-          setDealStatus(userDeal.status as DealStatus);
+        if (user?.id) {
+          const userDeal = deals.find(d => d.buyer_id === user.id && d.status !== 'cancelled');
+          setDealStatus(userDeal ? (userDeal.status as DealStatus) : null);
         } else {
           setDealStatus(null);
         }
       } catch (error) {
-        console.error('Error fetching deal status:', error);
+        console.error('Error fetching deals:', error);
         setDealStatus(null);
       }
     }
-    fetchDealStatus();
+    fetchDeals();
   }, [itemId, user?.id]);
+
+  // Active offers sorted by highest first
+  const activeOffers = allDeals
+    .filter(d => d.status !== 'cancelled' && d.status !== 'completed' && d.current_offer)
+    .sort((a, b) => (b.current_offer || 0) - (a.current_offer || 0));
 
   // Fetch item data from Supabase
   useEffect(() => {
@@ -115,9 +127,13 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
       const { data } = await getItemById(itemId);
       if (data) {
         setSupabaseItem(data);
-        if (data.photos?.[0]) {
-          const url = await getSignedUrlCached(data.photos[0]);
-          setImageUrl(url);
+        if (data.photos && data.photos.length > 0) {
+          const urls = await Promise.all(
+            data.photos.map((path: string) => getSignedUrlCached(path))
+          );
+          const validUrls = urls.filter((u): u is string => u !== null);
+          setAllImageUrls(validUrls);
+          setImageUrl(validUrls[0] || null);
         }
       }
       setLoading(false);
@@ -172,14 +188,14 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
 
   const handleSendInterest = async () => {
     if (!user?.id) {
-      Alert.alert('Error', 'Please log in to express interest');
+      Alert.alert('Error', 'Please log in to make an offer');
       return;
     }
 
     const bidAmount = maxBid ? parseInt(maxBid.replace(/[^0-9]/g, ''), 10) : undefined;
 
     if (!bidAmount || bidAmount <= 0) {
-      Alert.alert('Bid Required', 'Please enter a bid amount to express interest');
+      Alert.alert('Bid Required', 'Please enter a bid amount to make an offer');
       return;
     }
 
@@ -192,7 +208,8 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
         user.id,
         itemId,
         bidAmount,
-        interestedFor
+        interestedFor,
+        question.trim() || undefined
       );
 
       if (error) {
@@ -212,13 +229,14 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
           `Your bid of $${bidAmount} has been submitted. The seller will be notified.`,
           [
             {
-              text: 'View Deals',
+              text: 'View My Offers',
               onPress: () => tabNavigation.navigate('Deals', { initialMode: 'buying' }),
             },
           ]
         );
         setShowBidForm(false);
         setMaxBid('');
+        setQuestion('');
       }
     } catch (err) {
       console.error('Error submitting bid:', err);
@@ -237,7 +255,7 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
     // Create a deal first (without a bid), then navigate to chat
     setSubmitting(true);
     try {
-      const { deal, error } = await expressInterest(user.id, itemId);
+      const { deal, error } = await expressInterest(user.id, itemId, undefined, undefined, question.trim() || undefined);
 
       if (error) {
         // If deal already exists, navigate to deals tab
@@ -247,7 +265,7 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
             'You already have an active conversation with this seller.',
             [
               {
-                text: 'View Deals',
+                text: 'View My Offers',
                 onPress: () => tabNavigation.navigate('Deals', { initialMode: 'buying' }),
               },
             ]
@@ -261,13 +279,13 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
       if (deal) {
         // Update deal status immediately to show border/badge
         setDealStatus(deal.status as DealStatus);
-        
+        setQuestion('');
         Alert.alert(
           'Question Sent',
-          'The seller has been notified. You can continue the conversation in your Deals.',
+          'The seller has been notified. You can continue the conversation in My Offers.',
           [
             {
-              text: 'View Deals',
+              text: 'View My Offers',
               onPress: () => tabNavigation.navigate('Deals', { initialMode: 'buying' }),
             },
           ]
@@ -291,7 +309,7 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
               <Text size="xl">←</Text>
             </Pressable>
             <Text variant="headingMedium" size="heading3" style={styles.headerTitle}>
-              Express Interest
+              Make an Offer
             </Text>
           </View>
 
@@ -359,6 +377,21 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
               )}
             </View>
 
+            {/* Question for seller */}
+            <View style={styles.compactInputGroup}>
+              <Text variant="body" size="sm" color="secondary" style={styles.compactLabel}>
+                Question for seller (optional)
+              </Text>
+              <TextInput
+                style={[styles.compactTextarea, { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.textPrimary, fontSize: 14 }]}
+                placeholder="Any questions about the item?"
+                placeholderTextColor={colors.textMuted}
+                value={question}
+                onChangeText={setQuestion}
+                multiline
+              />
+            </View>
+
           </ScrollView>
 
           {/* Buttons at bottom */}
@@ -392,7 +425,7 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
             onPress={() => setShowFullscreenPhoto(false)}
           >
             <Image
-              source={{ uri: itemData.imageUri || '' }}
+              source={{ uri: imageUrl || itemData.imageUri || '' }}
               style={styles.fullscreenImage}
               resizeMode="contain"
             />
@@ -424,62 +457,79 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Item Image - Tappable for fullscreen */}
-        <Pressable
-          style={[
-            styles.detailImage,
-            statusColor
-              ? {
-                  borderColor: statusColor,
-                  borderWidth: 2,
-                }
-              : null,
-          ]}
-          onPress={() => itemData.imageUri && setShowFullscreenPhoto(true)}
-        >
-          {itemData.imageUri ? (
-            <>
-              <Image 
-                source={{ uri: itemData.imageUri }} 
-                style={[
-                  styles.image,
-                  statusColor
-                    ? {
-                        borderColor: statusColor,
-                        borderWidth: 2,
-                      }
-                    : null,
-                ]} 
-                resizeMode="cover" 
-              />
-              <View style={styles.tapToExpandHint}>
-                <Text style={styles.tapToExpandText}>Tap to view full photo</Text>
-              </View>
-            </>
-          ) : (
-            <View
-              style={[
-                styles.emojiContainer,
-                statusColor
-                  ? {
-                      borderColor: statusColor,
-                      borderWidth: 2,
-                    }
-                  : null,
-              ]}
+        {/* Item Image(s) - Carousel or single */}
+        {allImageUrls.length > 1 ? (
+          <View style={{ position: 'relative', marginBottom: spacing.xl }}>
+            <ScrollView
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={true}
             >
-              <Text style={styles.imageEmoji}>{itemData.emoji}</Text>
-            </View>
-          )}
-          {/* Deal status badge - top left */}
-          {hasDeal && (
-            <View style={[styles.dealStatusBadge, statusColor ? { backgroundColor: statusColor } : null]}>
-              <Text style={styles.dealStatusText}>
-                {getStatusLabel()}
-              </Text>
-            </View>
-          )}
-        </Pressable>
+              {allImageUrls.map((url, index) => (
+                <Pressable
+                  key={index}
+                  onPress={() => { setImageUrl(url); setShowFullscreenPhoto(true); }}
+                  style={[
+                    styles.detailImage,
+                    { width: SCREEN_WIDTH - 2 * spacing.xxl, marginRight: spacing.sm, marginBottom: 0 },
+                    statusColor ? { borderColor: statusColor, borderWidth: 2 } : null,
+                  ]}
+                >
+                  <Image source={{ uri: url }} style={styles.image} resizeMode="cover" />
+                </Pressable>
+              ))}
+            </ScrollView>
+            {/* Deal status badge - top left */}
+            {hasDeal && (
+              <View style={[styles.dealStatusBadge, statusColor ? { backgroundColor: statusColor } : null]}>
+                <Text style={styles.dealStatusText}>
+                  {getStatusLabel()}
+                </Text>
+              </View>
+            )}
+          </View>
+        ) : (
+          <Pressable
+            style={[
+              styles.detailImage,
+              statusColor ? { borderColor: statusColor, borderWidth: 2 } : null,
+            ]}
+            onPress={() => itemData.imageUri && setShowFullscreenPhoto(true)}
+          >
+            {itemData.imageUri ? (
+              <>
+                <Image
+                  source={{ uri: itemData.imageUri }}
+                  style={[
+                    styles.image,
+                    statusColor ? { borderColor: statusColor, borderWidth: 2 } : null,
+                  ]}
+                  resizeMode="cover"
+                />
+                <View style={styles.tapToExpandHint}>
+                  <Text style={styles.tapToExpandText}>Tap to view full photo</Text>
+                </View>
+              </>
+            ) : (
+              <View
+                style={[
+                  styles.emojiContainer,
+                  statusColor ? { borderColor: statusColor, borderWidth: 2 } : null,
+                ]}
+              >
+                <Text style={styles.imageEmoji}>{itemData.emoji}</Text>
+              </View>
+            )}
+            {/* Deal status badge - top left */}
+            {hasDeal && (
+              <View style={[styles.dealStatusBadge, statusColor ? { backgroundColor: statusColor } : null]}>
+                <Text style={styles.dealStatusText}>
+                  {getStatusLabel()}
+                </Text>
+              </View>
+            )}
+          </Pressable>
+        )}
 
         <Text variant="headingMedium" size="heading3" style={styles.detailTitle}>
           {itemData.title}
@@ -536,9 +586,46 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
           </View>
         </View>
 
-        <Button variant="primary" onPress={() => setShowBidForm(true)}>
-          Express Interest
-        </Button>
+        {/* Offers Section */}
+        {activeOffers.length > 0 && (
+          <View style={styles.offersSection}>
+            <Text variant="bodyMedium" size="md" style={styles.offersSectionTitle}>
+              Offers ({activeOffers.length})
+            </Text>
+            {activeOffers.map((deal) => (
+              <View key={deal.id} style={styles.offerRow}>
+                <View style={styles.offerInfo}>
+                  <Text variant="headingMedium" size="lg" color="success">
+                    ${deal.current_offer}
+                  </Text>
+                  <Text variant="body" size="xs" color="secondary">
+                    {deal.buyer?.display_name || 'Buyer'}
+                    {deal.interested_for ? ` · ${deal.interested_for}` : ''}
+                  </Text>
+                </View>
+                {user?.id === deal.buyer_id && (
+                  <Pressable
+                    style={styles.offerChatBtn}
+                    onPress={() => tabNavigation.navigate('Deals', { initialMode: 'buying' })}
+                  >
+                    <Text variant="bodyMedium" size="xs" color="accent">Chat</Text>
+                  </Pressable>
+                )}
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Action Button */}
+        {isSold ? (
+          <View style={styles.soldBanner}>
+            <Text variant="headingMedium" size="md" style={styles.soldBannerText}>SOLD</Text>
+          </View>
+        ) : (
+          <Button variant="primary" onPress={() => setShowBidForm(true)} disabled={!!hasDeal}>
+            {hasDeal ? 'Offer Submitted' : 'Make an Offer'}
+          </Button>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -821,5 +908,43 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     textTransform: 'uppercase',
+  },
+  offersSection: {
+    marginBottom: spacing.xl,
+  },
+  offersSectionTitle: {
+    marginBottom: spacing.md,
+  },
+  offerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  offerInfo: {
+    flex: 1,
+  },
+  offerChatBtn: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.accent,
+    borderRadius: radius.pill,
+  },
+  soldBanner: {
+    backgroundColor: '#6B7280',
+    borderRadius: radius.md,
+    paddingVertical: spacing.lg,
+    alignItems: 'center',
+  },
+  soldBannerText: {
+    color: '#FFFFFF',
+    letterSpacing: 2,
   },
 });

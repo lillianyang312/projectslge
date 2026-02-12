@@ -69,7 +69,7 @@ export default function UploadScreen({ navigation }: Props) {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: false,
       allowsMultipleSelection: true,
       quality: 0.8,
@@ -111,6 +111,13 @@ export default function UploadScreen({ navigation }: Props) {
     navigation.navigate('ItemDetails');
   };
 
+  const handleNoPhotoFlow = () => {
+    // Start a draft with no images
+    setDraftFromImage('');
+    updateDraft({ imageUris: [] });
+    navigation.navigate('ItemDetails');
+  };
+
   const handleBack = () => {
     // Clear bulk upload state when going back
     clearBulkUpload();
@@ -142,6 +149,13 @@ export default function UploadScreen({ navigation }: Props) {
             <Button variant="secondary" onPress={pickFromLibrary} style={styles.libraryButton}>
               Upload from Library
             </Button>
+
+            {/* Tertiary action: List without photos */}
+            <Pressable onPress={handleNoPhotoFlow} style={styles.noPhotoLink}>
+              <Text variant="body" size="sm" color="secondary" style={styles.noPhotoLinkText}>
+                List without photos (tickets, services, etc.)
+              </Text>
+            </Pressable>
           </View>
         ) : (
           <View style={styles.gridContent}>
@@ -215,6 +229,11 @@ export default function UploadScreen({ navigation }: Props) {
                   </Text>
                 </>
               )}
+              <Pressable onPress={handleNoPhotoFlow} style={styles.noPhotoLink}>
+                <Text variant="body" size="xs" color="secondary" style={styles.noPhotoLinkText}>
+                  or list without photos
+                </Text>
+              </Pressable>
             </View>
           </View>
         )}
@@ -359,5 +378,13 @@ const styles = StyleSheet.create({
   },
   helpText: {
     textAlign: 'center',
+  },
+  noPhotoLink: {
+    marginTop: spacing.lg,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+  },
+  noPhotoLinkText: {
+    textDecorationLine: 'underline',
   },
 });

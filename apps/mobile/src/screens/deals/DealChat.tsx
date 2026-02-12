@@ -32,6 +32,7 @@ import {
   cancelPendingDeal,
   getUserSchedulingInfo,
   markDealAsRead,
+  getHighestBuyerOfferForItem,
 } from '../../services/dealsService';
 import { useAuthStore } from '../../state/authStore';
 import { getSignedUrlCached } from '../../services/imageService';
@@ -109,8 +110,10 @@ export default function DealChatScreen({ navigation, route }: Props) {
   const [selectedTimes, setSelectedTimes] = useState<string[]>([]);
   const [scheduleNote, setScheduleNote] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null); // Track which action is loading
+  const [highestOffer, setHighestOffer] = useState<number | null>(null);
 
   const isSelling = deal?.seller_id === user?.id;
+  const isBuyer = deal?.buyer_id === user?.id;
   const otherPartyLabel = isSelling ? 'Buyer' : 'Seller';
 
   // Check if deal is in accepted state (post-negotiation)
@@ -136,6 +139,12 @@ export default function DealChatScreen({ navigation, route }: Props) {
 
       setDeal(fetchedDeal);
       setMessages(fetchedMessages);
+
+      // Fetch highest buyer offer for the item
+      if (fetchedDeal) {
+        const highest = await getHighestBuyerOfferForItem(fetchedDeal.item_id);
+        setHighestOffer(highest);
+      }
 
       // Mark deal as read when opening chat
       if (user?.id && fetchedDeal) {
@@ -905,6 +914,24 @@ export default function DealChatScreen({ navigation, route }: Props) {
           </Badge>
         </View>
 
+        {/* Top offer banner */}
+        {highestOffer && (
+          <View style={[styles.topOfferBanner, {
+            backgroundColor: deal?.buyer_offer === highestOffer && isBuyer
+              ? 'rgba(52, 199, 89, 0.12)'  // green tint
+              : 'rgba(255, 59, 48, 0.12)',  // red tint
+          }]}>
+            <Text variant="bodyMedium" size="sm" style={{
+              color: deal?.buyer_offer === highestOffer && isBuyer
+                ? colors.success || '#34C759'
+                : colors.danger || '#FF3B30',
+            }}>
+              Top offer: ${highestOffer}
+              {deal?.buyer_offer === highestOffer && isBuyer ? ' (your offer)' : ''}
+            </Text>
+          </View>
+        )}
+
         {/* Messages - all messages are scrollable */}
         <ScrollView
           ref={scrollViewRef}
@@ -1338,6 +1365,11 @@ function MessageBubble({ message, isOwn, isSelling, counterpartyFirstName }: Mes
             {isAgent ? 'Agent' : otherLabel}
           </Text>
         )}
+        {message.message_type === 'broadcast' && (
+          <Text variant="body" size="xs" color="muted" style={{ fontStyle: 'italic', marginBottom: 2 }}>
+            Broadcast to all buyers
+          </Text>
+        )}
         <RichPriceText
           text={message.content}
           references={message.metadata?.priceReferences}
@@ -1447,6 +1479,14 @@ const styles = StyleSheet.create({
   },
   contextInfo: {
     flex: 1,
+  },
+  topOfferBanner: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.sm,
+    borderRadius: radius.sm,
+    alignItems: 'center',
   },
   messagesContainer: {
     flex: 1,

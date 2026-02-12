@@ -19,9 +19,9 @@ import { colors, spacing, radius, typography } from '../../ui/tokens';
 import { semanticSearch, SearchResultItem } from '../../services/searchService';
 import { useAuthStore } from '../../state/authStore';
 import { getSignedUrlCached } from '../../services/imageService';
+import { getTopBidsForItems, getDealsByItemId } from '../../services/dealsService';
 import { BROWSE_PAGE_SIZE } from '../../lib/constants';
 import { getStatusColor } from '../../lib/statusColorMap';
-import { getDealsByItemId } from '../../services/dealsService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const NUM_COLUMNS = 3;
@@ -43,6 +43,7 @@ export default function BrowseGridScreen({ navigation }: Props) {
   const [suggestedCategories, setSuggestedCategories] = useState<string[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
+  const [topBids, setTopBids] = useState<Record<string, any>>({});
 
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const displayItemsRef = useRef<SearchResultItem[]>([]);
@@ -52,6 +53,18 @@ export default function BrowseGridScreen({ navigation }: Props) {
   useEffect(() => {
     displayItemsRef.current = displayItems;
   }, [displayItems]);
+
+  // Load top bids for items
+  const loadTopBids = useCallback(async (items: SearchResultItem[]) => {
+    if (items.length === 0) return;
+    try {
+      const ids = items.map((i) => i.id);
+      const bids = await getTopBidsForItems(ids);
+      setTopBids((prev) => ({ ...prev, ...bids }));
+    } catch (error) {
+      console.warn('[BrowseGrid] Error loading top bids:', error);
+    }
+  }, []);
 
   // Load signed URLs for item photos (using cached signing)
   const loadImageUrls = useCallback(async (items: SearchResultItem[]) => {
@@ -71,20 +84,20 @@ export default function BrowseGridScreen({ navigation }: Props) {
     setImageUrls(prev => ({ ...prev, ...newUrls }));
   }, []);
 
-  // Load initial items from database (excluding current user's items and sold items)
+  // Load initial items from database (excluding current user's items; sold items shown with badge)
   const loadInitialItems = useCallback(async () => {
     setLoading(true);
     try {
       console.log('📦 [BrowseGrid] Loading all items, excluding user:', user?.id);
       const response = await semanticSearch('', BROWSE_PAGE_SIZE, user?.id, undefined);
-      // Filter out sold items (completed deals) - server should already filter, but double-check client-side
-      const availableItems = response.results.filter(item => item.dealStatus !== 'completed');
-      setDisplayItems(availableItems);
+      const items = response.results;
+      setDisplayItems(items);
       setCursor(response.nextCursor);
       setHasMore(response.hasMore ?? true);
-      console.log('✅ [BrowseGrid] Loaded', availableItems.length, 'available items');
-      // Load images for items
-      loadImageUrls(availableItems);
+      console.log('✅ [BrowseGrid] Loaded', items.length, 'items (including sold)');
+      // Load images and top bids for items
+      loadImageUrls(items);
+      loadTopBids(items);
     } catch (error) {
       console.error('❌ [BrowseGrid] Error loading items:', error);
       setDisplayItems([]);
@@ -93,7 +106,7 @@ export default function BrowseGridScreen({ navigation }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [user?.id, loadImageUrls]);
+  }, [user?.id, loadImageUrls, loadTopBids]);
 
   // Load items on mount
   useEffect(() => {
@@ -139,7 +152,7 @@ export default function BrowseGridScreen({ navigation }: Props) {
               if (newStatus !== undefined && newStatus !== item.dealStatus) {
                 const updatedItem: SearchResultItem = { 
                   ...item, 
-                  dealStatus: (newStatus as 'negotiating' | 'agreed' | 'logistics' | 'completed' | 'cancelled' | null | undefined) ?? undefined
+                  dealStatus: (newStatus as 'pending' | 'negotiating' | 'agreed' | 'logistics' | 'completed' | 'cancelled' | null | undefined) ?? undefined
                 };
                 return updatedItem;
               }
@@ -177,20 +190,20 @@ export default function BrowseGridScreen({ navigation }: Props) {
       console.log('🔍 [BrowseGrid] Searching for:', query);
       const response = await semanticSearch(query, BROWSE_PAGE_SIZE, user?.id, undefined);
 
-      // Filter out sold items (completed deals) - server should already filter, but double-check client-side
-      const availableItems = response.results.filter(item => item.dealStatus !== 'completed');
-      setDisplayItems(availableItems.length > 0 ? availableItems : []);
+      const items = response.results;
+      setDisplayItems(items.length > 0 ? items : []);
       setInterpretation(response.interpretation);
       setSuggestedCategories(response.suggestedCategories);
       setCursor(response.nextCursor);
       setHasMore(response.hasMore ?? true);
-      // Load images for search results
-      if (availableItems.length > 0) {
-        loadImageUrls(availableItems);
+      // Load images and top bids for search results
+      if (items.length > 0) {
+        loadImageUrls(items);
+        loadTopBids(items);
       }
 
       console.log('✅ [BrowseGrid] Search complete:', {
-        resultCount: availableItems.length,
+        resultCount: items.length,
         interpretation: response.interpretation,
       });
     } catch (error) {
@@ -309,6 +322,7 @@ export default function BrowseGridScreen({ navigation }: Props) {
           return [...prev, ...dedupedAppend];
         });
         loadImageUrls(response.results);
+        loadTopBids(response.results);
       }
 
       setCursor(response.nextCursor);
@@ -320,7 +334,7 @@ export default function BrowseGridScreen({ navigation }: Props) {
     } finally {
       setIsFetchingMore(false);
     }
-  }, [loading, isFetchingMore, hasMore, hasSearched, searchQuery, cursor, user?.id, loadImageUrls]);
+  }, [loading, isFetchingMore, hasMore, hasSearched, searchQuery, cursor, user?.id, loadImageUrls, loadTopBids]);
 
   const handleEndReached = useCallback(
     (info: { distanceFromEnd: number }) => {
@@ -358,6 +372,7 @@ export default function BrowseGridScreen({ navigation }: Props) {
 
   const renderItem = ({ item }: { item: SearchResultItem }) => {
     const imageUrl = imageUrls[item.id];
+    const isSold = item.dealStatus === 'completed';
     const hasDeal = item.dealStatus && item.dealStatus !== 'completed' && item.dealStatus !== 'cancelled';
     const statusColor = hasDeal ? getStatusColor(item.dealStatus) : null;
 
@@ -372,7 +387,10 @@ export default function BrowseGridScreen({ navigation }: Props) {
               }
             : null,
         ]}
-        onPress={() => handleItemPress(item.id)}
+        onPress={() => {
+          if (isSold) return; // Sold items are non-interactive
+          handleItemPress(item.id);
+        }}
       >
         <View style={styles.galleryThumb}>
           {imageUrl ? (
@@ -405,7 +423,13 @@ export default function BrowseGridScreen({ navigation }: Props) {
             </View>
           )}
         </View>
-        {/* Deal status badge - top left */}
+        {/* Sold overlay */}
+        {isSold && (
+          <View style={styles.soldOverlay}>
+            <Text style={styles.soldOverlayText}>SOLD</Text>
+          </View>
+        )}
+        {/* Deal status badge - top left (active deals) */}
         {hasDeal && (
           <View style={[styles.dealStatusBadge, statusColor ? { backgroundColor: statusColor } : null]}>
             <Text style={styles.dealStatusText}>
@@ -416,18 +440,33 @@ export default function BrowseGridScreen({ navigation }: Props) {
             </Text>
           </View>
         )}
+        {/* Sold badge - top left (completed deals) */}
+        {isSold && (
+          <View style={styles.soldBadge}>
+            <Text style={styles.dealStatusText}>Sold</Text>
+          </View>
+        )}
+        {/* Top bid badge - top right */}
+        {!isSold && topBids[item.id]?.topBid && (
+          <View style={styles.topBidBadge}>
+            <Text style={styles.topBidText}>Top bid: ${topBids[item.id].topBid}</Text>
+          </View>
+        )}
+        {/* Bottom info: estimated range + retail price */}
         <View style={styles.galleryInfo}>
           <View style={styles.priceTag}>
             <Text style={styles.priceText} numberOfLines={1}>
               {formatPriceRange(item)}
             </Text>
           </View>
-          {hasSearched && item.relevanceScore > 0 && (
-            <View style={styles.relevanceBadge}>
-              <Text style={styles.relevanceText}>{item.relevanceScore}%</Text>
-            </View>
-          )}
         </View>
+        {item.retailPrice && (
+          <View style={styles.retailPriceTag}>
+            <Text style={styles.retailPriceText} numberOfLines={1}>
+              Retail ${item.retailPrice}
+            </Text>
+          </View>
+        )}
       </Pressable>
     );
   };
@@ -729,5 +768,59 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '700',
     textTransform: 'uppercase',
+  },
+  topBidBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: colors.success || '#4CAF50',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: radius.sm,
+    zIndex: 1,
+  },
+  topBidText: {
+    fontSize: 9,
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  retailPriceTag: {
+    position: 'absolute',
+    bottom: 6,
+    right: 6,
+  },
+  retailPriceText: {
+    fontSize: 9,
+    color: '#FFFFFF',
+    fontWeight: '500',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  soldOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: radius.md,
+    zIndex: 2,
+  },
+  soldOverlayText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  soldBadge: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    backgroundColor: '#6B7280',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: radius.sm,
+    zIndex: 3,
   },
 });

@@ -2,16 +2,15 @@
  * Broadcast Service
  *
  * Handles broadcasting announcements from sellers to interested buyers.
- * Creates inbox messages for all buyers interested in an item or deal.
+ * Sends messages to all active deal chats for an item.
  */
 
 import { supabase } from '../lib/supabase';
-import { getItemById } from './itemsService';
 import { getDealById } from './dealsService';
-import { findBuyersForItem } from './matchingService';
 
 /**
  * Broadcast a message to all interested buyers for an item
+ * Sends the message to each buyer's individual deal chat
  */
 export async function broadcastToItemBuyers(
   itemId: string,
@@ -19,62 +18,54 @@ export async function broadcastToItemBuyers(
   message: string
 ): Promise<{ success: boolean; recipientsCount: number; error?: string }> {
   try {
-    // Get the item
-    const { data: item, error: itemError } = await getItemById(itemId);
-    if (itemError || !item) {
-      return { success: false, recipientsCount: 0, error: itemError || 'Item not found' };
-    }
-
-    // Find interested buyers through matches (where the item is matched with wants)
-    const { data: matches, error: matchesError } = await supabase
-      .from('matches')
-      .select('buyer_id')
+    // Get all active deals for this item (these are the interested buyers)
+    const { data: deals, error: dealsError } = await supabase
+      .from('deals')
+      .select('id, buyer_id')
       .eq('item_id', itemId)
       .eq('seller_id', sellerId)
-      .eq('status', 'active');
+      .not('status', 'eq', 'cancelled')
+      .not('status', 'eq', 'completed');
 
-    if (matchesError) {
-      console.error('Error getting matches:', matchesError);
+    if (dealsError) {
+      console.error('Error getting deals for broadcast:', dealsError);
+      return { success: false, recipientsCount: 0, error: String(dealsError) };
     }
 
-    const buyerIds = matches?.map((m) => m.buyer_id) || [];
-
-    // Also find potential buyers using findBuyersForItem
-    const potentialBuyers = await findBuyersForItem(item, sellerId);
-    const potentialBuyerIds = potentialBuyers.map((b) => b.owner_id).filter((id) => id && !buyerIds.includes(id));
-
-    // Combine unique buyer IDs
-    const allBuyerIds = [...new Set([...buyerIds, ...potentialBuyerIds])].filter(Boolean) as string[];
-
-    if (allBuyerIds.length === 0) {
+    if (!deals || deals.length === 0) {
       return { success: true, recipientsCount: 0 };
     }
 
-    // Create inbox messages for each buyer
-    // For now, we'll create messages in the messages table
-    // TODO: Create a dedicated inbox table if needed
-    const messages = allBuyerIds.map((buyerId) => ({
-      deal_id: null, // Broadcast messages aren't tied to a specific deal
-      sender_id: sellerId,
-      is_agent: false,
-      content: message,
-      message_type: 'broadcast' as const,
-      metadata: {
-        item_id: itemId,
-        item_name: item.title,
-        broadcast: true,
-      },
-      // We'll need to handle how buyers receive these - maybe through a match_id or conversation_id
-      // For now, this is a placeholder structure
-    }));
+    // Send broadcast message to each deal's chat
+    let successCount: number = 0;
+    for (const deal of deals) {
+      try {
+        const { error: insertError } = await supabase
+          .from('messages')
+          .insert({
+            deal_id: deal.id,
+            sender_id: sellerId,
+            is_agent: false,
+            content: message,
+            message_type: 'broadcast',
+            metadata: {
+              broadcast: true,
+              item_id: itemId,
+            },
+          });
 
-    // Note: The current messages table requires deal_id, so we might need to adjust this
-    // or create a different mechanism for inbox messages
-    // This is a placeholder implementation
+        if (insertError) {
+          console.error(`Failed to send broadcast to deal ${deal.id}:`, insertError);
+        } else {
+          successCount++;
+        }
+      } catch (err) {
+        console.error(`Failed to send broadcast to deal ${deal.id}:`, err);
+      }
+    }
 
-    console.log(`📢 Broadcasting to ${allBuyerIds.length} buyers for item ${itemId}:`, message);
-
-    return { success: true, recipientsCount: allBuyerIds.length };
+    console.log(`Broadcast sent to ${successCount}/${deals.length} buyers for item ${itemId}`);
+    return { success: true, recipientsCount: successCount };
   } catch (error) {
     console.error('Error broadcasting to item buyers:', error);
     return { success: false, recipientsCount: 0, error: String(error) };
@@ -124,7 +115,7 @@ export async function broadcastToDealBuyer(
       return { success: false, recipientsCount: 0, error: String(messageError) };
     }
 
-    console.log(`📢 Broadcasting to buyer ${buyerId} for deal ${dealId}:`, message);
+    console.log(`Broadcasting to buyer ${buyerId} for deal ${dealId}:`, message);
 
     return { success: true, recipientsCount: 1 };
   } catch (error) {
@@ -132,4 +123,3 @@ export async function broadcastToDealBuyer(
     return { success: false, recipientsCount: 0, error: String(error) };
   }
 }
-

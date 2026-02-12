@@ -52,7 +52,8 @@ export async function expressInterest(
   buyerId: string,
   itemId: string,
   maxBid?: number,
-  interestedFor?: string
+  interestedFor?: string,
+  question?: string
 ): Promise<{ deal: Deal | null; error: string | null }> {
   try {
     // First, get the item to find the seller
@@ -68,6 +69,19 @@ export async function expressInterest(
 
     if (item.owner_id === buyerId) {
       return { deal: null, error: 'Cannot bid on your own item' };
+    }
+
+    // Check if item is already sold (any completed deal exists)
+    const { data: completedDeal } = await supabase
+      .from('deals')
+      .select('id')
+      .eq('item_id', itemId)
+      .eq('status', 'completed')
+      .limit(1)
+      .maybeSingle();
+
+    if (completedDeal) {
+      return { deal: null, error: 'This item has been sold' };
     }
 
     // Check if there's already a deal for this buyer+item
@@ -111,6 +125,7 @@ export async function expressInterest(
         item_id: itemId,
         status: 'pending',
         current_offer: maxBid || null,
+        buyer_offer: maxBid || null,
         last_offer_by: maxBid ? buyerId : null,
         interested_for: interestedFor || null,
       })
@@ -132,13 +147,10 @@ export async function expressInterest(
       await sendMessage(deal.id, buyerId, 'Expressed interest in this item', 'text');
     }
 
-    // Add agent welcome message
-    await sendAgentMessage(
-      deal.id,
-      maxBid
-        ? `Great! You've offered $${maxBid} for "${item.title}". The seller will be notified and can accept, counter, or decline.`
-        : `You've expressed interest in "${item.title}". Consider making an offer to get the seller's attention!`
-    );
+    // Send buyer's question as a text message if provided
+    if (question) {
+      await sendMessage(deal.id, buyerId, question, 'text');
+    }
 
     console.log('✅ Created deal:', deal.id);
     return { deal, error: null };
@@ -324,7 +336,8 @@ export async function getDealsByItemId(itemId: string): Promise<Deal[]> {
       .from('deals')
       .select(`
         *,
-        item:items(*)
+        item:items(*),
+        buyer:profiles!deals_buyer_id_fkey(display_name)
       `)
       .eq('item_id', itemId)
       .not('status', 'eq', 'cancelled')
@@ -472,6 +485,7 @@ export async function makeOffer(
       .from('deals')
       .update({
         current_offer: amount,
+        buyer_offer: amount,
         last_offer_by: userId,
       })
       .eq('id', dealId);
@@ -727,26 +741,22 @@ export async function acceptOffer(dealId: string, userId: string): Promise<boole
       'system'
     );
 
-    // Get seller's scheduling info
-    const sellerInfo = await getUserSchedulingInfo(deal.seller_id);
+    // Notify other active buyers that item is now pending
+    const { data: otherDeals } = await supabase
+      .from('deals')
+      .select('id')
+      .eq('item_id', deal.item_id)
+      .eq('status', 'negotiating')
+      .neq('id', dealId);
 
-    // Build agent message with seller info if available
-    let agentMsg = `Deal agreed at $${deal.current_offer}! Now let's arrange logistics.\n\n`;
-
-    if (sellerInfo) {
-      if (sellerInfo.dormLocation) {
-        agentMsg += `📍 Seller's preferred meetup: ${sellerInfo.dormLocation}\n`;
-      }
-      if (sellerInfo.paymentPreference) {
-        agentMsg += `💳 Seller accepts: ${sellerInfo.paymentPreference.split(',').join(', ')}\n`;
-      }
-      if (sellerInfo.dormLocation || sellerInfo.paymentPreference) {
-        agentMsg += `\nSeller, please confirm if this location and payment method are still preferred for this transaction.`;
+    if (otherDeals) {
+      for (const otherDeal of otherDeals) {
+        await sendAgentMessage(
+          otherDeal.id,
+          'This item is now pending sale to another buyer. Your offer is still on file in case the deal falls through.'
+        );
       }
     }
-
-    // Create agent message
-    await sendAgentMessage(dealId, agentMsg);
 
     return true;
   } catch (error) {
@@ -797,6 +807,33 @@ export async function completeDeal(dealId: string, userId: string): Promise<bool
     if (error) throw error;
 
     await sendMessage(dealId, userId, 'Deal completed!', 'system');
+
+    // Get the deal to find item_id
+    const deal = await getDealById(dealId);
+    if (deal) {
+      // Notify other active buyers
+      const { data: otherDeals } = await supabase
+        .from('deals')
+        .select('id')
+        .eq('item_id', deal.item_id)
+        .neq('id', dealId)
+        .not('status', 'in', '("completed","cancelled")');
+
+      if (otherDeals) {
+        for (const otherDeal of otherDeals) {
+          await sendAgentMessage(
+            otherDeal.id,
+            'This item has been sold to another buyer.'
+          );
+        }
+      }
+
+      // Mark item as sold
+      await supabase
+        .from('items')
+        .update({ status: 'sold' })
+        .eq('id', deal.item_id);
+    }
 
     return true;
   } catch (error) {
@@ -1078,68 +1115,42 @@ export async function replyToQuestion(
 
 /**
  * Get top bid info for multiple items at once
- * Returns a map of itemId -> { topBid, interestedCount, bidStatus }
+ * Returns a map of itemId -> { topBid, interestedCount }
  */
 export async function getTopBidsForItems(
-  itemIds: string[],
-  minPrices?: Record<string, number | undefined>,
-  estimatedMaxPrices?: Record<string, number | undefined>
-): Promise<Record<string, { topBid: number | undefined; interestedCount: number; bidStatus: 'accept' | 'consider' | 'low' | undefined }>> {
+  itemIds: string[]
+): Promise<Record<string, { topBid: number | undefined; interestedCount: number }>> {
   if (itemIds.length === 0) return {};
 
   try {
     const { data: deals, error } = await supabase
       .from('deals')
-      .select('item_id, current_offer, status')
+      .select('item_id, current_offer, buyer_offer, status')
       .in('item_id', itemIds)
       .not('status', 'eq', 'cancelled');
 
     if (error) throw error;
 
-    const result: Record<string, { topBid: number | undefined; interestedCount: number; bidStatus: 'accept' | 'consider' | 'low' | undefined }> = {};
+    const result: Record<string, { topBid: number | undefined; interestedCount: number }> = {};
 
     // Initialize all items with default values
     for (const itemId of itemIds) {
-      result[itemId] = { topBid: undefined, interestedCount: 0, bidStatus: undefined };
+      result[itemId] = { topBid: undefined, interestedCount: 0 };
     }
 
     // Group deals by item and calculate top bid
     for (const deal of deals || []) {
       const itemId = deal.item_id;
       if (!result[itemId]) {
-        result[itemId] = { topBid: undefined, interestedCount: 0, bidStatus: undefined };
+        result[itemId] = { topBid: undefined, interestedCount: 0 };
       }
 
       result[itemId].interestedCount++;
 
-      if (deal.current_offer) {
-        const currentOffer = deal.current_offer;
-        if (!result[itemId].topBid || currentOffer > result[itemId].topBid!) {
-          result[itemId].topBid = currentOffer;
-
-          // Determine bid status based on min price and estimated max
-          const minPrice = minPrices?.[itemId];
-          const estimatedMax = estimatedMaxPrices?.[itemId];
-
-          if (minPrice && currentOffer >= minPrice) {
-            // Bid is at or above minimum price - great!
-            if (estimatedMax && currentOffer >= estimatedMax * 0.9) {
-              result[itemId].bidStatus = 'accept'; // Within 90% of max estimate
-            } else {
-              result[itemId].bidStatus = 'consider';
-            }
-          } else if (minPrice && currentOffer < minPrice) {
-            result[itemId].bidStatus = 'low';
-          } else {
-            // No min price set - use estimated value to determine
-            if (estimatedMax && currentOffer >= estimatedMax * 0.8) {
-              result[itemId].bidStatus = 'accept';
-            } else if (estimatedMax && currentOffer >= estimatedMax * 0.5) {
-              result[itemId].bidStatus = 'consider';
-            } else {
-              result[itemId].bidStatus = 'low';
-            }
-          }
+      if (deal.buyer_offer) {
+        const buyerOffer = deal.buyer_offer;
+        if (!result[itemId].topBid || buyerOffer > result[itemId].topBid!) {
+          result[itemId].topBid = buyerOffer;
         }
       }
     }
@@ -1148,6 +1159,30 @@ export async function getTopBidsForItems(
   } catch (error) {
     console.error('Error getting top bids for items:', error);
     return {};
+  }
+}
+
+/**
+ * Get the highest buyer offer for a specific item
+ */
+export async function getHighestBuyerOfferForItem(
+  itemId: string
+): Promise<number | null> {
+  try {
+    const { data, error } = await supabase
+      .from('deals')
+      .select('buyer_offer')
+      .eq('item_id', itemId)
+      .not('status', 'eq', 'cancelled')
+      .not('buyer_offer', 'is', null)
+      .order('buyer_offer', { ascending: false })
+      .limit(1);
+
+    if (error) throw error;
+    return data?.[0]?.buyer_offer ?? null;
+  } catch (error) {
+    console.error('Error getting highest buyer offer:', error);
+    return null;
   }
 }
 

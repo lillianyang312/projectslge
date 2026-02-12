@@ -24,45 +24,8 @@ import { getTopBidsForItems } from '../../services/dealsService';
 
 type Props = NativeStackScreenProps<ListStackParamList, 'MyList'>;
 
-// Demo data matching HTML spec exactly - line 611-674 in HTML
-const initialDemoItems = [
-  {
-    id: '1',
-    emoji: '🪑',
-    title: 'Herman Miller Aeron',
-    category: 'Furniture',
-    interestedCount: 3,
-    topBid: 550,
-    bidStatus: 'accept' as const,
-  },
-  {
-    id: '2',
-    emoji: '📱',
-    title: 'iPhone 14 Pro',
-    category: 'Electronics',
-    interestedCount: 1,
-    topBid: 420,
-    bidStatus: 'consider' as const,
-  },
-  {
-    id: '3',
-    emoji: '🎸',
-    title: 'Fender Stratocaster',
-    category: 'Music',
-    interestedCount: 2,
-    topBid: 280,
-    bidStatus: 'low' as const,
-  },
-  {
-    id: '4',
-    emoji: '🖥️',
-    title: 'Dell Monitor 27"',
-    category: 'Electronics',
-    interestedCount: 0,
-    topBid: undefined,
-    bidStatus: undefined,
-  },
-];
+// No demo items - start with empty list
+const initialDemoItems: { id: string; emoji: string; title: string; category: string; interestedCount: number; topBid: number | undefined }[] = [];
 
 type ListTab = 'live' | 'gone';
 
@@ -75,7 +38,7 @@ export default function MyListScreen({ navigation }: Props) {
   const [supabaseItems, setSupabaseItems] = useState<Item[]>([]);
   const [goneItems, setGoneItems] = useState<Item[]>([]);
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>({});
-  const [topBidsMap, setTopBidsMap] = useState<Record<string, { topBid: number | undefined; interestedCount: number; bidStatus: 'accept' | 'consider' | 'low' | undefined }>>({});
+  const [topBidsMap, setTopBidsMap] = useState<Record<string, { topBid: number | undefined; interestedCount: number }>>({});
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showMenu, setShowMenu] = useState(false);
@@ -122,15 +85,7 @@ export default function MyListScreen({ navigation }: Props) {
         // Fetch top bids for all active items
         if (activeResult.data.length > 0) {
           const itemIds = activeResult.data.map(item => item.id);
-          const minPrices: Record<string, number | undefined> = {};
-          const estimatedMaxPrices: Record<string, number | undefined> = {};
-
-          for (const item of activeResult.data) {
-            minPrices[item.id] = item.min_price;
-            estimatedMaxPrices[item.id] = item.estimated_value_max;
-          }
-
-          const bidsData = await getTopBidsForItems(itemIds, minPrices, estimatedMaxPrices);
+          const bidsData = await getTopBidsForItems(itemIds);
           setTopBidsMap(bidsData);
           console.log('[MyList] Top bids fetched:', bidsData);
         }
@@ -225,7 +180,6 @@ export default function MyListScreen({ navigation }: Props) {
       category: l.original.category,
       interestedCount: 0,
       topBid: undefined,
-      bidStatus: undefined,
       imageUri: l.original.imageUris?.[0],
       isLocal: true,
     }));
@@ -240,7 +194,6 @@ export default function MyListScreen({ navigation }: Props) {
       category: item.category,
       interestedCount: bidInfo?.interestedCount || 0,
       topBid: bidInfo?.topBid,
-      bidStatus: bidInfo?.bidStatus,
       imageUri: thumbnailUrls[item.id] || null,
       isLocal: false,
       status: item.status || 'active',
@@ -255,7 +208,6 @@ export default function MyListScreen({ navigation }: Props) {
     category: item.category,
     interestedCount: 0,
     topBid: undefined,
-    bidStatus: undefined,
     imageUri: thumbnailUrls[item.id] || null,
     isLocal: false,
     status: item.status as ItemStatus,
@@ -560,12 +512,7 @@ export default function MyListScreen({ navigation }: Props) {
                           <Text
                             variant="heading"
                             size="xxl"
-                            color={
-                              item.bidStatus === 'accept' ? 'success' :
-                              item.bidStatus === 'consider' ? 'warning' :
-                              item.bidStatus === 'low' ? 'danger' :
-                              'muted'
-                            }
+                            color={item.topBid ? undefined : 'muted'}
                             style={styles.itemBidValue}
                           >
                             {item.topBid ? `$${item.topBid}` : '—'}

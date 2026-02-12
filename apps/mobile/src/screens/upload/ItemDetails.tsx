@@ -36,6 +36,7 @@ type Props = NativeStackScreenProps<ListStackParamList, 'ItemDetails'>;
 type Condition = 'new' | 'like_new' | 'good' | 'fair' | 'poor';
 
 // Build item name by combining base title with additional category details
+// Brand always comes first, then base title, then remaining details
 function buildItemNameFromDetails(
   baseTitle: string,
   categoryValue: string,
@@ -45,16 +46,14 @@ function buildItemNameFromDetails(
   books: { author: string; subject: string }
 ): string {
   const categoryLower = categoryValue.toLowerCase();
-  const additionalParts: string[] = [];
-
-  // Collect additional details that aren't already in the base title
   const baseTitleLower = baseTitle.toLowerCase();
 
+  // Extract brand first (across all categories)
+  let brand = '';
+  const additionalParts: string[] = [];
+
   if (categoryLower.includes('clothing')) {
-    // Add details not already in title
-    if (clothing.brand && !baseTitleLower.includes(clothing.brand.toLowerCase())) {
-      additionalParts.push(clothing.brand);
-    }
+    brand = clothing.brand;
     if (clothing.color && !baseTitleLower.includes(clothing.color.toLowerCase())) {
       additionalParts.push(clothing.color);
     }
@@ -68,9 +67,7 @@ function buildItemNameFromDetails(
       additionalParts.push(`Size ${clothing.size}`);
     }
   } else if (categoryLower.includes('electronics')) {
-    if (electronics.brand && !baseTitleLower.includes(electronics.brand.toLowerCase())) {
-      additionalParts.push(electronics.brand);
-    }
+    brand = electronics.brand;
     if (electronics.model && !baseTitleLower.includes(electronics.model.toLowerCase())) {
       additionalParts.push(electronics.model);
     }
@@ -81,6 +78,7 @@ function buildItemNameFromDetails(
       additionalParts.push(electronics.color);
     }
   } else if (categoryLower.includes('furniture')) {
+    // Furniture has no brand field
     if (furniture.style && !baseTitleLower.includes(furniture.style.toLowerCase())) {
       additionalParts.push(furniture.style);
     }
@@ -99,12 +97,17 @@ function buildItemNameFromDetails(
     }
   }
 
-  // Combine base title with additional details
-  if (additionalParts.length > 0) {
-    return `${baseTitle} ${additionalParts.join(' ')}`.trim();
+  // Build title: Brand first, then base title (without brand duplication), then additional parts
+  const parts: string[] = [];
+  if (brand && !baseTitleLower.includes(brand.toLowerCase())) {
+    parts.push(brand);
   }
-  return baseTitle;
+  parts.push(baseTitle);
+  parts.push(...additionalParts);
+
+  return parts.join(' ').trim();
 }
+
 
 export default function ItemDetailsScreen({ navigation }: Props) {
   const draft = useItemsStore((state) => state.draft);
@@ -143,7 +146,7 @@ export default function ItemDetailsScreen({ navigation }: Props) {
   const [bookSubject, setBookSubject] = useState('');
 
   const [analyzing, setAnalyzing] = useState(false);
-  const analyzedRef = useRef(false);
+  const [analysisApplied, setAnalysisApplied] = useState(false);
   const [images, setImages] = useState<string[]>(draft?.imageUris || [draft?.imageUri].filter(Boolean) || []);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
@@ -299,143 +302,98 @@ export default function ItemDetailsScreen({ navigation }: Props) {
     }
   };
 
-  // Auto-analyze images when screen loads
-  useEffect(() => {
+  // AI auto-fill triggered by button press
+  const handleAutoFill = async () => {
     const imagesToAnalyze = images.length > 0 ? images : (draft?.imageUri ? [draft.imageUri] : []);
+    if (imagesToAnalyze.length === 0 || !user) return;
 
-    console.log('ItemDetails useEffect triggered', {
-      imageCount: imagesToAnalyze.length,
-      hasUser: !!user,
-      analyzed: analyzedRef.current,
-      userId: user?.id
-    });
+    setAnalyzing(true);
+    setAnalysisApplied(false);
+    try {
+      const { paths, errors } = await uploadImageGroup(imagesToAnalyze, user.id);
 
-    async function analyzeItemImages() {
-      if (imagesToAnalyze.length > 0 && user && !analyzedRef.current) {
-        setAnalyzing(true);
-        try {
-          console.log(`Starting image analysis for ${imagesToAnalyze.length} image(s)`);
+      if (errors.length > 0) {
+        console.warn('[ItemDetails] Some images failed to upload:', errors);
+      }
 
-          // Upload all images as a group to Supabase Storage
-          const { paths, groupId, errors } = await uploadImageGroup(imagesToAnalyze, user.id);
+      if (paths.length > 0) {
+        const signedUrlPromises = paths.map(path => getSignedUrlCached(path));
+        const signedUrls = await Promise.all(signedUrlPromises);
+        const validSignedUrls = signedUrls.filter((url): url is string => url !== null);
+        const validPaths = paths.filter((_, i) => signedUrls[i] !== null);
 
-          if (errors.length > 0) {
-            console.warn('[ItemDetails] Some images failed to upload:', errors);
-          }
+        if (validSignedUrls.length > 0) {
+          const analysisResult = await analyzeImages(validSignedUrls, validPaths);
 
-          console.log(`[ItemDetails] Uploaded ${paths.length} images with groupId: ${groupId}`);
-
-          if (paths.length > 0) {
-            // Get signed URLs for all uploaded images (using cached signing)
-            const signedUrlPromises = paths.map(path => getSignedUrlCached(path));
-            const signedUrls = await Promise.all(signedUrlPromises);
-
-            // Filter out null URLs
-            const validSignedUrls = signedUrls.filter((url): url is string => url !== null);
-            const validPaths = paths.filter((_, i) => signedUrls[i] !== null);
-
-            console.log(`Got ${validSignedUrls.length} signed URLs for analysis`);
-
-            if (validSignedUrls.length > 0) {
-              // Call analyzeImages Edge Function with all images
-              console.log('Calling analyzeImages with:', {
-                urlCount: validSignedUrls.length,
-                pathCount: validPaths.length
-              });
-              const analysisResult = await analyzeImages(validSignedUrls, validPaths);
-              console.log('Analysis result:', analysisResult);
-
-              if (analysisResult) {
-                // Auto-populate title and category from analysis
-                if (analysisResult.type === 'identified') {
-                  console.log('Item identified:', analysisResult.item);
-
-                  const newTitle = analysisResult.item.title;
-                  const newCategory = analysisResult.item.category;
-                  let newCondition: Condition | undefined;
-                  if (analysisResult.item.condition) {
-                    const conditionLower = analysisResult.item.condition.toLowerCase().replace(' ', '_') as Condition;
-                    if (['new', 'like_new', 'good', 'fair', 'poor'].includes(conditionLower)) {
-                      newCondition = conditionLower;
-                    }
-                  }
-
-                  // Set the base title from AI (this will be combined with additional details)
-                  setBaseTitle(newTitle);
-                  // Reset user edit flag since AI is setting a new title
-                  userEditedTitleRef.current = false;
-
-                  // If keyboard is visible, defer the update to avoid dismissing it
-                  if (isKeyboardVisibleRef.current) {
-                    pendingAnalysisResultRef.current = {
-                      title: newTitle,
-                      category: newCategory,
-                      condition: newCondition,
-                    };
-                  } else {
-                    setTitle(newTitle);
-                    setCategory(newCategory);
-                    if (newCondition) setCondition(newCondition);
-                  }
-
-                  // Populate category-specific fields from analysis
-                  const details = analysisResult.item.categoryDetails;
-                  if (details) {
-                    setCategoryDetails(details);
-
-                    // Clothing fields
-                    if (details.clothing) {
-                      if (details.clothing.size) setClothingSize(details.clothing.size);
-                      if (details.clothing.clothingType) setClothingType(details.clothing.clothingType);
-                      if (details.clothing.brand) setClothingBrand(details.clothing.brand);
-                      if (details.clothing.color) setClothingColor(details.clothing.color);
-                      if (details.clothing.material) setClothingMaterial(details.clothing.material);
-                    }
-
-                    // Electronics fields
-                    if (details.electronics) {
-                      if (details.electronics.brand) setElectronicsBrand(details.electronics.brand);
-                      if (details.electronics.model) setElectronicsModel(details.electronics.model);
-                      if (details.electronics.storage) setElectronicsStorage(details.electronics.storage);
-                      if (details.electronics.color) setElectronicsColor(details.electronics.color);
-                    }
-
-                    // Furniture fields
-                    if (details.furniture) {
-                      if (details.furniture.material) setFurnitureMaterial(details.furniture.material);
-                      if (details.furniture.color) setFurnitureColor(details.furniture.color);
-                      if (details.furniture.style) setFurnitureStyle(details.furniture.style);
-                    }
-
-                    // Books fields
-                    if (details.books) {
-                      if (details.books.author) setBookAuthor(details.books.author);
-                      if (details.books.subject) setBookSubject(details.books.subject);
-                    }
-                  }
+          if (analysisResult) {
+            if (analysisResult.type === 'identified') {
+              const newTitle = analysisResult.item.title;
+              const newCategory = analysisResult.item.category;
+              let newCondition: Condition | undefined;
+              if (analysisResult.item.condition) {
+                const conditionLower = analysisResult.item.condition.toLowerCase().replace(' ', '_') as Condition;
+                if (['new', 'like_new', 'good', 'fair', 'poor'].includes(conditionLower)) {
+                  newCondition = conditionLower;
                 }
-
-                // Store the analysis result in draft (this doesn't affect keyboard)
-                updateDraft({
-                  clarificationResponse: analysisResult,
-                });
               }
+
+              setBaseTitle(newTitle);
+              userEditedTitleRef.current = false;
+
+              if (isKeyboardVisibleRef.current) {
+                pendingAnalysisResultRef.current = {
+                  title: newTitle,
+                  category: newCategory,
+                  condition: newCondition,
+                };
+              } else {
+                setTitle(newTitle);
+                setCategory(newCategory);
+                if (newCondition) setCondition(newCondition);
+              }
+
+              const details = analysisResult.item.categoryDetails;
+              if (details) {
+                setCategoryDetails(details);
+                if (details.clothing) {
+                  if (details.clothing.size) setClothingSize(details.clothing.size);
+                  if (details.clothing.clothingType) setClothingType(details.clothing.clothingType);
+                  if (details.clothing.brand) setClothingBrand(details.clothing.brand);
+                  if (details.clothing.color) setClothingColor(details.clothing.color);
+                  if (details.clothing.material) setClothingMaterial(details.clothing.material);
+                }
+                if (details.electronics) {
+                  if (details.electronics.brand) setElectronicsBrand(details.electronics.brand);
+                  if (details.electronics.model) setElectronicsModel(details.electronics.model);
+                  if (details.electronics.storage) setElectronicsStorage(details.electronics.storage);
+                  if (details.electronics.color) setElectronicsColor(details.electronics.color);
+                }
+                if (details.furniture) {
+                  if (details.furniture.material) setFurnitureMaterial(details.furniture.material);
+                  if (details.furniture.color) setFurnitureColor(details.furniture.color);
+                  if (details.furniture.style) setFurnitureStyle(details.furniture.style);
+                }
+                if (details.books) {
+                  if (details.books.author) setBookAuthor(details.books.author);
+                  if (details.books.subject) setBookSubject(details.books.subject);
+                }
+              }
+
+              setAnalysisApplied(true);
             }
-          } else {
-            console.warn('All uploads failed');
+
+            updateDraft({
+              clarificationResponse: analysisResult,
+            });
           }
-        } catch (error) {
-          console.warn('Image analysis failed:', error);
-          // Non-critical error - user can still enter details manually
-        } finally {
-          setAnalyzing(false);
-          analyzedRef.current = true;
         }
       }
+    } catch (error) {
+      console.warn('Image analysis failed:', error);
+    } finally {
+      setAnalyzing(false);
     }
-
-    analyzeItemImages();
-  }, [images, draft?.imageUri, user]);
+  };
 
   const conditionOptions: { value: Condition; label: string }[] = [
     { value: 'new', label: 'New' },
@@ -457,7 +415,7 @@ export default function ItemDetailsScreen({ navigation }: Props) {
     }
 
     const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: false,
       quality: 0.8,
     });
@@ -467,8 +425,7 @@ export default function ItemDetailsScreen({ navigation }: Props) {
       const updatedImages = [...images, newUri].slice(0, 5); // Max 5 images
       setImages(updatedImages);
       updateDraft({ imageUris: updatedImages });
-      // Trigger re-analysis when new photo is added
-      analyzedRef.current = false;
+      setAnalysisApplied(false);
     }
   };
 
@@ -484,7 +441,7 @@ export default function ItemDetailsScreen({ navigation }: Props) {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: false,
       allowsMultipleSelection: true,
       quality: 0.8,
@@ -496,8 +453,7 @@ export default function ItemDetailsScreen({ navigation }: Props) {
       const updatedImages = [...images, ...newUris].slice(0, 5); // Max 5 images
       setImages(updatedImages);
       updateDraft({ imageUris: updatedImages });
-      // Trigger re-analysis when new photos are added
-      analyzedRef.current = false;
+      setAnalysisApplied(false);
     }
   };
 
@@ -713,42 +669,71 @@ export default function ItemDetailsScreen({ navigation }: Props) {
           keyboardDismissMode="none"
           showsVerticalScrollIndicator={true}
         >
-          <Header title="Item details" onBack={() => navigation.goBack()} />
+          <Header
+            title="Item details"
+            onBack={() => navigation.goBack()}
+            rightElement={
+              images.length > 0 ? (
+                analyzing ? (
+                  <View style={styles.headerAiBtn}>
+                    <ActivityIndicator size="small" color={colors.accent} />
+                  </View>
+                ) : (
+                  <Pressable style={styles.headerAiBtn} onPress={handleAutoFill}>
+                    <Text style={styles.headerAiBtnText}>AI</Text>
+                  </Pressable>
+                )
+              ) : undefined
+            }
+          />
 
-        {/* Compact Photo Thumbnails - Tap to expand */}
-        <View style={styles.imageGallery}>
-          <View style={styles.galleryHeader}>
-            <Text variant="body" size="sm" color="muted">
-              Photos ({images.length}/5)
-            </Text>
-            {analyzing && (
-              <View style={styles.analyzingBadge}>
-                <ActivityIndicator size="small" color={colors.accent} />
-                <Text variant="body" size="xs" color="accent">Analyzing...</Text>
-              </View>
-            )}
+        {/* Compact Photo Thumbnails - hidden when no photos */}
+        {images.length > 0 && (
+          <View style={styles.imageGallery}>
+            <View style={styles.galleryHeader}>
+              <Text variant="body" size="sm" color="muted">
+                Photos ({images.length}/5)
+              </Text>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imageScroll}>
+              {images.map((uri, index) => (
+                <View key={index} style={styles.imageWrapper}>
+                  <Pressable onPress={() => openFullscreenPhoto(uri)}>
+                    <Image source={{ uri }} style={styles.thumbnail} />
+                  </Pressable>
+                  <Pressable
+                    style={styles.removeBtn}
+                    onPress={() => removePhoto(index)}
+                  >
+                    <Text style={styles.removeBtnText}>✕</Text>
+                  </Pressable>
+                </View>
+              ))}
+              {images.length < 5 && (
+                <Pressable style={styles.addPhotoBtn} onPress={addMorePhotos}>
+                  <Text style={styles.addPhotoIcon}>+</Text>
+                </Pressable>
+              )}
+            </ScrollView>
           </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imageScroll}>
-            {images.map((uri, index) => (
-              <View key={index} style={styles.imageWrapper}>
-                <Pressable onPress={() => openFullscreenPhoto(uri)}>
-                  <Image source={{ uri }} style={styles.thumbnail} />
-                </Pressable>
-                <Pressable
-                  style={styles.removeBtn}
-                  onPress={() => removePhoto(index)}
-                >
-                  <Text style={styles.removeBtnText}>✕</Text>
-                </Pressable>
-              </View>
-            ))}
-            {images.length < 5 && (
-              <Pressable style={styles.addPhotoBtn} onPress={addMorePhotos}>
-                <Text style={styles.addPhotoIcon}>+</Text>
-              </Pressable>
-            )}
-          </ScrollView>
-        </View>
+        )}
+
+        {/* AI applied indicator */}
+        {analyzing ? (
+          <View style={styles.autoFillStatus}>
+            <ActivityIndicator size="small" color={colors.accent} />
+            <Text variant="body" size="sm" color="accent" style={{ marginLeft: spacing.sm }}>
+              Analyzing...
+            </Text>
+          </View>
+        ) : analysisApplied ? (
+          <View style={styles.autoFillApplied}>
+            <Text variant="body" size="sm" color="success">✓ Auto-filled by AI</Text>
+            <Pressable onPress={handleAutoFill}>
+              <Text variant="body" size="xs" color="accent">Re-analyze</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         {/* Clarification Section - Show when needs_clarification */}
         {draft?.clarificationResponse && isNeedsClarificationResponse(draft.clarificationResponse) && (
@@ -796,7 +781,7 @@ export default function ItemDetailsScreen({ navigation }: Props) {
             userEditedTitleRef.current = true;
             setTitle(text);
           },
-          analyzing ? "Analyzing..." : "e.g. Nike Air Max 90 Sneakers",
+          "e.g. Nike Air Max 90 Sneakers",
           { multiline: true, onSubmitEditing: handleTitleSubmit }
         )}
 
@@ -805,32 +790,35 @@ export default function ItemDetailsScreen({ navigation }: Props) {
           <Text variant="body" size="sm" color="muted" style={styles.label}>
             Category
           </Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.categoryScrollView}
-            contentContainerStyle={styles.categoryScrollContent}
+          <Pressable
+            style={styles.dropdownSelector}
+            onPress={() => {
+              if (Platform.OS === 'ios') {
+                ActionSheetIOS.showActionSheetWithOptions(
+                  {
+                    options: ['Cancel', ...categoryOptions],
+                    cancelButtonIndex: 0,
+                  },
+                  (buttonIndex) => {
+                    if (buttonIndex > 0) setCategory(categoryOptions[buttonIndex - 1]);
+                  }
+                );
+              } else {
+                Alert.alert('Select Category', undefined, [
+                  { text: 'Cancel', style: 'cancel' },
+                  ...categoryOptions.map((opt) => ({
+                    text: opt,
+                    onPress: () => setCategory(opt),
+                  })),
+                ]);
+              }
+            }}
           >
-            {categoryOptions.map((option) => (
-              <Pressable
-                key={option}
-                style={[
-                  styles.categoryPill,
-                  category === option && styles.categoryPillSelected,
-                ]}
-                onPress={() => setCategory(option)}
-              >
-                <Text
-                  style={[
-                    styles.categoryPillText,
-                    category === option && styles.categoryPillTextSelected,
-                  ]}
-                >
-                  {option}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
+            <Text style={[styles.dropdownText, !category && styles.dropdownPlaceholder]}>
+              {category || 'Select a category...'}
+            </Text>
+            <Text style={styles.dropdownArrow}>▼</Text>
+          </Pressable>
         </View>
 
         {/* Category-specific fields - Clothing */}
@@ -1302,6 +1290,71 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     textAlign: 'center',
     paddingVertical: spacing.md,
+  },
+  headerAiBtn: {
+    backgroundColor: colors.accentSoft,
+    borderWidth: 1,
+    borderColor: colors.accent,
+    borderRadius: radius.md,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 60,
+    minHeight: 32,
+  },
+  headerAiBtnText: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  dropdownSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.card,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+  },
+  dropdownText: {
+    fontFamily: typography?.fonts?.body || 'DMSans_400Regular',
+    fontSize: typography?.sizes?.md || 14,
+    color: colors.textPrimary,
+    flex: 1,
+  },
+  dropdownPlaceholder: {
+    color: colors.textMuted,
+  },
+  dropdownArrow: {
+    color: colors.textMuted,
+    fontSize: 10,
+    marginLeft: spacing.sm,
+  },
+  autoFillStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.accentSoft,
+    borderWidth: 1,
+    borderColor: colors.accent,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  autoFillApplied: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#E8F5E9',
+    borderWidth: 1,
+    borderColor: colors.success,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.md,
   },
 });
 

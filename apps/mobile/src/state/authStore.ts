@@ -91,6 +91,11 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         .single();
 
       if (error) {
+        if (error.code === 'PGRST116') {
+          // No profile row exists yet for this user — not a real error
+          set({ profile: null });
+          return;
+        }
         console.error('Error fetching profile:', error);
         return;
       }

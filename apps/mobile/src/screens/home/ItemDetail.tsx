@@ -219,7 +219,7 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: false,
       quality: 0.8,
     });
@@ -237,7 +237,7 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: false,
       allowsMultipleSelection: true,
       quality: 0.8,
@@ -508,7 +508,7 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
 
         {/* Tabs */}
         <Tabs
-          tabs={['Buyer Interest', 'Item Details']}
+          tabs={['Offers', 'Item Details']}
           activeTab={activeTab}
           onTabChange={setActiveTab}
         />
@@ -539,22 +539,41 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
             {/* Show image, title, category only when NOT editing */}
             {!isEditing && (
               <>
-                {/* Item Image - Tappable for fullscreen */}
-                <Pressable
-                  style={styles.detailImage}
-                  onPress={() => itemData.imageUri && setShowFullscreenPhoto(true)}
-                >
-                  {itemData.imageUri ? (
-                    <>
-                      <Image source={{ uri: itemData.imageUri }} style={styles.image} resizeMode="cover" />
-                      <View style={styles.tapToExpandHint}>
-                        <Text style={styles.tapToExpandText}>Tap to view full photo</Text>
-                      </View>
-                    </>
-                  ) : (
-                    <Text style={styles.imageEmoji}>{itemData.emoji}</Text>
-                  )}
-                </Pressable>
+                {/* Item Image(s) - Carousel or single */}
+                {allImageUrls.length > 1 ? (
+                  <ScrollView
+                    horizontal
+                    pagingEnabled
+                    showsHorizontalScrollIndicator={true}
+                    style={{ marginBottom: spacing.xl }}
+                  >
+                    {allImageUrls.map((url, index) => (
+                      <Pressable
+                        key={index}
+                        onPress={() => { setFullscreenImageUri(url); setShowFullscreenPhoto(true); }}
+                        style={[styles.detailImage, { width: SCREEN_WIDTH - 2 * spacing.xxl, marginRight: spacing.sm, marginBottom: 0 }]}
+                      >
+                        <Image source={{ uri: url }} style={styles.image} resizeMode="cover" />
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                ) : (
+                  <Pressable
+                    style={styles.detailImage}
+                    onPress={() => itemData.imageUri && setShowFullscreenPhoto(true)}
+                  >
+                    {itemData.imageUri ? (
+                      <>
+                        <Image source={{ uri: itemData.imageUri }} style={styles.image} resizeMode="cover" />
+                        <View style={styles.tapToExpandHint}>
+                          <Text style={styles.tapToExpandText}>Tap to view full photo</Text>
+                        </View>
+                      </>
+                    ) : (
+                      <Text style={styles.imageEmoji}>{itemData.emoji}</Text>
+                    )}
+                  </Pressable>
+                )}
 
                 <Text variant="headingMedium" size="heading3" style={styles.detailTitle}>
                   {itemData.title}

@@ -86,6 +86,8 @@ export default function PriceReviewScreen({ navigation }: Props) {
   const [editableTitle, setEditableTitle] = useState(generatedTitle);
 
   const [priceRange, setPriceRange] = useState({ min: 0, max: 0, mid: 0 });
+  const [priceMinInput, setPriceMinInput] = useState('');
+  const [priceMaxInput, setPriceMaxInput] = useState('');
   const [minimumPrice, setMinimumPrice] = useState('');
   const [retailPrice, setRetailPrice] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -122,6 +124,8 @@ export default function PriceReviewScreen({ navigation }: Props) {
             max: result.market_value_max,
             mid: result.estimated_midpoint,
           });
+          setPriceMinInput(String(result.market_value_min));
+          setPriceMaxInput(String(result.market_value_max));
           setPriceConfidence(result.confidence);
           setPriceReasoning(result.reasoning);
           updateDraft({ estimatedPrice: result.estimated_midpoint });
@@ -146,6 +150,8 @@ export default function PriceReviewScreen({ navigation }: Props) {
           const maxPrice = Math.round(midPrice * 1.2);
 
           setPriceRange({ min: minPrice, max: maxPrice, mid: midPrice });
+          setPriceMinInput(String(minPrice));
+          setPriceMaxInput(String(maxPrice));
           setPriceConfidence(0.5);
           setPriceReasoning('Estimated based on condition');
           updateDraft({ estimatedPrice: midPrice });
@@ -188,16 +194,25 @@ export default function PriceReviewScreen({ navigation }: Props) {
     try {
       // If user is authenticated, save to Supabase
       if (user) {
-        // 1. Upload all images as a group to Supabase Storage
-        const imagesToUpload = draft?.imageUris || (draft?.imageUri ? [draft.imageUri] : []);
+        // 1. Upload all images as a group to Supabase Storage (skip if no images)
+        const imagesToUpload = (draft?.imageUris || (draft?.imageUri ? [draft.imageUri] : [])).filter(
+          (uri) => uri && uri.length > 0
+        );
 
-        const { paths: photoPaths, groupId, errors } = await uploadImageGroup(imagesToUpload, user.id);
+        let photoPaths: string[] = [];
+        if (imagesToUpload.length > 0) {
+          const uploadResult = await uploadImageGroup(imagesToUpload, user.id);
+          photoPaths = uploadResult.paths;
+          const { groupId, errors } = uploadResult;
 
-        if (errors.length > 0) {
-          console.warn('Some images failed to upload:', errors);
+          if (errors.length > 0) {
+            console.warn('Some images failed to upload:', errors);
+          }
+
+          console.log(`[PriceReview] Uploaded ${photoPaths.length} images with groupId: ${groupId}`);
+        } else {
+          console.log('[PriceReview] No images to upload, proceeding without photos');
         }
-
-        console.log(`[PriceReview] Uploaded ${photoPaths.length} images with groupId: ${groupId}`);
 
         // 2. Create item in Supabase - use editable title
         const finalTitle = editableTitle.trim() || generatedTitle;
@@ -216,8 +231,8 @@ export default function PriceReviewScreen({ navigation }: Props) {
           category: draft?.category || 'General',
           condition: draft?.condition || 'Good',
           photos: photoPaths,
-          estimated_value_min: priceRange.min,
-          estimated_value_max: priceRange.max,
+          estimated_value_min: priceMinInput ? parseFloat(priceMinInput) : priceRange.min,
+          estimated_value_max: priceMaxInput ? parseFloat(priceMaxInput) : priceRange.max,
           min_price: minimumPrice ? parseFloat(minimumPrice) : undefined,
           retail_price: retailPrice ? parseFloat(retailPrice) : undefined,
           notes: draft?.notes || undefined,
@@ -272,7 +287,9 @@ export default function PriceReviewScreen({ navigation }: Props) {
     setShowFullscreenPhoto(true);
   };
 
-  const images = draft?.imageUris || (draft?.imageUri ? [draft.imageUri] : []);
+  const images = (draft?.imageUris || (draft?.imageUri ? [draft.imageUri] : [])).filter(
+    (uri) => uri && uri.length > 0
+  );
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -319,9 +336,17 @@ export default function PriceReviewScreen({ navigation }: Props) {
 
         {/* Compact Item Card - horizontal layout */}
         <View style={styles.itemCard}>
-          <Pressable onPress={() => images[0] && openFullscreenPhoto(images[0])}>
-            <Image source={{ uri: images[0] }} style={styles.thumbnail} />
-          </Pressable>
+          {images.length > 0 && images[0] ? (
+            <Pressable onPress={() => openFullscreenPhoto(images[0])}>
+              <Image source={{ uri: images[0] }} style={styles.thumbnail} />
+            </Pressable>
+          ) : (
+            <View style={[styles.thumbnail, styles.thumbnailPlaceholder]}>
+              <Text style={styles.thumbnailPlaceholderText}>
+                {(editableTitle || generatedTitle || 'I').charAt(0).toUpperCase()}
+              </Text>
+            </View>
+          )}
           <View style={styles.itemInfo}>
             <Text variant="body" size="xs" color="muted">
               {draft?.condition || 'Good'} • {draft?.category || 'General'}
@@ -351,36 +376,61 @@ export default function PriceReviewScreen({ navigation }: Props) {
           </View>
         </View>
 
-        {/* Price Section */}
-        <View style={styles.priceSection}>
-          <Text variant="body" size="xs" color="muted" style={styles.priceLabel}>
-            ESTIMATED VALUE
-          </Text>
-          {loadingPrice ? (
-            <Text variant="body" size="base" color="muted">Loading...</Text>
-          ) : (
-            <>
-              <Text style={styles.priceValue}>
-                ${priceRange.min} – ${priceRange.max}
+        {/* AI Reasoning */}
+        {loadingPrice ? (
+          <View style={styles.priceSection}>
+            <Text variant="body" size="base" color="muted">Estimating price...</Text>
+          </View>
+        ) : priceReasoning ? (
+          <View style={styles.reasoningSection}>
+            <Text variant="body" size="xs" color="muted">{priceReasoning}</Text>
+            {priceConfidence > 0 && (
+              <Text variant="body" size="xs" color="muted" style={{ marginTop: spacing.xs }}>
+                {(priceConfidence * 100).toFixed(0)}% confidence
               </Text>
-              {priceConfidence > 0 && (
-                <Text variant="body" size="xs" color="muted">
-                  {(priceConfidence * 100).toFixed(0)}% confidence
-                </Text>
-              )}
-              {priceReasoning && (
-                <Text variant="body" size="xs" color="muted" style={styles.priceReasoning}>
-                  {priceReasoning}
-                </Text>
-              )}
-            </>
-          )}
-        </View>
+            )}
+          </View>
+        ) : null}
 
-        {/* Retail Price Input */}
+        {/* Price Range - editable */}
         <View style={styles.inputSection}>
           <Text variant="body" size="sm" color="muted" style={styles.inputLabel}>
-            Original retail price (optional)
+            Price Range
+          </Text>
+          <View style={styles.priceRangeRow}>
+            <View style={[styles.priceInputRow, { flex: 1 }]}>
+              <Text style={styles.dollarSign}>$</Text>
+              <TextInput
+                style={styles.priceInput}
+                value={priceMinInput}
+                onChangeText={setPriceMinInput}
+                placeholder="Min"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="numeric"
+              />
+            </View>
+            <Text style={styles.rangeDash}>–</Text>
+            <View style={[styles.priceInputRow, { flex: 1 }]}>
+              <Text style={styles.dollarSign}>$</Text>
+              <TextInput
+                style={styles.priceInput}
+                value={priceMaxInput}
+                onChangeText={setPriceMaxInput}
+                placeholder="Max"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="numeric"
+              />
+            </View>
+          </View>
+          <Text variant="body" size="xs" color="muted">
+            Auto-filled by AI — edit if needed
+          </Text>
+        </View>
+
+        {/* Original Purchase Price */}
+        <View style={styles.inputSection}>
+          <Text variant="body" size="sm" color="muted" style={styles.inputLabel}>
+            Original Purchase Price
           </Text>
           <View style={styles.priceInputRow}>
             <Text style={styles.dollarSign}>$</Text>
@@ -399,7 +449,7 @@ export default function PriceReviewScreen({ navigation }: Props) {
             )}
           </View>
           <Text variant="body" size="xs" color="muted">
-            What the item cost when new
+            Auto-filled by AI — edit if needed
           </Text>
         </View>
 
@@ -506,6 +556,16 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     backgroundColor: colors.accentSoft,
   },
+  thumbnailPlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.accent,
+  },
+  thumbnailPlaceholderText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
+  },
   itemInfo: {
     flex: 1,
     gap: 2,
@@ -582,6 +642,23 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     textAlign: 'center',
     paddingHorizontal: spacing.md,
+  },
+  reasoningSection: {
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  priceRangeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  rangeDash: {
+    fontSize: 18,
+    color: colors.textMuted,
   },
   // Input section
   inputSection: {

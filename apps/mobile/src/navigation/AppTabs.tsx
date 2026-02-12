@@ -76,7 +76,7 @@ export default function AppTabs() {
         name="List"
         component={HomeStack}
         options={{
-          tabBarLabel: 'List',
+          tabBarLabel: 'My Items',
           tabBarIcon: ({ focused }) => (
             <Text style={{ fontSize: 18 }}>📦</Text>
           ),
@@ -96,7 +96,7 @@ export default function AppTabs() {
         name="Deals"
         component={DealsStack}
         options={{
-          tabBarLabel: 'Deals',
+          tabBarLabel: 'My Offers',
           tabBarIcon: ({ focused }) => (
             <Text style={{ fontSize: 18 }}>🤝</Text>
           ),
