@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-bg text-text-primary font-body antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-heading;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-pill;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-text-muted;
+  }
+}
+
+@layer components {
+  .container-page {
+    @apply mx-auto max-w-7xl px-lg;
+  }
+}

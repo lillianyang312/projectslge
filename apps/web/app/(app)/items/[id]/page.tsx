@@ -5,9 +5,10 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import PageContainer from '@/components/layout/PageContainer';
 import { Badge, Button, Spinner, Modal } from '@/components/ui';
-import { getItemById } from '@/services/itemsService';
+import { getItemById, markItemAsSold, deleteItem, getItemsByOwnerId } from '@/services/itemsService';
 import { expressInterest, getDealsByItemId, acceptOffer } from '@/services/dealsService';
 import { getPublicUrl } from '@/services/imageService';
+import { createClient } from '@/lib/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
 import type { Item, Deal } from '@/types/models';
 
@@ -34,11 +35,24 @@ export default function ItemDetailPage(): React.ReactElement {
   const [isSold, setIsSold] = useState<boolean>(false);
   const [isPending, setIsPending] = useState<boolean>(false);
   const [acceptingDealId, setAcceptingDealId] = useState<string | null>(null);
+  const [otherItems, setOtherItems] = useState<Item[]>([]);
+  const [sellerName, setSellerName] = useState<string>('');
 
   useEffect(() => {
     async function load(): Promise<void> {
       const { data } = await getItemById(itemId);
       setItem(data);
+
+      // Fetch other items from same owner + seller name
+      if (data?.owner_id) {
+        const [ownerItems, profileResult] = await Promise.all([
+          getItemsByOwnerId(data.owner_id, itemId),
+          createClient().from('user_profiles').select('first_name, full_name, display_name').eq('id', data.owner_id).single(),
+        ]);
+        setOtherItems(ownerItems.data);
+        const p = profileResult.data;
+        setSellerName(p?.first_name || p?.display_name || p?.full_name || 'Seller');
+      }
 
       // Fetch all deals for this item
       const deals = await getDealsByItemId(itemId);
@@ -133,7 +147,7 @@ export default function ItemDetailPage(): React.ReactElement {
       <div className="grid gap-3xl lg:grid-cols-2">
         {/* Photos */}
         <div>
-          <div className="aspect-square overflow-hidden rounded-lg bg-accent-soft">
+          <div className="aspect-[4/3] max-h-[400px] overflow-hidden rounded-lg bg-accent-soft">
             {photos[selectedPhoto] ? (
               <img
                 src={getPublicUrl(photos[selectedPhoto])}
@@ -230,39 +244,46 @@ export default function ItemDetailPage(): React.ReactElement {
 
           {/* Offers Section */}
           {activeOffers.length > 0 && (
-            <div className="mt-xl">
-              <h3 className="mb-md text-sm font-medium text-text-secondary">Offers ({activeOffers.length})</h3>
-              <div className="space-y-sm">
-                {activeOffers.map((deal) => {
+            <div className="mt-xl rounded-md border border-border bg-card overflow-hidden">
+              <div className="border-b border-border px-lg py-md">
+                <h3 className="text-sm font-medium text-text-secondary">Offers ({activeOffers.length})</h3>
+              </div>
+              <div className="divide-y divide-border">
+                {activeOffers.map((deal, idx) => {
                   const isAgreed = ['agreed', 'logistics'].includes(deal.status);
+                  const isMyDeal = user?.id === deal.buyer_id;
+                  const isTopOffer = idx === 0;
+                  const buyerName = deal.buyer?.first_name || deal.buyer?.display_name || 'Buyer';
+                  const buyerYear = deal.buyer?.graduation_year ? `'${String(deal.buyer.graduation_year).slice(-2)}` : '';
                   return (
-                    <div key={deal.id} className={`flex items-center justify-between rounded-md border px-lg py-md ${
-                      isAgreed ? 'border-purple-300 bg-purple-50' : 'border-border bg-card'
+                    <div key={deal.id} className={`flex items-center justify-between px-lg py-md ${
+                      isMyDeal ? 'bg-accent-soft/30 border-l-[3px] border-l-accent' : isAgreed ? 'bg-purple-50' : ''
                     }`}>
-                      <div>
-                        <span className="text-lg font-semibold text-success">${deal.current_offer}</span>
-                        <span className="ml-sm text-xs text-text-muted">
-                          {deal.buyer?.display_name || 'Buyer'}
-                          {deal.interested_for ? ` · ${deal.interested_for}` : ''}
+                      <div className="flex items-center gap-md">
+                        <span className={`text-sm font-medium ${isMyDeal ? 'font-bold text-accent' : 'text-text-primary'}`}>
+                          {buyerName} {buyerYear}
                         </span>
                         {isAgreed && (
-                          <Badge variant="purple" className="ml-sm">Accepted</Badge>
+                          <Badge variant="purple">Accepted</Badge>
                         )}
                       </div>
-                      <div className="flex items-center gap-sm">
-                        {/* Seller can accept negotiating offers (if no pending deal yet) */}
+                      <div className="flex items-center gap-md">
+                        <span className="text-xs text-text-muted">{new Date(deal.updated_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
+                        <span className={`text-sm font-semibold ${isMyDeal ? 'text-accent font-bold' : isTopOffer ? 'text-success' : 'text-text-primary'}`}>
+                          ${deal.current_offer}
+                        </span>
+                        {/* Seller-only actions */}
                         {isOwner && deal.status === 'negotiating' && deal.current_offer && !isPending && (
                           <button
                             onClick={() => handleAcceptOffer(deal.id)}
                             disabled={!!acceptingDealId}
                             className="rounded-full bg-success px-lg py-xs text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
                           >
-                            {acceptingDealId === deal.id ? '...' : `Accept $${deal.current_offer}`}
+                            {acceptingDealId === deal.id ? '...' : 'Accept'}
                           </button>
                         )}
-                        {/* Chat links */}
-                        {(user?.id === deal.buyer_id || isOwner) && (
-                          <Link href={`/deals/${deal.id}`} className="rounded-full border border-accent px-lg py-xs text-xs font-medium text-accent hover:bg-accent-soft">
+                        {isOwner && (
+                          <Link href={`/deals/${deal.id}`} className="rounded-full border border-border px-lg py-xs text-xs font-medium text-text-primary hover:bg-accent-soft">
                             Chat
                           </Link>
                         )}
@@ -283,11 +304,9 @@ export default function ItemDetailPage(): React.ReactElement {
                 </div>
               ) : user ? (
                 existingDeal ? (
-                  <Link href={`/deals/${existingDeal.id}`} className="block">
-                    <Button variant="secondary" className="w-full">
-                      View your offer
-                    </Button>
-                  </Link>
+                  <Button variant="secondary" className="w-full" disabled>
+                    Offer submitted
+                  </Button>
                 ) : (
                   <Button onClick={() => setBidModalOpen(true)} className="w-full">
                     Make an offer
@@ -301,16 +320,87 @@ export default function ItemDetailPage(): React.ReactElement {
             </div>
           )}
 
+          {/* Owner actions */}
           {isOwner && (
-            <div className="mt-2xl">
-              <Badge variant="neutral">Your listing</Badge>
+            <div className="mt-2xl space-y-md">
+              <div className="flex gap-md">
+                <Button
+                  variant="secondary"
+                  className="flex-1"
+                  onClick={async () => {
+                    await markItemAsSold(item.id);
+                    const { data } = await getItemById(itemId);
+                    setItem(data);
+                  }}
+                >
+                  Mark as Sold
+                </Button>
+                <Button
+                  variant="secondary"
+                  className="flex-1 text-danger hover:bg-danger-soft/50"
+                  onClick={async () => {
+                    const confirmed = window.confirm('Remove this item? This cannot be undone.');
+                    if (!confirmed) return;
+                    await deleteItem(item.id);
+                    router.push('/my-list');
+                  }}
+                >
+                  Remove
+                </Button>
+              </div>
               {activeOffers.length === 0 && (
-                <p className="mt-sm text-sm text-text-muted">No offers yet. Share the link to get buyers!</p>
+                <p className="text-sm text-text-muted">No offers yet. Share the link to get buyers!</p>
               )}
             </div>
           )}
         </div>
       </div>
+
+      {/* Other items from same seller */}
+      {otherItems.length > 0 && (
+        <div className="mt-3xl">
+          <div className="mb-lg flex items-center justify-between">
+            <h2 className="font-heading text-lg font-semibold text-text-primary">
+              More from {isOwner ? 'you' : sellerName}
+            </h2>
+            {item.owner_id && !isOwner && (
+              <Link href={`/users/${item.owner_id}`} className="text-sm font-medium text-accent hover:underline">
+                View profile
+              </Link>
+            )}
+          </div>
+          <div className="flex gap-md overflow-x-auto pb-sm -mx-sm px-sm">
+            {otherItems.map((other) => {
+              const otherPhoto = other.photos?.[0] || other.image_path;
+              return (
+                <Link
+                  key={other.id}
+                  href={`/items/${other.id}`}
+                  className="flex-shrink-0 w-36 rounded-md border border-border bg-card overflow-hidden transition-shadow hover:shadow-sm"
+                >
+                  <div className="aspect-square bg-accent-soft">
+                    {otherPhoto ? (
+                      <img src={getPublicUrl(otherPhoto)} alt={other.title || ''} className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-2xl text-text-muted">{other.label || '📦'}</div>
+                    )}
+                  </div>
+                  <div className="p-sm">
+                    <p className="truncate text-sm font-medium text-text-primary">{other.title || 'Untitled'}</p>
+                    <p className="mt-xs text-xs text-text-muted">
+                      {other.estimated_value_min && other.estimated_value_max
+                        ? `$${other.estimated_value_min} – $${other.estimated_value_max}`
+                        : other.market_value_min && other.market_value_max
+                        ? `$${other.market_value_min} – $${other.market_value_max}`
+                        : 'Price TBD'}
+                    </p>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Bid Modal */}
       <Modal open={bidModalOpen} onClose={() => { setBidModalOpen(false); setBidQuestion(''); }} title="Make an offer">

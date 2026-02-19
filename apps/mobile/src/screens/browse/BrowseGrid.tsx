@@ -445,7 +445,7 @@ export default function BrowseGridScreen({ navigation }: Props) {
         {/* Top bid badge - top right */}
         {!isSold && topBids[item.id]?.topBid && (
           <View style={styles.topBidBadge}>
-            <Text style={styles.topBidText}>Top bid: ${topBids[item.id].topBid}</Text>
+            <Text style={styles.topBidText}>Top offer: ${topBids[item.id].topBid}</Text>
           </View>
         )}
         {/* Bottom info: estimated range + retail price */}
@@ -782,7 +782,7 @@ const styles = StyleSheet.create({
   },
   retailPriceTag: {
     position: 'absolute',
-    bottom: 6,
+    top: 6,
     right: 6,
   },
   retailPriceText: {

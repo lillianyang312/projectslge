@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import PageContainer from '@/components/layout/PageContainer';
 import { Badge, Button, Spinner, Avatar } from '@/components/ui';
-import { getDealById, sendMessage, makeOffer, counterOffer, acceptOffer, cancelDeal, markDealAsRead, getHighestBuyerOfferForItem, broadcastToItemBuyers, setLogistics, completeDeal } from '@/services/dealsService';
+import { getDealById, getDealsByItemId, sendMessage, makeOffer, counterOffer, acceptOffer, cancelDeal, markDealAsRead, getHighestBuyerOfferForItem, broadcastToItemBuyers, setLogistics, completeDeal } from '@/services/dealsService';
 import { getPublicUrl } from '@/services/imageService';
 import { useRealtimeMessages } from '@/hooks/useRealtimeMessages';
 import { useAuthStore } from '@/stores/authStore';
@@ -12,6 +12,17 @@ import type { Deal, Message } from '@/types/models';
 
 function formatTime(dateStr: string): string {
   return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatOfferDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffDays = Math.floor(diffMs / 86400000);
+  if (diffDays === 0) return `Today ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  if (diffDays === 1) return `Yesterday ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  if (diffDays < 7) return `${d.toLocaleDateString([], { weekday: 'short' })} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
 export default function DealDetailPage(): React.ReactElement {
@@ -34,6 +45,7 @@ export default function DealDetailPage(): React.ReactElement {
   const [pickupDate, setPickupDate] = useState<string>('');
   const [scheduleLoading, setScheduleLoading] = useState<boolean>(false);
   const [completingDeal, setCompletingDeal] = useState<boolean>(false);
+  const [allItemDeals, setAllItemDeals] = useState<Deal[]>([]);
 
   const { messages } = useRealtimeMessages(dealId);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -45,8 +57,12 @@ export default function DealDetailPage(): React.ReactElement {
       setLoading(false);
       if (data && user) {
         markDealAsRead(dealId, user.id);
-        const highest = await getHighestBuyerOfferForItem(data.item_id);
+        const [highest, itemDeals] = await Promise.all([
+          getHighestBuyerOfferForItem(data.item_id),
+          getDealsByItemId(data.item_id),
+        ]);
         setHighestOffer(highest);
+        setAllItemDeals(itemDeals);
       }
     }
     load();
@@ -198,36 +214,33 @@ export default function DealDetailPage(): React.ReactElement {
           </div>
         </div>
         {counterparty && (
-          <div className="flex items-center gap-sm">
-            <Avatar name={counterparty.first_name || counterparty.display_name || (isSeller ? 'Buyer' : 'Seller')} size="sm" />
+          <a href={`/users/${counterparty.id}`} className="flex items-center gap-sm hover:opacity-80 transition-opacity">
+            <Avatar name={counterparty.first_name || counterparty.display_name || ''} size="sm" />
             <div className="text-right">
-              <span className="text-sm text-text-secondary">
-                {counterparty.first_name || counterparty.display_name || (isSeller ? 'Buyer' : 'Seller')}
+              <span className="text-sm font-medium text-accent">
+                {counterparty.first_name || counterparty.display_name || 'User'}
+                {counterparty.graduation_year ? ` '${String(counterparty.graduation_year).slice(-2)}` : ''}
               </span>
-              {counterparty.graduation_year && (
-                <p className="text-xs text-text-muted">&apos;{String(counterparty.graduation_year).slice(-2)}</p>
+              {counterparty.rating && (
+                <p className="text-xs text-text-muted">⭐ {counterparty.rating.toFixed(1)}</p>
               )}
             </div>
-          </div>
+          </a>
         )}
       </div>
 
-      {/* Basic profile — always visible (name, year, rating, transaction history) */}
+      {/* Profile details — compact, no heading, clickable name */}
       {counterparty && (
         <div className="mb-xl rounded-md border border-border bg-card p-lg">
-          <div className="flex items-center justify-between mb-md">
-            <h3 className="text-sm font-medium text-text-secondary">{isSeller ? 'Buyer' : 'Seller'} Profile</h3>
-            <a href={`/users/${counterparty.id}`} className="text-xs text-accent hover:underline">View full profile →</a>
-          </div>
           <div className="flex items-center gap-lg">
-            <Avatar name={counterparty.first_name || counterparty.display_name || ''} size="md" />
+            <a href={`/users/${counterparty.id}`}>
+              <Avatar name={counterparty.first_name || counterparty.display_name || ''} size="md" />
+            </a>
             <div className="flex-1 space-y-xs">
-              <p className="text-md font-medium text-text-primary">
+              <a href={`/users/${counterparty.id}`} className="text-md font-medium text-accent hover:underline">
                 {counterparty.first_name || counterparty.display_name || 'Unknown'}
-              </p>
-              {counterparty.graduation_year && (
-                <p className="text-sm text-text-muted">Class of {counterparty.graduation_year}</p>
-              )}
+                {counterparty.graduation_year ? ` '${String(counterparty.graduation_year).slice(-2)}` : ''}
+              </a>
               <div className="flex gap-lg text-xs text-text-muted">
                 {counterparty.rating && (
                   <span>⭐ {counterparty.rating.toFixed(1)} ({counterparty.rating_count || 0})</span>
@@ -273,13 +286,41 @@ export default function DealDetailPage(): React.ReactElement {
         </div>
       )}
 
-      {/* Top offer banner */}
-      {highestOffer && (
-        <div className={`mb-lg rounded-md p-md text-center text-sm font-medium ${
-          deal.buyer_offer === highestOffer && isBuyer ? 'bg-success-soft text-success' : 'bg-danger-soft text-danger'
-        }`}>
-          Top offer on this item: ${highestOffer}
-          {deal.buyer_offer === highestOffer && isBuyer && ' (your offer)'}
+      {/* All Offers table */}
+      {allItemDeals.length > 0 && (
+        <div className="mb-xl rounded-md border border-border bg-card">
+          <div className="border-b border-border px-lg py-md">
+            <h3 className="text-sm font-medium text-text-secondary">Offers ({allItemDeals.filter((d) => d.current_offer).length})</h3>
+          </div>
+          <div className="divide-y divide-border">
+            {allItemDeals
+              .filter((d) => d.current_offer)
+              .sort((a, b) => (b.current_offer || 0) - (a.current_offer || 0))
+              .map((d) => {
+                const isCurrentDeal = d.id === dealId;
+                const buyerName = d.buyer?.first_name || d.buyer?.display_name || 'Buyer';
+                const buyerYear = d.buyer?.graduation_year ? `'${String(d.buyer.graduation_year).slice(-2)}` : '';
+                const isTopOffer = highestOffer !== null && d.current_offer === highestOffer;
+                return (
+                  <div key={d.id} className={`flex items-center justify-between px-lg py-md ${isCurrentDeal ? 'bg-accent-soft/30' : ''}`}>
+                    <div className="flex items-center gap-md">
+                      <a href={d.buyer?.id ? `/users/${d.buyer.id}` : '#'} className="text-sm font-medium text-accent hover:underline">
+                        {buyerName} {buyerYear}
+                      </a>
+                      {isCurrentDeal && (
+                        <span className="text-[10px] text-text-muted">(this deal)</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-md">
+                      <span className="text-xs text-text-muted">{formatOfferDate(d.updated_at)}</span>
+                      <span className={`text-sm font-semibold ${isTopOffer ? 'text-success' : 'text-text-primary'}`}>
+                        ${d.current_offer}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
         </div>
       )}
 

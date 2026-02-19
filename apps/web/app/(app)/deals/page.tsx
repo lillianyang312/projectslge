@@ -84,6 +84,9 @@ export default function DealsPage(): React.ReactElement {
             const item = deal.item;
             const photoPath = item?.photos?.[0] || item?.image_path;
             const badge = getDealBadge(deal);
+            const seller = deal.seller;
+            const sellerName = seller?.first_name || seller?.display_name || 'Seller';
+            const sellerYear = seller?.graduation_year ? `'${String(seller.graduation_year).slice(-2)}` : '';
 
             return (
               <Link key={deal.id} href={`/deals/${deal.id}`} className="block">
@@ -120,7 +123,19 @@ export default function DealsPage(): React.ReactElement {
                       </p>
                     )}
                   </div>
-                  <span className="text-xs text-text-muted">{timeAgo(deal.updated_at)}</span>
+                  <div className="flex flex-col items-end gap-xs">
+                    {seller?.id ? (
+                      <span
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.location.href = `/users/${seller.id}`; }}
+                        className="text-sm font-medium text-accent hover:underline cursor-pointer"
+                      >
+                        {sellerName} {sellerYear}
+                      </span>
+                    ) : (
+                      <span className="text-sm text-text-secondary">{sellerName} {sellerYear}</span>
+                    )}
+                    <span className="text-xs text-text-muted">{timeAgo(deal.updated_at)}</span>
+                  </div>
                 </div>
               </Link>
             );

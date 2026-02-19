@@ -48,6 +48,8 @@ export default function EditProfileScreen({ navigation }: Props) {
   const [dormRoom, setDormRoom] = useState('');
   const [dormLocation, setDormLocation] = useState('');
   const [paymentPreferences, setPaymentPreferences] = useState<PaymentMethod[]>([]);
+  const [zelleHandle, setZelleHandle] = useState('');
+  const [venmoHandle, setVenmoHandle] = useState('');
 
   // Dropdowns
   const [showHouseDropdown, setShowHouseDropdown] = useState(false);
@@ -58,6 +60,8 @@ export default function EditProfileScreen({ navigation }: Props) {
   const buildingInputRef = useRef<RNTextInput>(null);
   const roomInputRef = useRef<RNTextInput>(null);
   const dormLocationInputRef = useRef<RNTextInput>(null);
+  const zelleInputRef = useRef<RNTextInput>(null);
+  const venmoInputRef = useRef<RNTextInput>(null);
 
   useEffect(() => {
     fetchProfile();
@@ -99,6 +103,8 @@ export default function EditProfileScreen({ navigation }: Props) {
           const prefs = data.payment_preference.split(',').map((p: string) => p.trim()) as PaymentMethod[];
           setPaymentPreferences(prefs.filter(p => paymentOptions.includes(p)));
         }
+        setZelleHandle(data.zelle_handle || '');
+        setVenmoHandle(data.venmo_handle || '');
       }
     } catch (err) {
       console.error('Failed to fetch profile:', err);
@@ -197,6 +203,8 @@ export default function EditProfileScreen({ navigation }: Props) {
           dorm_room: dormRoom.trim() || null,
           dorm_location: dormLocation.trim() || null,
           payment_preference: paymentPreferences.length > 0 ? paymentPreferences.join(',') : null,
+          zelle_handle: paymentPreferences.includes('Zelle') ? zelleHandle.trim() || null : null,
+          venmo_handle: paymentPreferences.includes('Venmo') ? venmoHandle.trim() || null : null,
         })
         .eq('id', user?.id);
 
@@ -424,6 +432,39 @@ export default function EditProfileScreen({ navigation }: Props) {
               </Pressable>
             ))}
           </View>
+
+          {paymentPreferences.includes('Zelle') && (
+            <Input
+              ref={zelleInputRef}
+              label="Zelle handle"
+              placeholder="Phone number or email"
+              value={zelleHandle}
+              onChangeText={setZelleHandle}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              onFocus={() => {
+                closeDropdowns();
+                scrollToInput(zelleInputRef);
+              }}
+              style={styles.paymentHandleInput}
+            />
+          )}
+
+          {paymentPreferences.includes('Venmo') && (
+            <Input
+              ref={venmoInputRef}
+              label="Venmo handle"
+              placeholder="@username"
+              value={venmoHandle}
+              onChangeText={setVenmoHandle}
+              autoCapitalize="none"
+              onFocus={() => {
+                closeDropdowns();
+                scrollToInput(venmoInputRef);
+              }}
+              style={styles.paymentHandleInput}
+            />
+          )}
         </View>
 
         <View style={styles.spacer} />
@@ -512,13 +553,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.md,
-    backgroundColor: colors.bg,
+    backgroundColor: '#FFFFFF',
     zIndex: 100,
-    elevation: 10,
+    elevation: 20,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
     overflow: 'hidden',
   },
   houseDropdown: {
@@ -532,7 +573,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
-    backgroundColor: colors.bg,
+    backgroundColor: '#FFFFFF',
   },
   dropdownOptionSelected: {
     backgroundColor: colors.accentSoft,
@@ -573,5 +614,8 @@ const styles = StyleSheet.create({
   },
   paymentOptionTextSelected: {
     color: '#FFFFFF',
+  },
+  paymentHandleInput: {
+    marginTop: spacing.md,
   },
 });

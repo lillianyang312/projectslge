@@ -294,7 +294,7 @@ FORMAT 1 - When you can confidently identify the item:
         "clothingType": "Specific type (e.g., 'High-rise skinny jeans', 'Oversized hoodie', 'Fitted blazer')",
         "brand": "Brand name from label/logo - READ ANY VISIBLE BRANDING",
         "color": "Color(s)",
-        "material": "Material from care label (e.g., '100% Cotton', 'Denim', '60% Polyester 40% Spandex') - READ THE LABEL",
+        "material": "Material ONLY - a clean value like 'Cotton', 'Denim', 'Polyester', 'Silk', 'Wool', 'Linen'. Do NOT add parenthetical notes like '(estimated)' or '(likely)'. Just the material name.",
         "gender": "Men's, Women's, or Unisex",
         "style": "Style (Casual, Formal, Athletic, Streetwear, etc.)"
       },
@@ -309,7 +309,7 @@ FORMAT 1 - When you can confidently identify the item:
       },
       // For Furniture items:
       "furniture": {
-        "material": "Primary material (Wood, Metal, Fabric, etc.)",
+        "material": "Primary material - clean value only like 'Wood', 'Metal', 'Fabric'. No parenthetical notes.",
         "color": "Color/finish",
         "dimensions": "Approximate dimensions if estimable",
         "style": "Style (Modern, Mid-century, Industrial, etc.)"
@@ -342,13 +342,17 @@ FORMAT 2 - When the item is unclear or you need more information:
 IMPORTANT RULES:
 - **ALWAYS READ TEXT IN THE IMAGE** - Look for labels, tags, logos, printed text
 - Be SPECIFIC with titles - include brand, model, size when visible
+- **ALWAYS FILL categoryDetails** - You MUST include the relevant category object with ALL fields populated
+- For clothing, ALWAYS fill clothingType (e.g., "Bottoms", "Tops", "Dresses", "Outerwear", "Shoes"), brand (if visible or inferable), size (ALWAYS infer from visual cues or tags - use S/M/L/XL format), and material (infer from visual appearance if no label)
+- For clothing, clothingType should match one of: Tops, Bottoms, Dresses, Outerwear, Shoes, Bags, Jewelry, Watches, Other accessories
 - For clothing, ALWAYS check for size tags/labels - they're usually on the inside collar, waistband, or a sewn-in tag
 - For clothing, read care labels for material composition (usually lists percentages)
-- For clothing, identify the specific type (high-rise, low-rise, crop, oversized, fitted, etc.)
+- For clothing, identify the specific type (high-rise, low-rise, crop, oversized, fitted, etc.) in the clothingType field
+- For electronics, ALWAYS fill brand (even if estimated from design), model if visible
 - For electronics, look for model numbers on the device, box, or settings screen
 - For furniture, identify brand (IKEA, West Elm, etc.) and style
 - For books, READ the cover and spine for title, author, and publisher
-- Include categoryDetails with as many fields as you can identify from the image
+- Even if you cannot SEE a label, make your best inference for fields like clothingType, brand, material based on visual appearance. NEVER add qualifiers like '(estimated)', '(likely)', '(appears to be)', or parenthetical notes to any field value. Just provide the clean value.
 - Only include the relevant category object in categoryDetails (e.g., only "clothing" for clothing items)
 - If you can read text but can't make it out clearly, still include your best interpretation
 - Confidence should be 0.85+ when you're certain of the identification

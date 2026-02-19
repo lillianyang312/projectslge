@@ -18,6 +18,7 @@ export interface EstimatePriceRequest {
   description?: string;
   pricePurchased?: number;
   photoUrls?: string[];
+  categoryFields?: Record<string, unknown>;
 }
 
 /**
@@ -29,6 +30,7 @@ export interface EstimatePriceResponse {
   confidence: number;
   reasoning: string;
   estimated_midpoint: number;
+  estimated_retail_price: number;
 }
 
 /**
@@ -42,17 +44,30 @@ function buildPricingPrompt(req: EstimatePriceRequest): string {
     ? `\nOriginal Purchase Price: $${req.pricePurchased}`
     : "";
 
+  // Build category-specific details from categoryFields
+  let categoryDetailsPart = "";
+  if (req.categoryFields && typeof req.categoryFields === "object") {
+    const entries = Object.entries(req.categoryFields).filter(
+      ([, v]) => v !== undefined && v !== null && v !== ""
+    );
+    if (entries.length > 0) {
+      const details = entries.map(([k, v]) => `  - ${k}: ${v}`).join("\n");
+      categoryDetailsPart = `\nItem Specifics:\n${details}`;
+    }
+  }
+
   return `You are an expert marketplace pricing consultant. Analyze this item and provide a realistic market value estimate.
 
 Item Details:
 - Title: ${req.title}
 - Category: ${req.category}
-- Condition: ${req.condition}${descriptionPart}${pricePurchasedPart}
+- Condition: ${req.condition}${descriptionPart}${pricePurchasedPart}${categoryDetailsPart}
 
 Based on current market conditions, comparable listings, and item condition, provide:
-1. A realistic minimum price (floor)
-2. A realistic maximum price (ceiling)
+1. A realistic minimum resale price (floor)
+2. A realistic maximum resale price (ceiling)
 3. A confidence score (0.0-1.0) indicating how certain you are about this range
+4. The estimated original retail price when purchased new
 
 Consider:
 - Current market demand for this item type
@@ -60,35 +75,37 @@ Consider:
 - Regional market variations (assume US average markets)
 - Seasonality and timing factors
 - Similar items selling on platforms like Facebook Marketplace, OfferUp, etc.
+- What this item would have cost new at retail (full MSRP, not sale price)
 
 Respond with ONLY valid JSON in this exact format (no markdown, no explanation):
 {
   "market_value_min": <number>,
   "market_value_max": <number>,
   "confidence": <number between 0 and 1>,
-  "reasoning": "<brief 1-2 sentence explanation of the valuation>"
+  "reasoning": "<brief 1-2 sentence explanation of the valuation>",
+  "estimated_retail_price": <number - what this item originally cost new at retail>
 }`;
 }
 
 async function handleEstimatePriceRequest(req: Request): Promise<Response> {
   // CORS headers
   if (req.method === "OPTIONS") {
-    return new Response(null, {
+    return new Response("ok", {
       headers: {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
       },
     });
   }
 
   try {
-    const apiKey = Deno.env.get("CLAUDE_API_KEY");
+    const apiKey = Deno.env.get("CLAUDE_API_KEY") || Deno.env.get("ANTHROPIC_API_KEY");
     if (!apiKey) {
-      console.error("❌ [estimatePrice] CLAUDE_API_KEY not set");
+      console.error("❌ [estimatePrice] No CLAUDE_API_KEY or ANTHROPIC_API_KEY found");
       return new Response(
         JSON.stringify({
-          error: "CLAUDE_API_KEY is not set. Configure this secret in Supabase.",
+          error: "CLAUDE_API_KEY or ANTHROPIC_API_KEY is not set. Configure this secret in Supabase.",
         }),
         {
           status: 500,
@@ -184,7 +201,7 @@ async function handleEstimatePriceRequest(req: Request): Promise<Response> {
 
     const startTime = Date.now();
     const response = await client.messages.create({
-      model: "claude-opus-4-5-20251101",
+      model: "claude-sonnet-4-20250514",
       max_tokens: 500,
       messages: [
         {
@@ -210,6 +227,7 @@ async function handleEstimatePriceRequest(req: Request): Promise<Response> {
       market_value_max: number;
       confidence: number;
       reasoning: string;
+      estimated_retail_price?: number;
     };
 
     try {
@@ -275,12 +293,18 @@ async function handleEstimatePriceRequest(req: Request): Promise<Response> {
       (pricingData.market_value_min + pricingData.market_value_max) / 2
     );
 
+    // Estimate retail price: use Claude's guess, or fall back to ~2x max resale
+    const estimated_retail_price = pricingData.estimated_retail_price
+      ? Math.round(pricingData.estimated_retail_price)
+      : Math.round(pricingData.market_value_max * 2);
+
     const responseBody: EstimatePriceResponse = {
       market_value_min: Math.round(pricingData.market_value_min),
       market_value_max: Math.round(pricingData.market_value_max),
       confidence: Math.min(1, Math.max(0, pricingData.confidence)), // Clamp 0-1
       reasoning: pricingData.reasoning,
       estimated_midpoint,
+      estimated_retail_price,
     };
 
     console.log("💰 [estimatePrice] Pricing estimation complete:", responseBody);

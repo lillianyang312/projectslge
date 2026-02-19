@@ -334,17 +334,42 @@ export async function getDealsByItemId(itemId: string): Promise<Deal[]> {
   try {
     const { data: deals, error } = await supabase
       .from('deals')
-      .select(`
-        *,
-        item:items(*),
-        buyer:profiles!deals_buyer_id_fkey(display_name)
-      `)
+      .select('*, item:items(*)')
       .eq('item_id', itemId)
       .not('status', 'eq', 'cancelled')
       .order('updated_at', { ascending: false });
 
     if (error) throw error;
-    return deals || [];
+    const result = deals || [];
+
+    // Batch-fetch buyer profiles from user_profiles
+    const buyerIds = [...new Set(result.map((d: Deal) => d.buyer_id))];
+    if (buyerIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from('user_profiles')
+        .select('id, full_name, first_name, graduation_year')
+        .in('id', buyerIds);
+
+      const profileMap = new Map(
+        (profiles || []).map((p: any) => [p.id, p])
+      );
+
+      for (const deal of result) {
+        const bp = profileMap.get(deal.buyer_id);
+        if (bp) {
+          deal.buyer = {
+            id: bp.id,
+            email: '',
+            display_name: bp.full_name || bp.first_name || 'User',
+            first_name: bp.first_name,
+            graduation_year: bp.graduation_year,
+            created_at: '',
+          } as any;
+        }
+      }
+    }
+
+    return result;
   } catch (error) {
     console.error('Error getting deals by item:', error);
     return [];

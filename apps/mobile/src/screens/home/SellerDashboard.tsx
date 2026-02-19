@@ -13,16 +13,13 @@ import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { Text, Card, Badge, Button } from '../../ui/components';
 import { colors, spacing, radius, typography } from '../../ui/tokens';
 import { Deal } from '../../types/models';
-import { AppTabsParamList, DealsStackParamList } from '../../navigation/types';
+import { AppTabsParamList } from '../../navigation/types';
 import {
-  getDealsWithExpiration,
   acceptOffer,
 } from '../../services/dealsService';
 import { updateItem } from '../../services/itemsService';
 import { getSignedUrl } from '../../services/imageService';
 import {
-  getExpirationText,
-  getLastActiveText,
   getBestOffer,
   countInterestedBuyers,
 } from '../../utils/pricingUtils';
@@ -64,8 +61,6 @@ export default function SellerDashboard({
   const [offersExpanded, setOffersExpanded] = useState(!hasPendingDeal);
   const [showHistory, setShowHistory] = useState(false);
   const [pendingDealImageUrl, setPendingDealImageUrl] = useState<string | null>(null);
-  const [lastChanceDealId, setLastChanceDealId] = useState<string | null>(null);
-  const [sendingLastChance, setSendingLastChance] = useState(false);
   const [broadcastText, setBroadcastText] = useState('');
   const [broadcastSending, setBroadcastSending] = useState(false);
 
@@ -142,53 +137,6 @@ export default function SellerDashboard({
       screen: 'DealChat',
       params: { dealId },
     } as any);
-  };
-
-  const handleLastChance = async (dealId: string, offerAmount: number) => {
-    const otherOffers = activeOffers.filter(d => d.id !== dealId);
-    if (otherOffers.length === 0) {
-      // No other offers, just accept
-      handleAcceptOffer(dealId, offerAmount);
-      return;
-    }
-
-    Alert.alert(
-      'Send Last Chance',
-      `This will notify ${otherOffers.length} other buyer${otherOffers.length > 1 ? 's' : ''} that you're about to accept $${offerAmount}. They'll have a chance to counter-bid. If no higher offer comes in, you must accept this offer.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Send Last Chance',
-          onPress: async () => {
-            setSendingLastChance(true);
-            setLastChanceDealId(dealId);
-            try {
-              // Send notification to all other buyers via chat message
-              const { sendSystemMessage } = await import('../../services/chatService');
-              for (const otherDeal of otherOffers) {
-                await sendSystemMessage(
-                  otherDeal.id,
-                  `⚠️ LAST CHANCE: The seller is about to accept a $${offerAmount} offer for "${item.title}". This is your last chance to counter-bid!`
-                );
-              }
-              Alert.alert(
-                'Last Chance Sent',
-                `Notified ${otherOffers.length} buyer${otherOffers.length > 1 ? 's' : ''}. Wait for counter-bids or accept the offer.`,
-                [
-                  { text: 'Wait', style: 'cancel' },
-                  { text: 'Accept Now', onPress: () => onAcceptOffer(dealId) },
-                ]
-              );
-            } catch (error) {
-              Alert.alert('Error', 'Failed to send last chance notifications');
-            } finally {
-              setSendingLastChance(false);
-              setLastChanceDealId(null);
-            }
-          },
-        },
-      ]
-    );
   };
 
   const getStatusLabel = (status: string, pickupDate?: string | null) => {
@@ -270,69 +218,51 @@ export default function SellerDashboard({
     );
   };
 
-  const renderOfferCard = (deal: Deal) => {
-    const expirationText = getExpirationText(deal.expires_at);
-    const lastActiveText = getLastActiveText(deal.updated_at);
-    const buyerName = deal.buyer?.display_name || 'Buyer';
-    const interestedForText = deal.interested_for;
+  const formatOfferTime = (dateStr: string): string => {
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - d.getTime()) / 86400000);
+    const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (diffDays === 0) return `Today ${time}`;
+    if (diffDays === 1) return `Yesterday`;
+    if (diffDays < 7) return d.toLocaleDateString([], { weekday: 'short' });
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  };
+
+  const renderOfferCard = (deal: Deal, index: number) => {
+    const buyerName = (deal.buyer as any)?.first_name || deal.buyer?.display_name || 'Buyer';
+    const buyerYear = deal.buyer?.graduation_year ? `'${String(deal.buyer.graduation_year).slice(-2)}` : '';
+    const isTopOffer = index === 0;
+    const timeStr = formatOfferTime(deal.updated_at);
 
     return (
-      <Card key={deal.id} style={styles.offerCard}>
-        <View style={styles.offerHeader}>
-          <View style={styles.offerInfo}>
-            <Text variant="headingMedium" size="lg" style={styles.offerAmount}>
-              ${deal.current_offer}
-            </Text>
-            <Text variant="body" size="sm" color="secondary">
-              from {buyerName}
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.offerMeta}>
-          {interestedForText && (
-            <Text variant="body" size="xs" color="accent">
-              Interested for {interestedForText}
-            </Text>
-          )}
-          <Text variant="body" size="xs" color="warning">
-            {expirationText || 'No expiration'}
-          </Text>
-          <Text variant="body" size="xs" color="muted">
-            {lastActiveText}
+      <View key={deal.id} style={styles.offerTableRow}>
+        <View style={styles.offerTableLeft}>
+          <Text variant="bodyMedium" size="sm" color="accent" numberOfLines={1}>
+            {buyerName} {buyerYear}
           </Text>
         </View>
-
-        <View style={styles.offerActions}>
+        <Text variant="body" size="xs" color="muted" style={styles.offerTableTime}>
+          {timeStr}
+        </Text>
+        <Text variant="headingMedium" size="md" style={isTopOffer ? styles.offerAmountTop : styles.offerAmountNormal}>
+          ${deal.current_offer}
+        </Text>
+        <View style={styles.offerTableActions}>
           <Pressable
-            style={styles.viewDetailsBtn}
+            style={styles.offerTableChatBtn}
             onPress={() => handleNavigateToDeal(deal.id)}
           >
-            <Text variant="bodyMedium" size="sm" color="primary">
-              Chat
-            </Text>
+            <Text variant="bodyMedium" size="xs" color="primary">Chat</Text>
           </Pressable>
-          {activeOffers.length > 1 && (
-            <Pressable
-              style={styles.lastChanceBtn}
-              onPress={() => handleLastChance(deal.id, deal.current_offer || 0)}
-              disabled={sendingLastChance}
-            >
-              <Text variant="bodyMedium" size="sm" color="warning">
-                {sendingLastChance && lastChanceDealId === deal.id ? '...' : 'Last Chance'}
-              </Text>
-            </Pressable>
-          )}
           <Pressable
-            style={[styles.acceptBtn, !recommendation.isRecommended && styles.acceptBtnSecondary]}
+            style={styles.offerTableAcceptBtn}
             onPress={() => handleAcceptOffer(deal.id, deal.current_offer || 0)}
           >
-            <Text variant="bodyMedium" size="sm" style={recommendation.isRecommended ? styles.acceptBtnText : styles.acceptBtnTextSecondary}>
-              Accept
-            </Text>
+            <Text variant="bodyMedium" size="xs" style={styles.acceptBtnText}>Accept</Text>
           </Pressable>
         </View>
-      </Card>
+      </View>
     );
   };
 
@@ -422,7 +352,9 @@ export default function SellerDashboard({
                   No offers yet. Share your listing to attract buyers!
                 </Text>
               ) : (
-                (hasPendingDeal ? allPreviousOffers : activeOffers).map(renderOfferCard)
+                <View style={styles.offerTable}>
+                  {(hasPendingDeal ? allPreviousOffers : activeOffers).map((deal, idx) => renderOfferCard(deal, idx))}
+                </View>
               )}
             </View>
           )}
@@ -517,66 +449,56 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xl,
     fontStyle: 'italic',
   },
-  // Offer Card Styles
-  offerCard: {
-    marginBottom: spacing.md,
+  // Offer Table Styles
+  offerTable: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    overflow: 'hidden',
   },
-  offerHeader: {
+  offerTableRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: spacing.sm,
-  },
-  offerInfo: {},
-  offerAmount: {
-    color: colors.success,
-  },
-  offerMeta: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    marginBottom: spacing.md,
-  },
-  offerActions: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    paddingTop: spacing.md,
-  },
-  viewDetailsBtn: {
-    flex: 1,
-    paddingVertical: spacing.sm,
     alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  offerTableLeft: {
+    flex: 1,
+    minWidth: 0,
+  },
+  offerTableTime: {
+    marginHorizontal: spacing.sm,
+  },
+  offerAmountTop: {
+    color: '#16a34a',
+    marginRight: spacing.sm,
+  },
+  offerAmountNormal: {
+    color: colors.textPrimary,
+    marginRight: spacing.sm,
+  },
+  offerTableActions: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  offerTableChatBtn: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.sm,
   },
-  lastChanceBtn: {
-    flex: 1,
-    paddingVertical: spacing.sm,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.warning,
-    borderRadius: radius.sm,
-    backgroundColor: colors.warningSoft,
-  },
-  acceptBtn: {
-    flex: 1,
-    paddingVertical: spacing.sm,
-    alignItems: 'center',
+  offerTableAcceptBtn: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
     backgroundColor: colors.success,
     borderRadius: radius.sm,
   },
-  acceptBtnSecondary: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: colors.success,
-  },
   acceptBtnText: {
     color: '#FFFFFF',
-  },
-  acceptBtnTextSecondary: {
-    color: colors.success,
   },
   // Broadcast Styles
   broadcastCard: {

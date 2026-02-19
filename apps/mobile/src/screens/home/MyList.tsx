@@ -327,7 +327,7 @@ export default function MyListScreen({ navigation }: Props) {
             My List
           </Text>
           <Text variant="body" size="md" color="secondary">
-            Your items and top bids
+            Your items and top offers
           </Text>
         </View>
 
@@ -507,7 +507,7 @@ export default function MyListScreen({ navigation }: Props) {
                       {!isEditMode && (
                         <View style={styles.itemBid}>
                           <Text variant="body" size="xs" color="muted" style={styles.itemBidLabel}>
-                            Top bid
+                            Top offer
                           </Text>
                           <Text
                             variant="heading"

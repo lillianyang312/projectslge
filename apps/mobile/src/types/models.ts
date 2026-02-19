@@ -130,6 +130,7 @@ export interface User {
   id: string;
   email: string; // Internal use only - never exposed to other users
   display_name?: string;
+  first_name?: string;
   neighborhood?: string; // house
   dorm_location?: string; // dorm_building + dorm_room (only shown after schedule finalized)
   graduation_year?: number;

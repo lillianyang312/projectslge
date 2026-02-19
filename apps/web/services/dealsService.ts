@@ -141,6 +141,30 @@ export async function getMyDeals(
       ? { updated_at: lastDeal.updated_at, id: lastDeal.id }
       : undefined;
 
+    // Batch-fetch buyer + seller profiles
+    const profileIds = [...new Set(pageDeals.flatMap((d) => [d.buyer_id, d.seller_id]))];
+    if (profileIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from('user_profiles')
+        .select('id, full_name, first_name, graduation_year')
+        .in('id', profileIds);
+
+      const profileMap = new Map(
+        (profiles || []).map((p) => [p.id, p])
+      );
+
+      for (const deal of pageDeals) {
+        const bp = profileMap.get(deal.buyer_id);
+        if (bp) {
+          deal.buyer = { id: bp.id, email: '', display_name: bp.full_name, first_name: bp.first_name, graduation_year: bp.graduation_year, created_at: '' };
+        }
+        const sp = profileMap.get(deal.seller_id);
+        if (sp) {
+          deal.seller = { id: sp.id, email: '', display_name: sp.full_name, first_name: sp.first_name, graduation_year: sp.graduation_year, created_at: '' };
+        }
+      }
+    }
+
     return { deals: pageDeals, nextCursor, hasMore };
   } catch {
     return { deals: [], hasMore: false };
@@ -152,13 +176,35 @@ export async function getDealsByItemId(itemId: string): Promise<Deal[]> {
     const supabase = createClient();
     const { data, error } = await supabase
       .from('deals')
-      .select('*, item:items(*), buyer:profiles!deals_buyer_id_fkey(display_name)')
+      .select('*, item:items(*)')
       .eq('item_id', itemId)
       .not('status', 'eq', 'cancelled')
       .order('updated_at', { ascending: false });
 
     if (error) throw error;
-    return data || [];
+    const deals = data || [];
+
+    // Batch-fetch buyer profiles
+    const buyerIds = [...new Set(deals.map((d) => d.buyer_id))];
+    if (buyerIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from('user_profiles')
+        .select('id, full_name, first_name, graduation_year')
+        .in('id', buyerIds);
+
+      const profileMap = new Map(
+        (profiles || []).map((p) => [p.id, p])
+      );
+
+      for (const deal of deals) {
+        const bp = profileMap.get(deal.buyer_id);
+        if (bp) {
+          deal.buyer = { id: bp.id, email: '', display_name: bp.full_name, first_name: bp.first_name, graduation_year: bp.graduation_year, created_at: '' };
+        }
+      }
+    }
+
+    return deals;
   } catch {
     return [];
   }

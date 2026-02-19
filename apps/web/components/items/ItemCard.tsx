@@ -76,10 +76,10 @@ export default function ItemCard({ item, topBid }: ItemCardProps): React.ReactEl
             </div>
           )}
 
-          {/* Top bid overlay badge */}
+          {/* Top offer overlay badge */}
           {hasBid && !isSold && (
             <div className="absolute bottom-1.5 left-1.5 rounded bg-black/70 px-1.5 py-0.5 text-xs font-medium text-white backdrop-blur-sm">
-              Top bid: ${topBid!.topBid}
+              Top offer: ${topBid!.topBid}
             </div>
           )}
 

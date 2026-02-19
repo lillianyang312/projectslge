@@ -32,6 +32,18 @@ import { dealEvents } from '../../lib/dealEvents';
 type Props = NativeStackScreenProps<SwipeStackParamList, 'BrowseItemDetail'>;
 type TabNavProp = BottomTabNavigationProp<AppTabsParamList>;
 
+function formatOfferTime(dateStr: string): string {
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffDays = Math.floor(diffMs / 86400000);
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (diffDays === 0) return `Today ${time}`;
+  if (diffDays === 1) return `Yesterday ${time}`;
+  if (diffDays < 7) return `${d.toLocaleDateString([], { weekday: 'short' })} ${time}`;
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
 // Demo data matching HTML spec lines 862-900
 const demoItems: Record<string, {
   emoji: string;
@@ -586,33 +598,36 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
           </View>
         </View>
 
-        {/* Offers Section */}
+        {/* Offers Section — table layout */}
         {activeOffers.length > 0 && (
           <View style={styles.offersSection}>
-            <Text variant="bodyMedium" size="md" style={styles.offersSectionTitle}>
-              Offers ({activeOffers.length})
-            </Text>
-            {activeOffers.map((deal) => (
-              <View key={deal.id} style={styles.offerRow}>
-                <View style={styles.offerInfo}>
-                  <Text variant="headingMedium" size="lg" color="success">
+            <View style={styles.offersHeader}>
+              <Text variant="bodyMedium" size="md">
+                Offers ({activeOffers.length})
+              </Text>
+            </View>
+            {activeOffers.map((deal, idx) => {
+              const buyerName = deal.buyer?.first_name || deal.buyer?.display_name || 'Buyer';
+              const buyerYear = deal.buyer?.graduation_year ? `'${String(deal.buyer.graduation_year).slice(-2)}` : '';
+              const isTopOffer = idx === 0;
+              const isMyDeal = user?.id === deal.buyer_id;
+              const timeStr = formatOfferTime(deal.updated_at);
+              return (
+                <View key={deal.id} style={[styles.offerRow, isMyDeal && styles.offerRowMine]}>
+                  <View style={styles.offerLeft}>
+                    <Text variant="bodyMedium" size="sm" style={isMyDeal ? styles.offerNameMine : undefined} color={isMyDeal ? undefined : 'accent'}>
+                      {buyerName} {buyerYear}
+                    </Text>
+                  </View>
+                  <Text variant="body" size="xs" color="muted" style={styles.offerTime}>
+                    {timeStr}
+                  </Text>
+                  <Text variant="headingMedium" size="md" style={isMyDeal ? styles.offerAmountMine : isTopOffer ? styles.offerAmountTop : styles.offerAmount}>
                     ${deal.current_offer}
                   </Text>
-                  <Text variant="body" size="xs" color="secondary">
-                    {deal.buyer?.display_name || 'Buyer'}
-                    {deal.interested_for ? ` · ${deal.interested_for}` : ''}
-                  </Text>
                 </View>
-                {user?.id === deal.buyer_id && (
-                  <Pressable
-                    style={styles.offerChatBtn}
-                    onPress={() => tabNavigation.navigate('Deals', { initialMode: 'buying' })}
-                  >
-                    <Text variant="bodyMedium" size="xs" color="accent">Chat</Text>
-                  </Pressable>
-                )}
-              </View>
-            ))}
+              );
+            })}
           </View>
         )}
 
@@ -911,31 +926,53 @@ const styles = StyleSheet.create({
   },
   offersSection: {
     marginBottom: spacing.xl,
-  },
-  offersSectionTitle: {
-    marginBottom: spacing.md,
-  },
-  offerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.md,
+    overflow: 'hidden',
+  },
+  offersHeader: {
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    marginBottom: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
-  offerInfo: {
-    flex: 1,
-  },
-  offerChatBtn: {
+  offerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.accent,
-    borderRadius: radius.pill,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  offerRowMine: {
+    backgroundColor: 'rgba(99, 102, 241, 0.10)',
+    borderLeftWidth: 3,
+    borderLeftColor: colors.accent,
+  },
+  offerNameMine: {
+    color: colors.accent,
+    fontWeight: '700',
+  },
+  offerAmountMine: {
+    color: colors.accent,
+    fontWeight: '700',
+  },
+  offerLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  offerTime: {
+    marginHorizontal: spacing.md,
+  },
+  offerAmountTop: {
+    color: '#16a34a',
+  },
+  offerAmount: {
+    color: colors.text,
   },
   soldBanner: {
     backgroundColor: '#6B7280',
