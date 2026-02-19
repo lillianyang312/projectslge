@@ -85,7 +85,7 @@ export default function DealsPage(): React.ReactElement {
             const photoPath = item?.photos?.[0] || item?.image_path;
             const badge = getDealBadge(deal);
             const seller = deal.seller;
-            const sellerName = seller?.first_name || seller?.display_name || 'Seller';
+            const sellerName = seller?.first_name || seller?.display_name || 'Owner';
             const sellerYear = seller?.graduation_year ? `'${String(seller.graduation_year).slice(-2)}` : '';
 
             return (

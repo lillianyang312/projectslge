@@ -41,7 +41,7 @@ function matchOurTakeRule(
   const imageIdentified = Boolean(item.label);
   const sellerUrgencyHigh = item.urgency === 'urgent';
 
-  // 1) Undervalued item (Seller asking too low)
+  // 1) Undervalued item (Owner asking too low)
   if (imageIdentified && priceDiffToMarket < -0.2) {
     return {
       scenario: 'undervalued',
@@ -94,7 +94,7 @@ function matchOurTakeRule(
  * existing UI without changes.
  *
  * - For "buy" context, messages are written from the buyer’s perspective.
- * - For "sell" context, messages are written from the seller’s perspective.
+ * - For "sell" context, messages are written from the owner's perspective.
  */
 export function evaluateOurTake(
   item: Item,
@@ -146,7 +146,7 @@ export function evaluateOurTake(
     case 'undervalued':
       if (context === 'buy') {
         agentTake =
-          'Strong buy. The seller is asking well below market value for this item.';
+          'Strong buy. The owner is asking well below market value for this item.';
       } else {
         agentTake =
           'You are likely underpricing this item relative to market; consider raising your ask.';
@@ -162,7 +162,7 @@ export function evaluateOurTake(
     case 'slightly_overpriced_urgent':
       if (context === 'buy') {
         agentTake =
-          'Price is above market, but the seller looks motivated. There may be room to negotiate.';
+          'Price is above market, but the owner looks motivated. There may be room to negotiate.';
       } else {
         agentTake =
           'You are priced above market. To sell faster, consider lowering closer to market value.';

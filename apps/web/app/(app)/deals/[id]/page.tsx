@@ -367,7 +367,7 @@ export default function DealDetailPage(): React.ReactElement {
         </div>
       )}
 
-      {/* Broadcast to all buyers (seller only) */}
+      {/* Broadcast to all buyers (owner only) */}
       {isSeller && deal.status === 'negotiating' && (
         <div className="mb-lg rounded-md border border-border bg-card p-lg">
           <p className="mb-sm text-sm font-medium text-text-secondary">Broadcast to all interested buyers</p>

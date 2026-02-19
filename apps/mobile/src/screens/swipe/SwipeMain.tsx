@@ -33,7 +33,7 @@ const buyingCards = [
     leftLabel: 'OUR TAKE',
     leftValue: 'Good deal',
     leftValueColor: colors.success,
-    leftSubtext: 'Seller likely accepts $50–60',
+    leftSubtext: 'Owner likely accepts $50–60',
     rightLabel: 'MARKET ESTIMATE',
     rightValue: '$70–90',
     rightSubtext: 'Asking $60',

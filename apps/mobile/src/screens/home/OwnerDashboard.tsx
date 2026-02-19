@@ -30,7 +30,7 @@ import { broadcastToItemBuyers } from '../../services/broadcastService';
 
 type TabNavProp = BottomTabNavigationProp<AppTabsParamList>;
 
-interface SellerDashboardProps {
+interface OwnerDashboardProps {
   item: Item;
   deals: Deal[];
   onRefresh: () => void;
@@ -40,14 +40,14 @@ interface SellerDashboardProps {
 }
 
 
-export default function SellerDashboard({
+export default function OwnerDashboard({
   item,
   deals,
   onRefresh,
   onViewDeal,
   onAcceptOffer,
   sellIntent,
-}: SellerDashboardProps) {
+}: OwnerDashboardProps) {
   const tabNavigation = useNavigation<TabNavProp>();
   const user = useAuthStore((state) => state.user);
 
@@ -55,7 +55,7 @@ export default function SellerDashboard({
   const pendingDeal = deals.find(d => ['agreed', 'logistics'].includes(d.status));
   const hasPendingDeal = !!pendingDeal;
 
-  console.log('📦 [SellerDashboard] Total deals:', deals.length, 'Pending deal:', hasPendingDeal);
+  console.log('📦 [OwnerDashboard] Total deals:', deals.length, 'Pending deal:', hasPendingDeal);
 
   // When there's a pending deal, collapse offers by default (they become "history")
   const [offersExpanded, setOffersExpanded] = useState(!hasPendingDeal);
@@ -93,7 +93,7 @@ export default function SellerDashboard({
   // Show history toggle when there's a pending deal and there are previous offers
   const hasHistoryContent = allPreviousOffers.length > 0;
 
-  console.log('📦 [SellerDashboard] Active offers:', activeOffers.length, 'All previous offers:', allPreviousOffers.length, 'Show history toggle:', hasPendingDeal && hasHistoryContent);
+  console.log('📦 [OwnerDashboard] Active offers:', activeOffers.length, 'All previous offers:', allPreviousOffers.length, 'Show history toggle:', hasPendingDeal && hasHistoryContent);
 
   const topOffer = getBestOffer(activeOffers);
   const buyerCount = countInterestedBuyers(deals);
@@ -160,10 +160,10 @@ export default function SellerDashboard({
   const renderPendingDealCard = () => {
     if (!pendingDeal) return null;
 
-    console.log('📦 [SellerDashboard] Pending deal:', pendingDeal.id, 'status:', pendingDeal.status);
-    console.log('📦 [SellerDashboard] Pending deal buyer:', pendingDeal.buyer);
+    console.log('📦 [OwnerDashboard] Pending deal:', pendingDeal.id, 'status:', pendingDeal.status);
+    console.log('📦 [OwnerDashboard] Pending deal buyer:', pendingDeal.buyer);
     const buyerName = pendingDeal.buyer?.display_name || 'Buyer';
-    console.log('📦 [SellerDashboard] Display name:', buyerName);
+    console.log('📦 [OwnerDashboard] Display name:', buyerName);
     const agreedPrice = pendingDeal.agreed_price || pendingDeal.current_offer;
 
     // Format pickup date for display

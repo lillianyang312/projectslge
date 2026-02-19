@@ -82,7 +82,7 @@ function getAgentStatus(deal: Deal, isSelling: boolean): string {
         if (isSelling) {
           return `New offer of $${deal.current_offer} received. Review and respond.`;
         } else {
-          return 'Waiting for seller to respond to your offer.';
+          return 'Waiting for owner to respond to your offer.';
         }
       }
       return isSelling
@@ -264,7 +264,7 @@ export default function DealDetailScreen({ navigation, route }: Props) {
       : 'No offer yet';
 
   // Chat button text
-  const chatButtonText = isSelling ? 'Chat with buyer' : 'Chat with seller';
+  const chatButtonText = isSelling ? 'Chat with buyer' : 'Chat with owner';
 
   // Item details for the right tab
   const itemCondition = itemDetail?.condition || deal.item?.condition || 'Good';
@@ -372,7 +372,7 @@ export default function DealDetailScreen({ navigation, route }: Props) {
               )}
               <View style={styles.agentRow}>
                 <Text variant="body" size="sm" color="secondary">
-                  {isSelling ? 'Buyer' : 'Seller'}
+                  {isSelling ? 'Buyer' : 'Owner'}
                 </Text>
                 {isAccepted && counterparty.id ? (
                   <Pressable onPress={() => handleViewProfile(counterparty.id!)}>

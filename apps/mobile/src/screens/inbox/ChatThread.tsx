@@ -40,7 +40,7 @@ const sofaChatData: ItemChatData = {
       id: '1',
       sender: 'agent',
       senderName: 'Agent',
-      text: 'Welcome! You\'re viewing the Mid-century Modern Sofa.\n\nKey details:\n• Asking price: $650\n• Condition: Good\n• Walnut frame with original cushions\n\nWould you like to ask the seller any questions?',
+      text: 'Welcome! You\'re viewing the Mid-century Modern Sofa.\n\nKey details:\n• Asking price: $650\n• Condition: Good\n• Walnut frame with original cushions\n\nWould you like to ask the owner any questions?',
       time: '10:00 AM',
     },
     {
@@ -52,7 +52,7 @@ const sofaChatData: ItemChatData = {
     {
       id: '3',
       sender: 'other',
-      senderName: 'Seller',
+      senderName: 'Owner',
       text: 'Sure! There\'s some minor surface wear on the armrests from normal use over the years. The fabric is still in good shape with no tears or stains. Happy to send more photos if you\'d like!',
       time: '10:12 AM',
     },
@@ -66,7 +66,7 @@ const sofaChatData: ItemChatData = {
       id: '5',
       sender: 'agent',
       senderName: 'Agent',
-      text: 'I\'ve sent your offer of $600 to the seller (asking price was $650).\n\nThe seller is considering your offer. You can accept their counter-offer using the button below, or continue negotiating in chat.',
+      text: 'I\'ve sent your offer of $600 to the owner (asking price was $650).\n\nThe owner is considering your offer. You can accept their counter-offer using the button below, or continue negotiating in chat.',
       time: '10:18 AM',
     },
   ],
@@ -79,7 +79,7 @@ const itemChats: Record<string, ItemChatData> = {
   'item-2': {
     headerTitle: 'Alex K.',
     chatType: 'buying',
-    unreadMessageIds: ['5', '6'], // Latest seller and agent responses are unread
+    unreadMessageIds: ['5', '6'], // Latest owner and agent responses are unread
     contextCard: {
       emoji: '🖥️',
       title: 'Apple Studio Display',
@@ -102,7 +102,7 @@ const itemChats: Record<string, ItemChatData> = {
       {
         id: '3',
         sender: 'other',
-        senderName: 'Seller',
+        senderName: 'Owner',
         text: 'This is the standard glass version. It\'s been kept in a home office with minimal use - probably less than 100 hours total. No dead pixels or issues whatsoever.',
         time: '2:15 PM',
       },
@@ -115,7 +115,7 @@ const itemChats: Record<string, ItemChatData> = {
       {
         id: '5',
         sender: 'other',
-        senderName: 'Seller',
+        senderName: 'Owner',
         text: 'Yes, it has the standard tilt-adjustable stand. Everything that came in the original box is included.',
         time: '2:22 PM',
       },
@@ -123,7 +123,7 @@ const itemChats: Record<string, ItemChatData> = {
         id: '6',
         sender: 'agent',
         senderName: 'Agent',
-        text: 'This is a great deal! The Apple Studio Display typically sells for $1,000-$1,200 in like-new condition. Seller offers shipping if you\'re not local.\n\nInterested in making an offer?',
+        text: 'This is a great deal! The Apple Studio Display typically sells for $1,000-$1,200 in like-new condition. Owner offers shipping if you\'re not local.\n\nInterested in making an offer?',
         time: '2:25 PM',
       },
     ],
@@ -132,7 +132,7 @@ const itemChats: Record<string, ItemChatData> = {
   'item-3': {
     headerTitle: 'Jordan P.',
     chatType: 'buying',
-    unreadMessageIds: ['5', '6'], // Latest seller and agent responses are unread
+    unreadMessageIds: ['5', '6'], // Latest owner and agent responses are unread
     contextCard: {
       emoji: '🚴',
       title: 'Specialized Road Bike',
@@ -155,7 +155,7 @@ const itemChats: Record<string, ItemChatData> = {
       {
         id: '3',
         sender: 'other',
-        senderName: 'Seller',
+        senderName: 'Owner',
         text: 'It\'s a 54cm frame, good for riders around 5\'8" to 5\'11". The bike is about 3 years old but well maintained - I\'ve replaced the tires and chain recently.',
         time: '9:42 AM',
       },
@@ -168,7 +168,7 @@ const itemChats: Record<string, ItemChatData> = {
       {
         id: '5',
         sender: 'other',
-        senderName: 'Seller',
+        senderName: 'Owner',
         text: 'No crashes at all. I\'ve used it mostly for weekend rides and it\'s been stored indoors. The carbon frame is in excellent condition.',
         time: '9:50 AM',
       },

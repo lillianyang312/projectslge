@@ -56,7 +56,7 @@ export async function expressInterest(
   question?: string
 ): Promise<{ deal: Deal | null; error: string | null }> {
   try {
-    // First, get the item to find the seller
+    // First, get the item to find the owner
     const { data: item, error: itemError } = await supabase
       .from('items')
       .select('owner_id, title, estimated_value_min, estimated_value_max')
@@ -454,7 +454,7 @@ export async function getDealById(dealId: string): Promise<Deal | null> {
       // Handle seller profile
       if (sellerResult.data) {
         const sellerData = sellerResult.data;
-        const sellerDisplayName = sellerData.full_name || 'Seller';
+        const sellerDisplayName = sellerData.full_name || 'Owner';
 
         // Build dorm location string
         const sellerDormLocation = [sellerData.dorm_building, sellerData.dorm_room].filter(Boolean).join(' ');
@@ -475,12 +475,12 @@ export async function getDealById(dealId: string): Promise<Deal | null> {
         };
         console.log('✅ [getDealById] Set seller display_name:', sellerDisplayName);
       } else {
-        // Seller profile doesn't exist - set a default with their ID
-        console.log('⚠️ [getDealById] Seller profile not found, using default');
+        // Owner profile doesn't exist - set a default with their ID
+        console.log('⚠️ [getDealById] Owner profile not found, using default');
         deal.seller = {
           id: deal.seller_id,
           email: '',
-          display_name: 'Seller',
+          display_name: 'Owner',
           created_at: '',
         };
       }
@@ -568,7 +568,7 @@ async function notifyOutbidBuyers(
 }
 
 /**
- * Counter an offer (seller makes a counter-offer)
+ * Counter an offer (owner makes a counter-offer)
  * Updates the deal's current_offer and notifies the buyer
  */
 export async function counterOffer(
@@ -609,7 +609,7 @@ export async function counterOffer(
 }
 
 /**
- * Notify other buyers when seller makes a counter-offer
+ * Notify other buyers when owner makes a counter-offer
  */
 async function notifyCounterOffer(
   itemId: string,
@@ -633,7 +633,7 @@ async function notifyCounterOffer(
       if (deal.current_offer) {
         await sendAgentMessage(
           deal.id,
-          `The seller just counter-offered another buyer at $${newAmount}. Your current offer is $${deal.current_offer}. This may be a signal of the seller's price expectations.`,
+          `The owner just counter-offered another buyer at $${newAmount}. Your current offer is $${deal.current_offer}. This may be a signal of the owner's price expectations.`,
           { counterOfferNotification: true, counterAmount: newAmount }
         );
         console.log(`[dealsService] Notified buyer ${deal.buyer_id} of counter-offer`);
@@ -722,9 +722,9 @@ async function notifyDealFellThrough(
       }
 
       if (deal.current_offer) {
-        message += ` Your offer of $${deal.current_offer} is still active. The seller may be more motivated now!`;
+        message += ` Your offer of $${deal.current_offer} is still active. The owner may be more motivated now!`;
       } else {
-        message += ` Consider making an offer to the seller.`;
+        message += ` Consider making an offer to the owner.`;
       }
 
       await sendAgentMessage(deal.id, message, {
@@ -919,7 +919,7 @@ export async function sendMessage(
 ): Promise<Message | null> {
   try {
     // Check if we need to transition from 'pending' to 'negotiating'
-    // This happens when seller sends their first message (text or counter-offer)
+    // This happens when owner sends their first message (text or counter-offer)
     if (messageType === 'text' || messageType === 'counter') {
       const { data: deal } = await supabase
         .from('deals')
@@ -928,7 +928,7 @@ export async function sendMessage(
         .single();
 
       if (deal && deal.status === 'pending' && deal.seller_id === senderId) {
-        // Seller is replying - transition to negotiating
+        // Owner is replying - transition to negotiating
         await supabase
           .from('deals')
           .update({ status: 'negotiating' })

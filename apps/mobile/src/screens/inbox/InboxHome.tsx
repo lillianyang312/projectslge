@@ -33,7 +33,7 @@ interface InboxConversation {
   time: string;
   timeMs: number;
   isUnread: boolean;
-  hasNewBid?: boolean; // For sellers with new bids (orange notification, not action needed)
+  hasNewBid?: boolean; // For owners with new bids (orange notification, not action needed)
   isAgent: boolean;
   type: 'selling' | 'buying';
   status: string;
@@ -127,9 +127,9 @@ export default function InboxHomeScreen({ navigation }: Props) {
           // Determine badge
           // "Action needed" only when:
           // 1. Pending sale (agreed/logistics) - both parties need to coordinate
-          // 2. Pending status - seller needs to respond
-          // 3. Buying and there's an offer from seller to respond to
-          // For sellers receiving bids during negotiation, show "New bid" instead
+          // 2. Pending status - owner needs to respond
+          // 3. Buying and there's an offer from owner to respond to
+          // For owners receiving bids during negotiation, show "New bid" instead
           // Badges disappear once the chat has been read
           let badge: InboxConversation['badge'];
           if (deal.status === 'agreed' || deal.status === 'logistics') {
@@ -137,26 +137,26 @@ export default function InboxHomeScreen({ navigation }: Props) {
             badge = { label: 'Action needed', variant: 'danger' };
           } else if (deal.status === 'pending') {
             if (isSelling) {
-              // Seller: pending deal waiting for seller response - action needed
+              // Owner: pending deal waiting for owner response - action needed
               badge = { label: 'Pending', variant: 'warning' };
             } else {
-              // Buyer: waiting for seller to respond
+              // Buyer: waiting for owner to respond
               badge = { label: 'Pending', variant: 'purple' };
             }
           } else if (deal.status === 'negotiating') {
             if (isSelling) {
-              // Seller: if there's an offer from buyer and not yet read, show "New bid"
+              // Owner: if there's an offer from buyer and not yet read, show "New bid"
               if (deal.current_offer && deal.last_offer_by === deal.buyer_id && hasUnreadMessages) {
                 badge = { label: 'New bid', variant: 'warning' };
               } else {
                 badge = { label: 'Selling', variant: 'success' };
               }
             } else {
-              // Buyer: if seller made a counter-offer and not yet read, that's action needed
+              // Buyer: if owner made a counter-offer and not yet read, that's action needed
               if (deal.current_offer && deal.last_offer_by === deal.seller_id && hasUnreadMessages) {
                 badge = { label: 'Action needed', variant: 'danger' };
               } else if (deal.current_offer && deal.last_offer_by === user.id) {
-                // Buyer made an offer, waiting for seller
+                // Buyer made an offer, waiting for owner
                 badge = { label: 'Bid sent', variant: 'blue' };
               } else {
                 badge = { label: 'Buying', variant: 'blue' };
@@ -174,7 +174,7 @@ export default function InboxHomeScreen({ navigation }: Props) {
 
           // Determine if conversation needs attention (for "Needs Response" section)
           // Only action-needed items go here, not just any new bid
-          // Pending deals need action from seller
+          // Pending deals need action from owner
           const needsAction = badge?.variant === 'danger' || (deal.status === 'pending' && isSelling);
 
           return {
@@ -244,7 +244,7 @@ export default function InboxHomeScreen({ navigation }: Props) {
   const filteredConvos = filterConversations(conversations);
   // Action needed: pending sales (agreed/logistics) or counter-offers to buyers
   const needsResponse = filteredConvos.filter(c => c.isUnread);
-  // New bids: sellers with new offers (shows in separate section with orange indicator)
+  // New bids: owners with new offers (shows in separate section with orange indicator)
   const newBids = filteredConvos.filter(c => !c.isUnread && c.hasNewBid);
   // Recent: everything else from last 24h
   const recent = filteredConvos.filter(c => !c.isUnread && !c.hasNewBid && c.timeMs > Date.now() - 24 * 60 * 60 * 1000);
@@ -410,7 +410,7 @@ export default function InboxHomeScreen({ navigation }: Props) {
                 </>
               )}
 
-              {/* New Bids Section - for sellers with new incoming bids */}
+              {/* New Bids Section - for owners with new incoming bids */}
               {newBids.length > 0 && (
                 <>
                   <Text variant="bodyMedium" size="xs" color="muted" style={styles.sectionHeader}>

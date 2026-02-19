@@ -288,7 +288,7 @@ export async function getDealById(dealId: string): Promise<Deal | null> {
     deal.seller = buildUser(
       sellerBasic.data as Record<string, unknown> | null,
       sellerSensitive,
-      'Seller', deal.seller_id
+      'Owner', deal.seller_id
     );
 
     return deal;

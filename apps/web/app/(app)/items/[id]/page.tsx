@@ -43,7 +43,7 @@ export default function ItemDetailPage(): React.ReactElement {
       const { data } = await getItemById(itemId);
       setItem(data);
 
-      // Fetch other items from same owner + seller name
+      // Fetch other items from same owner + owner name
       if (data?.owner_id) {
         const [ownerItems, profileResult] = await Promise.all([
           getItemsByOwnerId(data.owner_id, itemId),
@@ -51,7 +51,7 @@ export default function ItemDetailPage(): React.ReactElement {
         ]);
         setOtherItems(ownerItems.data);
         const p = profileResult.data;
-        setSellerName(p?.first_name || p?.display_name || p?.full_name || 'Seller');
+        setSellerName(p?.first_name || p?.display_name || p?.full_name || 'Owner');
       }
 
       // Fetch all deals for this item
@@ -214,7 +214,7 @@ export default function ItemDetailPage(): React.ReactElement {
             )}
             {item.user_min_price && (
               <p className="mt-xs text-sm text-text-muted">
-                Seller&apos;s minimum: ${item.user_min_price}
+                Owner&apos;s minimum: ${item.user_min_price}
               </p>
             )}
           </div>
@@ -272,7 +272,7 @@ export default function ItemDetailPage(): React.ReactElement {
                         <span className={`text-sm font-semibold ${isMyDeal ? 'text-accent font-bold' : isTopOffer ? 'text-success' : 'text-text-primary'}`}>
                           ${deal.current_offer}
                         </span>
-                        {/* Seller-only actions */}
+                        {/* Owner-only actions */}
                         {isOwner && deal.status === 'negotiating' && deal.current_offer && !isPending && (
                           <button
                             onClick={() => handleAcceptOffer(deal.id)}
@@ -356,7 +356,7 @@ export default function ItemDetailPage(): React.ReactElement {
         </div>
       </div>
 
-      {/* Other items from same seller */}
+      {/* Other items from same owner */}
       {otherItems.length > 0 && (
         <div className="mt-3xl">
           <div className="mb-lg">
@@ -426,7 +426,7 @@ export default function ItemDetailPage(): React.ReactElement {
           </div>
           <div>
             <label htmlFor="bidQuestion" className="mb-sm block text-sm text-text-secondary">
-              Question for seller (optional)
+              Question for owner (optional)
             </label>
             <textarea
               id="bidQuestion"

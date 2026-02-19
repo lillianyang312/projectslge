@@ -114,7 +114,7 @@ export default function DealChatScreen({ navigation, route }: Props) {
 
   const isSelling = deal?.seller_id === user?.id;
   const isBuyer = deal?.buyer_id === user?.id;
-  const otherPartyLabel = isSelling ? 'Buyer' : 'Seller';
+  const otherPartyLabel = isSelling ? 'Buyer' : 'Owner';
 
   // Check if deal is in accepted state (post-negotiation)
   const isAccepted = deal && ['agreed', 'logistics', 'completed'].includes(deal.status);
@@ -122,7 +122,7 @@ export default function DealChatScreen({ navigation, route }: Props) {
   // Get the counterparty name for display in header
   const counterpartyName = isSelling
     ? (deal?.buyer?.display_name || 'Buyer')
-    : (deal?.seller?.display_name || 'Seller');
+    : (deal?.seller?.display_name || 'Owner');
 
   // Load deal and messages
   useEffect(() => {
@@ -284,12 +284,12 @@ export default function DealChatScreen({ navigation, route }: Props) {
         }
         scheduleMsg += '\nPlease confirm if this location and payment method work for you.';
       } else if (!isSelling && sellerInfo) {
-        // Buyer is scheduling - show seller's info to buyer
+        // Buyer is scheduling - show owner's info to buyer
         if (sellerInfo.dormLocation) {
-          scheduleMsg += `📍 Seller's suggested meetup: ${sellerInfo.dormLocation}\n`;
+          scheduleMsg += `📍 Owner's suggested meetup: ${sellerInfo.dormLocation}\n`;
         }
         if (sellerInfo.paymentPreference) {
-          scheduleMsg += `💳 Seller accepts: ${sellerInfo.paymentPreference.split(',').join(', ')}\n`;
+          scheduleMsg += `💳 Owner accepts: ${sellerInfo.paymentPreference.split(',').join(', ')}\n`;
         }
       }
 
@@ -519,7 +519,7 @@ export default function DealChatScreen({ navigation, route }: Props) {
   const handleMakeOffer = () => {
     if (actionLoading) return;
 
-    // Determine if this is a counter-offer (seller responding to buyer's offer)
+    // Determine if this is a counter-offer (owner responding to buyer's offer)
     const isCounterOffer = isSelling && deal?.current_offer && deal?.last_offer_by === deal?.buyer_id;
 
     Alert.prompt(
@@ -541,7 +541,7 @@ export default function DealChatScreen({ navigation, route }: Props) {
 
             setActionLoading('offer');
             try {
-              // Use counterOffer for seller counter-offers, makeOffer otherwise
+              // Use counterOffer for owner counter-offers, makeOffer otherwise
               const success = isCounterOffer
                 ? await counterOffer(dealId, numAmount, user.id)
                 : await makeOffer(dealId, numAmount, user.id);
@@ -579,9 +579,9 @@ export default function DealChatScreen({ navigation, route }: Props) {
     switch (deal.status) {
       case 'pending':
         if (isSelling) {
-          // Seller: can reply to start negotiation or accept offer if there is one
+          // Owner: can reply to start negotiation or accept offer if there is one
           if (deal.current_offer) {
-            // There's an offer from buyer - seller can accept or counter
+            // There's an offer from buyer - owner can accept or counter
             return (
               <View style={styles.actionBar}>
                 <View style={styles.actionInfo}>
@@ -615,7 +615,7 @@ export default function DealChatScreen({ navigation, route }: Props) {
               </View>
             );
           } else {
-            // No offer yet - seller can reply to start conversation
+            // No offer yet - owner can reply to start conversation
             return (
               <View style={styles.actionBar}>
                 <View style={styles.actionInfo}>
@@ -630,7 +630,7 @@ export default function DealChatScreen({ navigation, route }: Props) {
             );
           }
         } else {
-          // Buyer: waiting for seller response
+          // Buyer: waiting for owner response
           return (
             <View style={styles.actionBar}>
               <View style={styles.actionInfo}>
@@ -638,7 +638,7 @@ export default function DealChatScreen({ navigation, route }: Props) {
                   {deal.current_offer ? `Your offer: $${deal.current_offer}` : 'Interest expressed'}
                 </Text>
                 <Text variant="body" size="xs" color="secondary">
-                  Waiting for seller to respond
+                  Waiting for owner to respond
                 </Text>
               </View>
             </View>
@@ -656,7 +656,7 @@ export default function DealChatScreen({ navigation, route }: Props) {
                     Offer: ${deal.current_offer}
                   </Text>
                   <Text variant="body" size="xs" color="secondary">
-                    From {deal.last_offer_by === deal.buyer_id ? 'buyer' : 'seller'}
+                    From {deal.last_offer_by === deal.buyer_id ? 'buyer' : 'owner'}
                   </Text>
                 </View>
                 <View style={styles.actionButtons}>
@@ -868,7 +868,7 @@ export default function DealChatScreen({ navigation, route }: Props) {
             </Text>
             <Text variant="body" size="xs" color="muted">
               {/* Use first name if available, otherwise generic label */}
-              {isAccepted && counterpartyName !== 'Buyer' && counterpartyName !== 'Seller'
+              {isAccepted && counterpartyName !== 'Buyer' && counterpartyName !== 'Owner'
                 ? counterpartyName.split(' ')[0]
                 : otherPartyLabel} last seen {formatLastSeen(
                 isSelling ? deal?.buyer?.last_seen_at : deal?.seller?.last_seen_at
@@ -960,7 +960,7 @@ export default function DealChatScreen({ navigation, route }: Props) {
           ) : (
             messages.map((msg) => {
               // Get first name when deanonymized (deal accepted)
-              const counterpartyFirstName = isAccepted && counterpartyName !== 'Buyer' && counterpartyName !== 'Seller'
+              const counterpartyFirstName = isAccepted && counterpartyName !== 'Buyer' && counterpartyName !== 'Owner'
                 ? counterpartyName.split(' ')[0]
                 : undefined;
 
@@ -1338,7 +1338,7 @@ function MessageBubble({ message, isOwn, isSelling, counterpartyFirstName }: Mes
   const isOther = !isOwn && !isAgent;
 
   // Determine sender label - use first name if deanonymized, otherwise generic label
-  const otherLabel = counterpartyFirstName || (isSelling ? 'Buyer' : 'Seller');
+  const otherLabel = counterpartyFirstName || (isSelling ? 'Buyer' : 'Owner');
 
   return (
     <View

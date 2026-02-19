@@ -30,7 +30,7 @@ import { getSignedUrlCached, uploadImageGroup } from '../../services/imageServic
 import { getDealsByItemId, getQuestionsForItem, getDealsWithExpiration, acceptOffer, ItemQuestion } from '../../services/dealsService';
 import { sendSystemMessage } from '../../services/chatService';
 import { Deal } from '../../types/models';
-import SellerDashboard from './SellerDashboard';
+import OwnerDashboard from './OwnerDashboard';
 import { SellIntent } from '../../state/itemsStore';
 
 type Props = NativeStackScreenProps<ListStackParamList, 'ItemDetail'>;
@@ -370,7 +370,7 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
           );
 
           if (activeDealsWithOffers.length > 0) {
-            const changeMessage = `📝 The seller has updated this item:\n• ${changes.join('\n• ')}\n\nPlease review the updated listing.`;
+            const changeMessage = `📝 The owner has updated this item:\n• ${changes.join('\n• ')}\n\nPlease review the updated listing.`;
 
             // Send notification to all active deals
             await Promise.all(
@@ -515,7 +515,7 @@ export default function ItemDetailScreen({ navigation, route }: Props) {
 
         {/* Tab Content: Buyer Interest */}
         {activeTab === 0 && supabaseItem && (
-          <SellerDashboard
+          <OwnerDashboard
             item={supabaseItem}
             deals={deals}
             questions={questions}

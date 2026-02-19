@@ -172,7 +172,7 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
       }
     : { ...demoItem, minPrice: undefined as number | undefined, retailPrice: undefined as number | undefined, estimatedValueMax: undefined as number | undefined, imageUri: null as string | null, notes: demoItem.description };
 
-  // Calculate the likely offer range the seller will accept
+  // Calculate the likely offer range the owner will accept
   const getLikelyOfferRange = () => {
     if (itemData.minPrice && itemData.estimatedValueMax) {
       return `$${itemData.minPrice} – $${itemData.estimatedValueMax}`;
@@ -238,7 +238,7 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
         
         Alert.alert(
           'Success!',
-          `Your bid of $${bidAmount} has been submitted. The seller will be notified.`,
+          `Your bid of $${bidAmount} has been submitted. The owner will be notified.`,
           [
             {
               text: 'View My Offers',
@@ -274,7 +274,7 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
         if (error === 'You already have a pending bid on this item') {
           Alert.alert(
             'Existing Conversation',
-            'You already have an active conversation with this seller.',
+            'You already have an active conversation with this owner.',
             [
               {
                 text: 'View My Offers',
@@ -294,7 +294,7 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
         setQuestion('');
         Alert.alert(
           'Question Sent',
-          'The seller has been notified. You can continue the conversation in My Offers.',
+          'The owner has been notified. You can continue the conversation in My Offers.',
           [
             {
               text: 'View My Offers',
@@ -389,10 +389,10 @@ export default function BrowseItemDetailScreen({ navigation, route }: Props) {
               )}
             </View>
 
-            {/* Question for seller */}
+            {/* Question for owner */}
             <View style={styles.compactInputGroup}>
               <Text variant="body" size="sm" color="secondary" style={styles.compactLabel}>
-                Question for seller (optional)
+                Question for owner (optional)
               </Text>
               <TextInput
                 style={[styles.compactTextarea, { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.textPrimary, fontSize: 14 }]}

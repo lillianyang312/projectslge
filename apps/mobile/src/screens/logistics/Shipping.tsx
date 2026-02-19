@@ -45,7 +45,7 @@ export default function ShippingScreen({ navigation, route }: Props) {
 
         <Card style={styles.infoCard}>
           <Text variant="bodyMedium" size="base" style={styles.infoText}>
-            Enter the shipping address. We'll help track the package once the seller provides tracking info.
+            Enter the shipping address. We'll help track the package once the owner provides tracking info.
           </Text>
         </Card>
 
