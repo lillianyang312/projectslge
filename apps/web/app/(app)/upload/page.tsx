@@ -103,22 +103,6 @@ function mapSizeToOption(aiSize: string): string {
 }
 
 /**
- * Builds a human-readable description string from categoryFields.
- * This is persisted to the `description` column on the item so detail edits are saved.
- */
-function buildDescriptionFromFields(fields: Record<string, string>): string {
-  const parts: string[] = [];
-  for (const [key, value] of Object.entries(fields)) {
-    if (value && value.trim()) {
-      // Convert camelCase keys to readable labels
-      const label = key.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase()).trim();
-      parts.push(`${label}: ${value.trim()}`);
-    }
-  }
-  return parts.join(', ');
-}
-
-/**
  * Maps AI categoryDetails keys to web categoryFieldValues keys.
  * AI returns: clothing.clothingType, clothing.brand, etc.
  * Web uses: itemType, brand, material, etc.
@@ -546,7 +530,7 @@ export default function UploadPage(): React.ReactElement {
         retail_price: retailPrice ? parseFloat(retailPrice) : undefined,
         min_price: minPrice ? parseFloat(minPrice) : undefined,
         notes: notes.trim() || undefined,
-        description: buildDescriptionFromFields(categoryFieldValues) || undefined,
+        description: notes.trim() || undefined,
       });
 
       if (createError) {
@@ -927,7 +911,7 @@ export default function UploadPage(): React.ReactElement {
         retail_price: currentBulkItem.retailPrice ? parseFloat(currentBulkItem.retailPrice) : undefined,
         min_price: currentBulkItem.minPrice ? parseFloat(currentBulkItem.minPrice) : undefined,
         notes: currentBulkItem.notes.trim() || undefined,
-        description: buildDescriptionFromFields(currentBulkItem.categoryFields) || undefined,
+        description: currentBulkItem.notes.trim() || undefined,
       });
 
       if (createError) {
@@ -995,7 +979,7 @@ export default function UploadPage(): React.ReactElement {
           retail_price: item.retailPrice ? parseFloat(item.retailPrice) : undefined,
           min_price: item.minPrice ? parseFloat(item.minPrice) : undefined,
           notes: item.notes.trim() || undefined,
-          description: buildDescriptionFromFields(item.categoryFields) || undefined,
+          description: item.notes.trim() || undefined,
         });
 
         if (createError) {

@@ -359,15 +359,10 @@ export default function ItemDetailPage(): React.ReactElement {
       {/* Other items from same seller */}
       {otherItems.length > 0 && (
         <div className="mt-3xl">
-          <div className="mb-lg flex items-center justify-between">
+          <div className="mb-lg">
             <h2 className="font-heading text-lg font-semibold text-text-primary">
               More from {isOwner ? 'you' : sellerName}
             </h2>
-            {item.owner_id && !isOwner && (
-              <Link href={`/users/${item.owner_id}`} className="text-sm font-medium text-accent hover:underline">
-                View profile
-              </Link>
-            )}
           </div>
           <div className="flex gap-md overflow-x-auto pb-sm -mx-sm px-sm">
             {otherItems.map((other) => {

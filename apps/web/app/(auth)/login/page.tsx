@@ -4,6 +4,9 @@ import { Suspense, useState, type FormEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/stores/authStore';
+import Modal from '@/components/ui/Modal';
+import { Button, Spinner } from '@/components/ui';
+import { createClient } from '@/lib/supabase/client';
 
 function LoginForm(): React.ReactElement {
   const router = useRouter();
@@ -16,6 +19,53 @@ function LoginForm(): React.ReactElement {
   const [password, setPassword] = useState<string>('');
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
+
+  /* ── Forgot Password state ─────────────────────────────────────── */
+  const [showForgot, setShowForgot] = useState<boolean>(false);
+  const [forgotEmail, setForgotEmail] = useState<string>('');
+  const [forgotNewPassword, setForgotNewPassword] = useState<string>('');
+  const [forgotConfirm, setForgotConfirm] = useState<string>('');
+  const [forgotLoading, setForgotLoading] = useState<boolean>(false);
+  const [forgotError, setForgotError] = useState<string>('');
+  const [forgotSuccess, setForgotSuccess] = useState<boolean>(false);
+
+  const closeForgotModal = (): void => {
+    setShowForgot(false);
+    setForgotEmail('');
+    setForgotNewPassword('');
+    setForgotConfirm('');
+    setForgotError('');
+    setForgotSuccess(false);
+  };
+
+  const handleForgotPassword = async (): Promise<void> => {
+    setForgotError('');
+    if (!forgotEmail.trim()) { setForgotError('Please enter your email.'); return; }
+    if (!forgotNewPassword.trim()) { setForgotError('Please enter a new password.'); return; }
+    if (forgotNewPassword.length < 6) { setForgotError('Password must be at least 6 characters.'); return; }
+    if (forgotNewPassword !== forgotConfirm) { setForgotError('Passwords do not match.'); return; }
+
+    setForgotLoading(true);
+    try {
+      const supabase = createClient();
+      const { error: fnError } = await supabase.functions.invoke('resetUserPassword', {
+        body: { email: forgotEmail.trim().toLowerCase(), newPassword: forgotNewPassword },
+      });
+
+      if (fnError) {
+        setForgotError(fnError.message || 'Failed to reset password.');
+      } else {
+        setForgotSuccess(true);
+        setForgotNewPassword('');
+        setForgotConfirm('');
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Something went wrong.';
+      setForgotError(message);
+    } finally {
+      setForgotLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: FormEvent): Promise<void> => {
     e.preventDefault();
@@ -90,12 +140,73 @@ function LoginForm(): React.ReactElement {
         {loading ? 'Signing in...' : 'Sign in'}
       </button>
 
+      <div className="text-center">
+        <button
+          type="button"
+          onClick={() => { setShowForgot(true); setForgotEmail(email); }}
+          className="text-sm text-text-secondary hover:text-accent underline"
+        >
+          Forgot password?
+        </button>
+      </div>
+
       <p className="text-center text-sm text-text-secondary">
         Don&apos;t have an account?{' '}
         <Link href="/signup" className="font-medium text-accent underline">
           Sign up
         </Link>
       </p>
+
+      {/* Forgot Password Modal */}
+      <Modal open={showForgot} onClose={closeForgotModal} title="Reset Password">
+        {forgotSuccess ? (
+          <div className="space-y-lg">
+            <div className="rounded-md border border-success bg-success-soft/50 px-lg py-md text-sm text-success">
+              Password updated successfully. You can now sign in.
+            </div>
+            <Button onClick={closeForgotModal} className="w-full">Back to Sign In</Button>
+          </div>
+        ) : (
+          <div className="space-y-lg">
+            {forgotError && (
+              <div className="rounded-md bg-danger-soft px-lg py-md text-sm text-danger">{forgotError}</div>
+            )}
+            <div>
+              <label className="mb-sm block text-xs font-medium uppercase tracking-wide text-text-muted">Email</label>
+              <input
+                type="email"
+                value={forgotEmail}
+                onChange={(e) => setForgotEmail(e.target.value)}
+                placeholder="you@college.harvard.edu"
+                className="w-full rounded-md border border-border bg-card px-md py-md text-md text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-sm block text-xs font-medium uppercase tracking-wide text-text-muted">New Password</label>
+              <input
+                type="password"
+                value={forgotNewPassword}
+                onChange={(e) => setForgotNewPassword(e.target.value)}
+                placeholder="Enter new password"
+                className="w-full rounded-md border border-border bg-card px-md py-md text-md text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-sm block text-xs font-medium uppercase tracking-wide text-text-muted">Confirm Password</label>
+              <input
+                type="password"
+                value={forgotConfirm}
+                onChange={(e) => setForgotConfirm(e.target.value)}
+                placeholder="Confirm new password"
+                className="w-full rounded-md border border-border bg-card px-md py-md text-md text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+              />
+            </div>
+            <Button onClick={handleForgotPassword} disabled={forgotLoading} className="w-full">
+              {forgotLoading ? <Spinner size="sm" /> : 'Reset Password'}
+            </Button>
+          </div>
+        )}
+      </Modal>
     </form>
   );
 }
