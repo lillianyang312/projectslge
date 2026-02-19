@@ -19,12 +19,12 @@ export default function Navbar(): React.ReactElement {
   return (
     <nav className="sticky top-0 z-40 border-b border-border bg-card/95 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-lg">
-        <div className="flex items-center gap-3xl">
-          <Link href={isAuthed ? '/browse' : '/'} className="font-heading text-xl font-semibold text-text-primary">
+        <div className="flex items-baseline gap-3xl">
+          <Link href="/browse" className="font-heading text-xl font-semibold text-text-primary">
             Sellryte
           </Link>
 
-          <div className="hidden items-center gap-xl md:flex">
+          <div className="hidden items-baseline gap-xl md:flex">
             {NAV_LINKS.filter((l) => !l.auth || isAuthed).map((link) => (
               <Link
                 key={link.href}
